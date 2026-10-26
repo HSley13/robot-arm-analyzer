@@ -68,3 +68,17 @@ TEST(DhKinematics, PrismaticJoint) {
   expected(2, 3) = 2.0;
   EXPECT_TRUE(t.isApprox(expected, kTol));
 }
+
+TEST(DhKinematics, RevoluteAngleDriftNormalizesToSamePose) {
+  // A joint value of 10deg and one that has drifted by many full turns
+  // (e.g. an integrated velocity over a long run) must produce the exact
+  // same pose - normalize_angle() is applied before the trig, not after.
+  ArmModel arm({DHParameter(1.0)});
+  const double ten_degrees = 10.0 * kPi / 180.0;
+  const double drifted = ten_degrees + 50.0 * 2.0 * kPi;
+
+  const Eigen::Matrix4d t_clean = arm.end_effector_pose({ten_degrees});
+  const Eigen::Matrix4d t_drifted = arm.end_effector_pose({drifted});
+
+  EXPECT_TRUE(t_clean.isApprox(t_drifted, kTol));
+}
