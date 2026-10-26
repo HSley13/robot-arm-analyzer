@@ -1,4 +1,4 @@
-add_executable(scaffolding_test scaffolding_test.cpp)
-target_link_libraries(scaffolding_test PRIVATE robotarm_core)
+add_executable(scaffolding_tests scaffolding_test.cpp)
+target_link_libraries(scaffolding_tests PRIVATE robotarm_core)
 
-add_test(NAME scaffolding_test COMMAND scaffolding_test)
+add_test(NAME scaffolding_tests COMMAND scaffolding_tests)
