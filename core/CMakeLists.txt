@@ -3,6 +3,7 @@ add_library(robotarm_core
     src/dh.cpp
     src/arm_model.cpp
     src/units.cpp
+    src/statics.cpp
 )
 
 target_include_directories(robotarm_core PUBLIC

@@ -12,3 +12,8 @@ add_executable(units_tests units_test.cpp)
 target_link_libraries(units_tests PRIVATE robotarm_core gtest_main)
 
 add_test(NAME units_tests COMMAND units_tests)
+
+add_executable(statics_tests statics_test.cpp)
+target_link_libraries(statics_tests PRIVATE robotarm_core gtest_main)
+
+add_test(NAME statics_tests COMMAND statics_tests)
