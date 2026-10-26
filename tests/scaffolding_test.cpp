@@ -9,17 +9,15 @@
 
 #include "robotarm/version.hpp"
 
-int main() {
-    const Eigen::Matrix4d identity = Eigen::Matrix4d::Identity();
-    assert(identity(0, 0) == 1.0 && identity(1, 1) == 1.0);
-    assert(identity(0, 1) == 0.0);
+int main(void) {
+  const Eigen::Matrix4d identity = Eigen::Matrix4d::Identity();
+  assert(identity(0, 0) == 1.0 && identity(1, 1) == 1.0);
+  assert(identity(0, 1) == 0.0);
 
-    const nlohmann::json config = nlohmann::json::parse(R"({"joints": 3})");
-    assert(config.at("joints").get<int>() == 3);
+  const nlohmann::json config = nlohmann::json::parse(R"({"joints": 3})");
+  assert(config.at("joints").get<int>() == 3);
 
-    assert(robotarm::core_version() == robotarm::kCoreVersion);
+  assert(robotarm::core_version() == robotarm::kCoreVersion);
 
-    std::cout << "scaffolding_test passed (core version "
-              << robotarm::core_version() << ")\n";
-    return 0;
+  std::cout << "scaffolding_test passed (core version " << robotarm::core_version() << ")\n";
 }

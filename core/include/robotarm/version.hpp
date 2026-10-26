@@ -9,4 +9,4 @@ constexpr std::string_view kCoreVersion = "0.1.0-phase1";
 
 std::string_view core_version();
 
-}  // namespace robotarm
+} // namespace robotarm
