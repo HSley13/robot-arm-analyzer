@@ -19,7 +19,11 @@ public:
   const std::vector<DHParameter> &joints() const { return _joints; }
 
   // joint_values[i] is added to joint i's variable DH parameter (theta for
-  // Revolute, d for Prismatic). Must have exactly one entry per joint.
+  // Revolute, d for Prismatic) - meters for prismatic joints, radians for
+  // revolute ones; convert at the UI/config boundary via units.hpp, never
+  // here. Must have exactly one entry per joint. Revolute results are
+  // normalized to (-pi, pi] on every call (see units.hpp::normalize_angle)
+  // so accumulated angles never drift unbounded.
   // Returns T_i^0 for i = 1..n: each joint's frame pose in the base frame,
   // in base-to-tip order.
   std::vector<Eigen::Matrix4d> forward_kinematics(const std::vector<double> &joint_values) const;

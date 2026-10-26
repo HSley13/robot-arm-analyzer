@@ -3,6 +3,8 @@
 #include <cassert>
 #include <utility>
 
+#include "robotarm/units.hpp"
+
 namespace robotarm {
 
 ArmModel::ArmModel(std::vector<DHParameter> joints) : _joints(std::move(joints)) {
@@ -22,7 +24,7 @@ std::vector<Eigen::Matrix4d> ArmModel::forward_kinematics(
     double theta = joint.theta;
     double d = joint.d;
     if (joint.type == JointType::Revolute) {
-      theta += joint_values[i];
+      theta = normalize_angle(theta + joint_values[i]);
     } else {
       d += joint_values[i];
     }
