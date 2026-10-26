@@ -18,4 +18,4 @@ Eigen::Matrix4d dh_transform(double theta, double d, double a, double alpha) {
   return t;
 }
 
-}  // namespace robotarm
+} // namespace robotarm

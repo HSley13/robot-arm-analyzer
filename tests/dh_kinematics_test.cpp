@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cmath>
 #include <iostream>
+#include <vector>
 
 #include "robotarm/arm_model.hpp"
 #include "robotarm/dh.hpp"
@@ -22,14 +23,14 @@ bool close(double a, double b, double tol = kTol) { return std::abs(a - b) < tol
 
 void test_identity_transform() {
   ArmModel arm({DHParameter()});
-  const auto poses = arm.forward_kinematics({0.0});
+  const std::vector<Eigen::Matrix4d> poses = arm.forward_kinematics({0.0});
   assert(poses.size() == 1);
   assert(poses[0].isApprox(Eigen::Matrix4d::Identity(), kTol));
 }
 
 void test_pure_rotation() {
   ArmModel arm({DHParameter()});
-  const auto t = arm.end_effector_pose({kPi / 2.0});
+  const Eigen::Matrix4d t = arm.end_effector_pose({kPi / 2.0});
   assert(close(t(0, 0), 0.0));
   assert(close(t(1, 0), 1.0));
   assert(close(t(0, 1), -1.0));
@@ -65,15 +66,15 @@ void test_link_twist() {
 
 void test_prismatic_joint() {
   ArmModel arm({DHParameter(0.0, 0.0, 0.0, 0.0, JointType::Prismatic)});
-  const auto t = arm.end_effector_pose({2.0});
+  const Eigen::Matrix4d t = arm.end_effector_pose({2.0});
   Eigen::Matrix4d expected = Eigen::Matrix4d::Identity();
   expected(2, 3) = 2.0;
   assert(t.isApprox(expected, kTol));
 }
 
-}  // namespace
+} // namespace
 
-int main() {
+int main(void) {
   test_identity_transform();
   test_pure_rotation();
   test_planar_two_link_matches_trig();

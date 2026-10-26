@@ -5,20 +5,20 @@
 
 namespace robotarm {
 
-ArmModel::ArmModel(std::vector<DHParameter> joints) : joints_(std::move(joints)) {
-  assert(!joints_.empty());
+ArmModel::ArmModel(std::vector<DHParameter> joints) : _joints(std::move(joints)) {
+  assert(!_joints.empty());
 }
 
 std::vector<Eigen::Matrix4d> ArmModel::forward_kinematics(
-    const std::vector<double>& joint_values) const {
-  assert(joint_values.size() == joints_.size());
+    const std::vector<double> &joint_values) const {
+  assert(joint_values.size() == _joints.size());
 
   std::vector<Eigen::Matrix4d> poses;
-  poses.reserve(joints_.size());
+  poses.reserve(_joints.size());
 
   Eigen::Matrix4d cumulative = Eigen::Matrix4d::Identity();
-  for (size_t i = 0; i < joints_.size(); ++i) {
-    const DHParameter& joint = joints_[i];
+  for (size_t i = 0; i < _joints.size(); i++) {
+    const DHParameter &joint = _joints[i];
     double theta = joint.theta;
     double d = joint.d;
     if (joint.type == JointType::Revolute) {
@@ -32,9 +32,8 @@ std::vector<Eigen::Matrix4d> ArmModel::forward_kinematics(
   return poses;
 }
 
-Eigen::Matrix4d ArmModel::end_effector_pose(
-    const std::vector<double>& joint_values) const {
+Eigen::Matrix4d ArmModel::end_effector_pose(const std::vector<double> &joint_values) const {
   return forward_kinematics(joint_values).back();
 }
 
-}  // namespace robotarm
+} // namespace robotarm
