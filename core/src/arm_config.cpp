@@ -166,4 +166,39 @@ std::vector<LinkInertial> to_link_inertials(const ArmConfig &config) {
   return links;
 }
 
+nlohmann::json to_json(const ArmConfig &config) {
+  nlohmann::json document;
+  document["name"] = config.name;
+  document["joints"] = nlohmann::json::array();
+
+  for (const JointConfig &joint : config.joints) {
+    const Eigen::Vector3d &com = joint.inertial.center_of_mass;
+    const Eigen::Matrix3d &inertia = joint.inertial.inertia;
+
+    nlohmann::json joint_json;
+    joint_json["type"] = (joint.dh.type == JointType::Revolute) ? "revolute" : "prismatic";
+    joint_json["a"] = joint.dh.a;
+    joint_json["alpha_deg"] = to_degrees(joint.dh.alpha);
+    joint_json["d"] = joint.dh.d;
+    joint_json["theta_offset_deg"] = to_degrees(joint.dh.theta);
+    joint_json["mass"] = joint.mass;
+    joint_json["torque_limit"] = joint.torque_limit;
+    joint_json["center_of_mass"] = {com.x(), com.y(), com.z()};
+    joint_json["inertia"] = {inertia(0, 0), inertia(1, 1), inertia(2, 2),
+                              inertia(0, 1), inertia(0, 2), inertia(1, 2)};
+
+    document["joints"].push_back(joint_json);
+  }
+
+  return document;
+}
+
+void save_arm_config(const ArmConfig &config, const std::filesystem::path &path) {
+  std::ofstream file(path);
+  if (!file) {
+    throw std::runtime_error("arm config: could not open file '" + path.string() + "' for writing");
+  }
+  file << to_json(config).dump(2);
+}
+
 } // namespace robotarm

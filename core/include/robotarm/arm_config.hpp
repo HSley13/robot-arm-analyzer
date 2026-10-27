@@ -63,4 +63,20 @@ std::vector<LinkMass> to_link_masses(const ArmConfig &config);
 // list the Phase 2 dynamics engine expects.
 std::vector<LinkInertial> to_link_inertials(const ArmConfig &config);
 
+// Serializes an ArmConfig back to JSON, in the exact schema
+// parse_arm_config() reads - a round trip through parse_arm_config(to_json(c))
+// reproduces c exactly (verified in arm_config_test.cpp). Always writes
+// explicit "center_of_mass"/"inertia" fields, even when they match the
+// rod() default, rather than detecting and omitting the default case -
+// simpler, and it guarantees the round trip without needing to re-derive
+// and compare against rod() here too.
+nlohmann::json to_json(const ArmConfig &config);
+
+// Writes to_json(config) to a file (pretty-printed). Throws
+// std::runtime_error if the file can't be opened for writing - the
+// Phase 4 stretch goal this exists for ("save/load arm configurations
+// directly from the UI") needs a save that fails loudly, not silently,
+// if e.g. the path isn't writable.
+void save_arm_config(const ArmConfig &config, const std::filesystem::path &path);
+
 } // namespace robotarm
