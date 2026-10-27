@@ -102,10 +102,28 @@ Rectangle {
                     anchors.margins: 14
                     spacing: 8
 
-                    Label {
-                        color: "white"
-                        font.bold: true
-                        text: "Move to target"
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        Label {
+                            color: "white"
+                            font.bold: true
+                            text: "Move to target"
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Label {
+                            color: "#9aa0ab"
+                            font.pixelSize: 11
+                            text: "Show reach"
+                        }
+
+                        Switch {
+                            checked: armController.showWorkspaceEnvelope
+                            onToggled: armController.showWorkspaceEnvelope = checked
+                        }
                     }
 
                     ReachPad {
