@@ -1,21 +1,26 @@
 import QtQuick
 import QtQuick.Window
+import QtQuick.Layouts
 
 Window {
-    width: 640
-    height: 480
+    width: 1100
+    height: 700
     visible: true
-    title: "Robot Arm Load Analyzer"
+    title: "Robot Arm Load Analyzer - " + armController.armName
+            + (armController.aiMode ? " [AI]" : " [Exact]")
 
-    Rectangle {
+    RowLayout {
         anchors.fill: parent
-        color: "#202020"
+        spacing: 0
 
-        Text {
-            anchors.centerIn: parent
-            text: "Qt/QML scaffolding OK"
-            color: "white"
-            font.pixelSize: 24
+        ArmView3D {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+        }
+
+        ControlsPanel {
+            Layout.preferredWidth: 320
+            Layout.fillHeight: true
         }
     }
 }

@@ -1,6 +1,5 @@
 #include "arm_controller.hpp"
 
-#include <algorithm>
 #include <cmath>
 
 #include <QColor>
