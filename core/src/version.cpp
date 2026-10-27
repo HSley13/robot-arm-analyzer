@@ -4,4 +4,4 @@ namespace robotarm {
 
 std::string_view core_version() { return kCoreVersion; }
 
-}  // namespace robotarm
+} // namespace robotarm
