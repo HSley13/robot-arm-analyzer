@@ -3,11 +3,14 @@ import QtQuick
 import QtQuick3D
 import QtQuick3D.Helpers
 
-// Basic geometry only (cylinders for links, spheres for joints) - the
-// "looks like a real hand" visual polish is Phase 3, deliberately
-// deferred. All positions/rotations come from ArmController, computed
-// from the exact DH forward kinematics (or the AI surrogate, depending
-// on armController.aiMode) - this view just places primitives.
+// Phase 3, Path A: procedural geometry stays exactly as Phase 1 built it
+// (cylinders for links, spheres for joints) - per the roadmap, the actual
+// rigged-mesh "looks like a real hand" work (Path B) is a genuinely
+// different skill set and a stretch goal, not required here. What
+// changes in this module is materials and lighting: PBR material
+// parameters tuned per part, a two-light key/fill rig with shadows, and
+// ambient occlusion/tonemapping on the environment - no textures or 3D
+// modeling software needed for any of it.
 Item {
     id: root
 
@@ -30,6 +33,16 @@ Item {
             backgroundMode: SceneEnvironment.Color
             antialiasingMode: SceneEnvironment.MSAA
             antialiasingQuality: SceneEnvironment.High
+            specularAAEnabled: true
+            tonemapMode: SceneEnvironment.TonemapModeFilmic
+
+            // Ambient occlusion: a cheap, texture-free way to add
+            // perceived depth at the joints/corners where surfaces meet -
+            // exactly the kind of "materials and lighting do more visual
+            // work than people expect" investment Path A calls for.
+            aoStrength: 60
+            aoDistance: 0.2
+            aoSoftness: 20
         }
 
         // Camera orbits around the arm's reach midpoint, not the world
@@ -54,19 +67,35 @@ Item {
             camera: camera
         }
 
+        // Key light: the main directional light, casting shadows onto
+        // the base disc for a sense of grounding.
         DirectionalLight {
             eulerRotation: Qt.vector3d(-45, -45, 0)
-            brightness: 1.2
+            brightness: 1.3
+            castsShadow: true
+            shadowMapQuality: Light.ShadowMapQualityHigh
+            shadowFactor: 75
         }
 
-        // A thin disc marking the base/world origin, for visual reference.
+        // Fill light: dimmer, from the opposite side, no shadow - softens
+        // the key light's shadow side instead of leaving it flat black.
+        // The classic two-light rig, needing no environment texture.
+        DirectionalLight {
+            eulerRotation: Qt.vector3d(-20, 135, 0)
+            brightness: 0.4
+            castsShadow: false
+        }
+
+        // A thin disc marking the base/world origin, for visual reference
+        // - matte, non-metal, so it reads as a platform, not a link.
         Model {
             source: "#Cylinder"
             position: Qt.vector3d(0, -0.01, 0)
             scale: Qt.vector3d(0.3 / root.meshUnit, 0.01 / root.meshUnit, 0.3 / root.meshUnit)
             materials: PrincipledMaterial {
-                baseColor: "#444455"
-                roughness: 0.8
+                baseColor: "#33333d"
+                metalness: 0.0
+                roughness: 0.9
             }
         }
 
@@ -81,10 +110,15 @@ Item {
                 scale: Qt.vector3d(0.05 / root.meshUnit, armController.linkLengths[index] / root.meshUnit,
                                     0.05 / root.meshUnit)
 
+                // Brushed-metal look. baseColor stays the torque-limit
+                // green/amber/red readout carried over from Phase 1 - the
+                // "is this joint overloaded" signal is functional, not
+                // just decorative, so Phase 3's polish tunes the material
+                // response around it rather than replacing it.
                 materials: PrincipledMaterial {
                     baseColor: armController.jointColors[index]
-                    metalness: 0.3
-                    roughness: 0.4
+                    metalness: 0.75
+                    roughness: 0.35
                 }
             }
         }
@@ -98,17 +132,20 @@ Item {
                 position: armController.jointPositions[index]
                 scale: Qt.vector3d(0.09 / root.meshUnit, 0.09 / root.meshUnit, 0.09 / root.meshUnit)
 
+                // Dark matte-plastic "joint housing" look, deliberately
+                // distinct from the links' color-coded metal so a viewer
+                // can tell joints from links at a glance, structurally.
                 materials: PrincipledMaterial {
-                    baseColor: "#dddddd"
-                    metalness: 0.5
-                    roughness: 0.3
+                    baseColor: "#2a2a33"
+                    metalness: 0.2
+                    roughness: 0.55
                 }
             }
         }
 
         // Payload marker at the end-effector, sized (loosely) by mass -
         // standing in for "something attached to the hand" until a real
-        // gripper/hand mesh exists (Phase 3).
+        // gripper/hand mesh exists (Phase 3, Path B - a stretch goal).
         Model {
             readonly property int lastIndex: armController.jointPositions.length - 1
             source: "#Cube"
@@ -123,7 +160,7 @@ Item {
             materials: PrincipledMaterial {
                 baseColor: "#e94560"
                 metalness: 0.1
-                roughness: 0.6
+                roughness: 0.5
             }
         }
     }
