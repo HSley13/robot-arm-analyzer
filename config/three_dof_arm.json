@@ -1,0 +1,32 @@
+{
+  "name": "3-DOF Robot Arm (shoulder / elbow / wrist)",
+  "joints": [
+    {
+      "type": "revolute",
+      "a": 0.9,
+      "alpha_deg": 0.0,
+      "d": 0.0,
+      "theta_offset_deg": 0.0,
+      "mass": 3.5,
+      "torque_limit": 130.0
+    },
+    {
+      "type": "revolute",
+      "a": 0.7,
+      "alpha_deg": 0.0,
+      "d": 0.0,
+      "theta_offset_deg": 0.0,
+      "mass": 2.0,
+      "torque_limit": 55.0
+    },
+    {
+      "type": "revolute",
+      "a": 0.3,
+      "alpha_deg": 0.0,
+      "d": 0.0,
+      "theta_offset_deg": 0.0,
+      "mass": 0.8,
+      "torque_limit": 12.0
+    }
+  ]
+}

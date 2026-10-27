@@ -100,6 +100,22 @@ TEST(ArmConfig, LoadsFromFile) {
   EXPECT_DOUBLE_EQ(config.joints[1].torque_limit, 25.0);
 }
 
+TEST(ArmConfig, LoadsThreeDofArmConfigAllRevolutePlanar) {
+  // config/three_dof_arm.json (Phase 5): the shoulder/elbow/wrist arm used
+  // by the app's default UI from P5-M1 onward - all-revolute, all alpha=0
+  // (planar, same gravity convention as the two-link arm), so a typo in
+  // any of those would silently produce a different-shaped arm.
+  const ArmConfig config = load_arm_config(std::string(PROJECT_ROOT_DIR) + "/config/three_dof_arm.json");
+  ASSERT_EQ(config.joints.size(), 3u);
+  for (const auto &joint : config.joints) {
+    EXPECT_EQ(joint.dh.type, robotarm::JointType::Revolute);
+    EXPECT_NEAR(joint.dh.alpha, 0.0, 1e-12);
+  }
+  EXPECT_DOUBLE_EQ(config.joints[0].dh.a, 0.9);
+  EXPECT_DOUBLE_EQ(config.joints[1].dh.a, 0.7);
+  EXPECT_DOUBLE_EQ(config.joints[2].dh.a, 0.3);
+}
+
 TEST(ArmConfig, LoadsThreeDofConfigWithPrismaticJoint) {
   const ArmConfig config =
       load_arm_config(std::string(PROJECT_ROOT_DIR) + "/config/three_dof_with_prismatic.json");
