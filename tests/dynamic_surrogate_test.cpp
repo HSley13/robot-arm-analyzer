@@ -36,6 +36,15 @@ ArmModel exact_arm() { return ArmModel({DHParameter(1.0), DHParameter(0.5)}); }
 std::vector<LinkInertial> exact_links() { return {LinkInertial::rod(2.0, 1.0), LinkInertial::rod(1.0, 0.5)}; }
 const Eigen::Vector3d kGravityDownY(0.0, -9.81, 0.0);
 
+// config/three_dof_arm.json (P5-M1).
+std::string three_dof_weights_path() {
+  return std::string(PROJECT_ROOT_DIR) + "/ml/models/three_dof_arm_dynamic.surrogate.json";
+}
+ArmModel three_dof_exact_arm() { return ArmModel({DHParameter(0.9), DHParameter(0.7), DHParameter(0.3)}); }
+std::vector<LinkInertial> three_dof_exact_links() {
+  return {LinkInertial::rod(3.5, 0.9), LinkInertial::rod(2.0, 0.7), LinkInertial::rod(0.8, 0.3)};
+}
+
 } // namespace
 
 TEST(DynamicSurrogate, LoadsWeightsAndMetadata) {
@@ -96,4 +105,56 @@ TEST(DynamicSurrogate, PredictRawThrowsOnWrongInputSize) {
   const Surrogate surrogate(weights_path());
   EXPECT_THROW(surrogate.predict_raw({0.0, 0.0, 0.0}), std::invalid_argument);
   EXPECT_THROW(surrogate.predict_raw({0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}), std::invalid_argument);
+}
+
+TEST(DynamicSurrogate, ThreeDofArmLoadsWeightsAndMetadata) {
+  const Surrogate surrogate(three_dof_weights_path());
+  EXPECT_EQ(surrogate.num_joints(), 3u);
+  EXPECT_EQ(surrogate.input_dim(), 10u);
+  EXPECT_GT(surrogate.val_mean_abs_error(), 0.0);
+  EXPECT_LT(surrogate.val_mean_abs_error(), 5.0);
+  EXPECT_LT(surrogate.val_max_abs_error(), 40.0);
+}
+
+TEST(DynamicSurrogate, ThreeDofArmPredictionsCloseToExactOnSampleQueries) {
+  const Surrogate surrogate(three_dof_weights_path());
+  const ArmModel arm = three_dof_exact_arm();
+  const std::vector<LinkInertial> links = three_dof_exact_links();
+
+  struct Sample {
+    std::vector<double> position;
+    std::vector<double> velocity;
+    std::vector<double> acceleration;
+    double payload;
+  };
+  const std::vector<Sample> samples = {
+      {{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, 0.0},
+      {{1.0, -1.0, 0.5}, {1.0, -1.0, 0.5}, {2.0, -2.0, 1.0}, 1.0},
+      {{-2.0, 2.5, -1.0}, {-1.5, 0.8, -0.5}, {-3.0, 1.0, 2.0}, 2.5},
+      {{3.0, -3.0, 1.5}, {0.5, -0.5, 0.3}, {4.0, -4.0, -1.0}, 4.0},
+      {{-1.5, 0.5, -2.5}, {1.8, -1.2, 0.5}, {-1.0, 3.5, -2.0}, 5.0},
+  };
+
+  // A generous bound: P5-M1's held-out validation saw ~27.5 N*m max
+  // error on a joint with a 130 N*m limit, so allow margin for a
+  // different sample set.
+  constexpr double kMaxAllowedError = 40.0;
+
+  for (size_t i = 0; i < samples.size(); i++) {
+    const Sample &s = samples[i];
+    const Eigen::VectorXd exact =
+        inverse_dynamics(arm, s.position, s.velocity, s.acceleration, links, s.payload, kGravityDownY);
+
+    std::vector<double> raw_input = s.position;
+    raw_input.insert(raw_input.end(), s.velocity.begin(), s.velocity.end());
+    raw_input.insert(raw_input.end(), s.acceleration.begin(), s.acceleration.end());
+    raw_input.push_back(s.payload);
+    const std::vector<double> predicted = surrogate.predict_raw(raw_input);
+
+    ASSERT_EQ(predicted.size(), static_cast<size_t>(exact.size()));
+    for (size_t j = 0; j < predicted.size(); j++) {
+      EXPECT_NEAR(predicted[j], exact(static_cast<Eigen::Index>(j)), kMaxAllowedError)
+          << "joint " << j << " at sample " << i;
+    }
+  }
 }
