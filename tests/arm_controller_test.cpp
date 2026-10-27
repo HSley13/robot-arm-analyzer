@@ -22,6 +22,9 @@ namespace {
 
 std::string config_path() { return std::string(PROJECT_ROOT_DIR) + "/config/two_link_planar.json"; }
 std::string surrogate_path() { return std::string(PROJECT_ROOT_DIR) + "/ml/models/two_link_planar.surrogate.json"; }
+std::string dynamic_surrogate_path() {
+  return std::string(PROJECT_ROOT_DIR) + "/ml/models/two_link_planar_dynamic.surrogate.json";
+}
 
 } // namespace
 
@@ -106,4 +109,107 @@ TEST(ArmController, JointColorsReflectTorqueLimitThresholds) {
   for (int i = 0; i < colors.size(); i++) {
     EXPECT_TRUE(colors.at(i).canConvert<QColor>());
   }
+}
+
+TEST(ArmController, StaticModeHasZeroVelocityAndAcceleration) {
+  ArmController controller(config_path(), surrogate_path(), dynamic_surrogate_path());
+  EXPECT_FALSE(controller.dynamicMode());
+
+  controller.setJointVelocityDegrees(0, 90.0); // should have no effect outside dynamicMode
+  const QVariantList velocities = controller.jointVelocitiesDegrees();
+  for (int i = 0; i < velocities.size(); i++) EXPECT_DOUBLE_EQ(velocities.at(i).toDouble(), 0.0);
+}
+
+TEST(ArmController, DynamicModeReflectsSetVelocityAndAcceleration) {
+  ArmController controller(config_path(), surrogate_path(), dynamic_surrogate_path());
+  controller.setDynamicMode(true);
+  ASSERT_TRUE(controller.dynamicMode());
+
+  controller.setJointVelocityDegrees(0, 90.0);
+  controller.setJointAccelerationDegrees(1, 45.0);
+
+  EXPECT_NEAR(controller.jointVelocitiesDegrees().at(0).toDouble(), 90.0, 1e-9);
+  EXPECT_NEAR(controller.jointAccelerationsDegrees().at(1).toDouble(), 45.0, 1e-9);
+}
+
+TEST(ArmController, DynamicModeChangesTorqueFromStaticValue) {
+  ArmController controller(config_path(), surrogate_path(), dynamic_surrogate_path());
+  controller.setJointAngleDegrees(0, 20.0);
+  controller.setJointAngleDegrees(1, -30.0);
+  const QVariantList static_torques = controller.jointTorques();
+
+  controller.setDynamicMode(true);
+  controller.setJointVelocityDegrees(0, 180.0);
+  controller.setJointAccelerationDegrees(0, 300.0);
+  controller.setJointAccelerationDegrees(1, -200.0);
+  const QVariantList dynamic_torques = controller.jointTorques();
+
+  ASSERT_EQ(static_torques.size(), dynamic_torques.size());
+  bool any_changed = false;
+  for (int i = 0; i < static_torques.size(); i++) {
+    if (static_torques.at(i).toDouble() != dynamic_torques.at(i).toDouble()) any_changed = true;
+  }
+  EXPECT_TRUE(any_changed);
+}
+
+TEST(ArmController, TorqueBreakdownSumsToTheReportedTotal) {
+  // The same exactness decompose_torque() itself guarantees
+  // (dynamics_test.cpp) must hold through the controller's own
+  // properties, not just the underlying function.
+  ArmController controller(config_path(), surrogate_path(), dynamic_surrogate_path());
+  controller.setDynamicMode(true);
+  controller.setJointAngleDegrees(0, 15.0);
+  controller.setJointAngleDegrees(1, -25.0);
+  controller.setJointVelocityDegrees(0, 90.0);
+  controller.setJointAccelerationDegrees(1, 60.0);
+  controller.setPayloadKg(1.5);
+
+  const QVariantList total = controller.jointTorques();
+  const QVariantList gravity = controller.gravityTorques();
+  const QVariantList inertia = controller.inertiaTorques();
+  const QVariantList coriolis = controller.coriolisTorques();
+
+  ASSERT_EQ(total.size(), gravity.size());
+  ASSERT_EQ(total.size(), inertia.size());
+  ASSERT_EQ(total.size(), coriolis.size());
+  for (int i = 0; i < total.size(); i++) {
+    const double sum = gravity.at(i).toDouble() + inertia.at(i).toDouble() + coriolis.at(i).toDouble();
+    EXPECT_NEAR(sum, total.at(i).toDouble(), 1e-6) << "joint " << i;
+  }
+}
+
+TEST(ArmController, TrajectoryScrubModeImpliesDynamicModeAndMovesSmoothly) {
+  ArmController controller(config_path(), surrogate_path(), dynamic_surrogate_path());
+  controller.setJointAngleDegrees(0, 60.0);
+  controller.setJointAngleDegrees(1, -40.0);
+
+  controller.setTrajectoryScrubMode(true);
+  EXPECT_TRUE(controller.dynamicMode());
+  ASSERT_TRUE(controller.trajectoryScrubMode());
+
+  // At progress 0, the trajectory starts at rest (zero pose) - not the
+  // target pose that was set before scrubbing began.
+  controller.setTrajectoryProgress(0.0);
+  EXPECT_NEAR(controller.jointAnglesDegrees().at(0).toDouble(), 0.0, 1e-6);
+  for (int i = 0; i < controller.jointVelocitiesDegrees().size(); i++) {
+    EXPECT_NEAR(controller.jointVelocitiesDegrees().at(i).toDouble(), 0.0, 1e-6);
+  }
+
+  // At progress 1 (the end of the trajectory), it must have arrived at
+  // exactly the captured target pose, again at rest.
+  controller.setTrajectoryProgress(1.0);
+  EXPECT_NEAR(controller.jointAnglesDegrees().at(0).toDouble(), 60.0, 1e-4);
+  EXPECT_NEAR(controller.jointAnglesDegrees().at(1).toDouble(), -40.0, 1e-4);
+  for (int i = 0; i < controller.jointVelocitiesDegrees().size(); i++) {
+    EXPECT_NEAR(controller.jointVelocitiesDegrees().at(i).toDouble(), 0.0, 1e-4);
+  }
+}
+
+TEST(ArmController, DisablingDynamicModeAlsoDisablesTrajectoryScrubMode) {
+  ArmController controller(config_path(), surrogate_path(), dynamic_surrogate_path());
+  controller.setTrajectoryScrubMode(true);
+  ASSERT_TRUE(controller.trajectoryScrubMode());
+
+  controller.setDynamicMode(false);
+  EXPECT_FALSE(controller.trajectoryScrubMode());
 }

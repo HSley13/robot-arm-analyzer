@@ -19,11 +19,13 @@
 int main(int argc, char *argv[]) {
   QGuiApplication app(argc, argv);
 
-  // Phase 1 loads one hardcoded arm - the config/AI-surrogate pairing is
+  // Phase 1/2 loads one hardcoded arm - the config/AI-surrogate pairing is
   // what makes the Exact/AI toggle meaningful; swapping arms from the UI
   // is a stretch goal, not required here.
   robotarm::ArmController controller(std::string(PROJECT_ROOT_DIR) + "/config/two_link_planar.json",
-                                     std::string(PROJECT_ROOT_DIR) + "/ml/models/two_link_planar.surrogate.json");
+                                     std::string(PROJECT_ROOT_DIR) + "/ml/models/two_link_planar.surrogate.json",
+                                     std::string(PROJECT_ROOT_DIR) +
+                                         "/ml/models/two_link_planar_dynamic.surrogate.json");
 
   QQmlApplicationEngine engine;
   engine.rootContext()->setContextProperty("armController", &controller);

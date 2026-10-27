@@ -1,5 +1,6 @@
 #include "arm_controller.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 #include <QColor>
@@ -29,15 +30,37 @@ QColor torque_color(double torque, double limit) {
   return QColor(Qt::red);
 }
 
+QVariantList to_variant_list(const std::vector<double> &values) {
+  QVariantList result;
+  for (double value : values) result.append(value);
+  return result;
+}
+
+QVariantList to_variant_list(const Eigen::VectorXd &values) {
+  QVariantList result;
+  for (Eigen::Index i = 0; i < values.size(); i++) result.append(values(i));
+  return result;
+}
+
 } // namespace
 
-ArmController::ArmController(const std::filesystem::path &config_path, const std::filesystem::path &surrogate_path, QObject *parent)
+ArmController::ArmController(const std::filesystem::path &config_path, const std::filesystem::path &surrogate_path,
+                              const std::filesystem::path &dynamic_surrogate_path, QObject *parent)
     : QObject(parent), _config(load_arm_config(config_path)), _arm(to_arm_model(_config)),
-      _links(to_link_masses(_config)), _jointAnglesRadians(_arm.num_joints(), 0.0) {
+      _links(to_link_masses(_config)), _inertialLinks(to_link_inertials(_config)),
+      _jointAnglesRadians(_arm.num_joints(), 0.0), _jointVelocitiesRadians(_arm.num_joints(), 0.0),
+      _jointAccelerationsRadians(_arm.num_joints(), 0.0) {
   try {
     _surrogate = std::make_unique<Surrogate>(surrogate_path);
   } catch (const std::exception &) {
     _surrogate = nullptr; // AI mode simply unavailable for this arm
+  }
+  if (!dynamic_surrogate_path.empty()) {
+    try {
+      _dynamicSurrogate = std::make_unique<Surrogate>(dynamic_surrogate_path);
+    } catch (const std::exception &) {
+      _dynamicSurrogate = nullptr;
+    }
   }
 
   double total_reach = 0.0;
@@ -52,6 +75,10 @@ ArmController::ArmController(const std::filesystem::path &config_path, const std
 
 QString ArmController::armName() const { return QString::fromStdString(_config.name); }
 
+bool ArmController::aiModeAvailable() const {
+  return _dynamicMode ? (_dynamicSurrogate != nullptr) : (_surrogate != nullptr);
+}
+
 void ArmController::setPayloadKg(double kg) {
   if (kg == _payloadKg) return;
   _payloadKg = kg;
@@ -64,22 +91,102 @@ void ArmController::setAiMode(bool enabled) {
   recompute();
 }
 
+void ArmController::setDynamicMode(bool enabled) {
+  if (enabled == _dynamicMode) return;
+  _dynamicMode = enabled;
+  if (!enabled) _trajectoryScrubMode = false; // scrubbing implies dynamic mode
+  if (_aiMode && !aiModeAvailable()) _aiMode = false;
+  recompute();
+}
+
+void ArmController::setTrajectoryScrubMode(bool enabled) {
+  if (enabled == _trajectoryScrubMode) return;
+  _trajectoryScrubMode = enabled;
+  if (enabled) {
+    _dynamicMode = true;
+    _trajectoryTarget = _jointAnglesRadians;
+    _trajectoryStart.assign(_jointAnglesRadians.size(), 0.0);
+    _trajectoryProgress = 0.0;
+    if (_aiMode && !aiModeAvailable()) _aiMode = false;
+  }
+  recompute();
+}
+
+void ArmController::setTrajectoryProgress(double progress) {
+  const double clamped = std::clamp(progress, 0.0, 1.0);
+  if (clamped == _trajectoryProgress) return;
+  _trajectoryProgress = clamped;
+  recompute();
+}
+
 void ArmController::setJointAngleDegrees(int index, double degrees) {
   if (index < 0 || static_cast<size_t>(index) >= _jointAnglesRadians.size()) return;
   _jointAnglesRadians[static_cast<size_t>(index)] = to_radians(degrees);
   recompute();
 }
 
-void ArmController::recompute() {
-  if (_aiMode && _surrogate) {
-    _jointTorques = _surrogate->predict(_jointAnglesRadians, _payloadKg);
-  } else {
-    const Eigen::VectorXd tau = static_joint_torques(_arm, _jointAnglesRadians, _links, _payloadKg, kGravity);
-    _jointTorques.assign(static_cast<size_t>(tau.size()), 0.0);
-    for (Eigen::Index i = 0; i < tau.size(); i++) _jointTorques[static_cast<size_t>(i)] = tau(i);
+void ArmController::setJointVelocityDegrees(int index, double degreesPerSecond) {
+  if (index < 0 || static_cast<size_t>(index) >= _jointVelocitiesRadians.size()) return;
+  if (_trajectoryScrubMode) return; // the trajectory owns velocity while scrubbing
+  _jointVelocitiesRadians[static_cast<size_t>(index)] = to_radians(degreesPerSecond);
+  recompute();
+}
+
+void ArmController::setJointAccelerationDegrees(int index, double degreesPerSecondSquared) {
+  if (index < 0 || static_cast<size_t>(index) >= _jointAccelerationsRadians.size()) return;
+  if (_trajectoryScrubMode) return;
+  _jointAccelerationsRadians[static_cast<size_t>(index)] = to_radians(degreesPerSecondSquared);
+  recompute();
+}
+
+TrajectoryState ArmController::effectiveState() const {
+  if (_trajectoryScrubMode) {
+    const CubicTrajectory trajectory(_trajectoryStart, _trajectoryTarget, kTrajectoryDurationSeconds);
+    return trajectory.evaluate(_trajectoryProgress * kTrajectoryDurationSeconds);
   }
 
-  const std::vector<Eigen::Matrix4d> frames = _arm.forward_kinematics(_jointAnglesRadians);
+  TrajectoryState state;
+  state.position = _jointAnglesRadians;
+  const size_t n = _arm.num_joints();
+  state.velocity = _dynamicMode ? _jointVelocitiesRadians : std::vector<double>(n, 0.0);
+  state.acceleration = _dynamicMode ? _jointAccelerationsRadians : std::vector<double>(n, 0.0);
+  return state;
+}
+
+void ArmController::recompute() {
+  const TrajectoryState state = effectiveState();
+  const std::vector<double> &positions = state.position;
+  const std::vector<double> &velocities = state.velocity;
+  const std::vector<double> &accelerations = state.acceleration;
+
+  if (_dynamicMode) {
+    if (_aiMode && _dynamicSurrogate) {
+      std::vector<double> raw_input = positions;
+      raw_input.insert(raw_input.end(), velocities.begin(), velocities.end());
+      raw_input.insert(raw_input.end(), accelerations.begin(), accelerations.end());
+      raw_input.push_back(_payloadKg);
+      _jointTorques = _dynamicSurrogate->predict_raw(raw_input);
+    } else {
+      const Eigen::VectorXd tau =
+          inverse_dynamics(_arm, positions, velocities, accelerations, _inertialLinks, _payloadKg, kGravity);
+      _jointTorques.assign(static_cast<size_t>(tau.size()), 0.0);
+      for (Eigen::Index i = 0; i < tau.size(); i++) _jointTorques[static_cast<size_t>(i)] = tau(i);
+    }
+  } else {
+    if (_aiMode && _surrogate) {
+      _jointTorques = _surrogate->predict(positions, _payloadKg);
+    } else {
+      const Eigen::VectorXd tau = static_joint_torques(_arm, positions, _links, _payloadKg, kGravity);
+      _jointTorques.assign(static_cast<size_t>(tau.size()), 0.0);
+      for (Eigen::Index i = 0; i < tau.size(); i++) _jointTorques[static_cast<size_t>(i)] = tau(i);
+    }
+  }
+
+  // Always computed via the exact engine - the AI surrogates predict a
+  // combined torque only, not a decomposition.
+  _breakdown = decompose_torque(_arm, positions, velocities, accelerations, _inertialLinks, _payloadKg, kGravity);
+
+  const std::vector<Eigen::Matrix4d> frames = _arm.forward_kinematics(positions);
   _jointPositions.clear();
   _jointPositions.reserve(frames.size() + 1);
   _jointPositions.push_back(Eigen::Vector3d::Zero()); // base origin
@@ -90,15 +197,23 @@ void ArmController::recompute() {
 
 QVariantList ArmController::jointAnglesDegrees() const {
   QVariantList result;
-  for (double radians : _jointAnglesRadians) result.append(to_degrees(radians));
+  for (double radians : effectiveState().position) result.append(to_degrees(radians));
   return result;
 }
 
-QVariantList ArmController::jointTorques() const {
+QVariantList ArmController::jointVelocitiesDegrees() const {
   QVariantList result;
-  for (double torque : _jointTorques) result.append(torque);
+  for (double radians : effectiveState().velocity) result.append(to_degrees(radians));
   return result;
 }
+
+QVariantList ArmController::jointAccelerationsDegrees() const {
+  QVariantList result;
+  for (double radians : effectiveState().acceleration) result.append(to_degrees(radians));
+  return result;
+}
+
+QVariantList ArmController::jointTorques() const { return to_variant_list(_jointTorques); }
 
 QVariantList ArmController::jointTorqueLimits() const {
   QVariantList result;
@@ -113,6 +228,10 @@ QVariantList ArmController::jointColors() const {
   }
   return result;
 }
+
+QVariantList ArmController::gravityTorques() const { return to_variant_list(_breakdown.gravity); }
+QVariantList ArmController::inertiaTorques() const { return to_variant_list(_breakdown.inertia); }
+QVariantList ArmController::coriolisTorques() const { return to_variant_list(_breakdown.coriolis); }
 
 QVariantList ArmController::jointPositions() const {
   QVariantList result;
