@@ -66,3 +66,8 @@ add_executable(payload_capacity_tests payload_capacity_test.cpp)
 target_link_libraries(payload_capacity_tests PRIVATE robotarm_core gtest_main)
 
 add_test(NAME payload_capacity_tests COMMAND payload_capacity_tests)
+
+add_executable(inverse_kinematics_tests inverse_kinematics_test.cpp)
+target_link_libraries(inverse_kinematics_tests PRIVATE robotarm_core gtest_main)
+
+add_test(NAME inverse_kinematics_tests COMMAND inverse_kinematics_tests)
