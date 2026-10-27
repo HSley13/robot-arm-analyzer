@@ -38,9 +38,17 @@ Rectangle {
                             + armController.jointAnglesDegrees[jointRow.index].toFixed(1) + "°"
                     }
 
+                    // Stays enabled during scrubbing (unlike the
+                    // velocity/acceleration sliders below, which the
+                    // trajectory fully determines then): the intended
+                    // workflow is scrub to the end of the recording,
+                    // drag this to stage the NEXT waypoint's pose, then
+                    // "Record waypoint" below. While displaying a
+                    // mid-recording (not-at-the-end) progress, dragging
+                    // this still works, it just won't visually match
+                    // until the recording reaches that point again.
                     Slider {
                         Layout.fillWidth: true
-                        enabled: !armController.trajectoryScrubMode
                         from: -180
                         to: 180
                         value: armController.jointAnglesDegrees[jointRow.index]
@@ -183,7 +191,7 @@ Rectangle {
                 Label {
                     color: "#aaaaaa"
                     font.pixelSize: 12
-                    text: "Trajectory: rest → captured pose (drag to scrub)"
+                    text: "Recording: " + armController.trajectoryWaypointCount + " waypoints (drag to scrub)"
                 }
 
                 Slider {
@@ -192,6 +200,12 @@ Rectangle {
                     to: 1
                     value: armController.trajectoryProgress
                     onMoved: armController.trajectoryProgress = value
+                }
+
+                Button {
+                    Layout.fillWidth: true
+                    text: "Record waypoint at current angles"
+                    onClicked: armController.recordWaypoint()
                 }
             }
 
