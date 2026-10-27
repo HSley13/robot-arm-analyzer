@@ -1,0 +1,31 @@
+{
+  "name": "3-DOF Arm With a Link Twist and a Prismatic Joint (example)",
+  "joints": [
+    {
+      "type": "revolute",
+      "a": 0.0,
+      "alpha_deg": -90.0,
+      "d": 0.0,
+      "theta_offset_deg": 0.0,
+      "mass": 1.5,
+      "torque_limit": 40.0
+    },
+    {
+      "type": "revolute",
+      "a": 0.8,
+      "alpha_deg": 0.0,
+      "d": 0.0,
+      "theta_offset_deg": 0.0,
+      "mass": 2.0,
+      "torque_limit": 60.0
+    },
+    {
+      "type": "prismatic",
+      "a": 0.0,
+      "alpha_deg": 0.0,
+      "d": 0.1,
+      "mass": 0.8,
+      "torque_limit": 30.0
+    }
+  ]
+}

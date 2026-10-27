@@ -4,6 +4,7 @@ add_library(robotarm_core
     src/arm_model.cpp
     src/units.cpp
     src/statics.cpp
+    src/arm_config.cpp
 )
 
 target_include_directories(robotarm_core PUBLIC
