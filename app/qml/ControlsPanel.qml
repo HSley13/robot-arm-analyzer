@@ -170,6 +170,34 @@ Rectangle {
                     value: armController.payloadKg
                     onMoved: armController.payloadKg = value
                 }
+
+                // The gripper decides whether the staged payload above
+                // actually counts toward the torque calculation - open
+                // it and drag the payload slider, nothing changes;
+                // close it, and the torques jump by the weight. A
+                // deliberately visible cause-and-effect, not just a
+                // cosmetic toggle.
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Label {
+                        color: "white"
+                        opacity: armController.gripperOpen ? 1.0 : 0.5
+                        text: "Open"
+                    }
+
+                    Switch {
+                        checked: !armController.gripperOpen
+                        onToggled: armController.gripperOpen = !checked
+                    }
+
+                    Label {
+                        color: "white"
+                        opacity: armController.gripperOpen ? 0.5 : 1.0
+                        text: "Closed (holding payload)"
+                    }
+                }
             }
 
             RowLayout {

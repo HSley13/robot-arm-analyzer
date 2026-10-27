@@ -90,6 +90,12 @@ void ArmController::setPayloadKg(double kg) {
   recompute();
 }
 
+void ArmController::setGripperOpen(bool open) {
+  if (open == _gripperOpen) return;
+  _gripperOpen = open;
+  recompute();
+}
+
 void ArmController::setAiMode(bool enabled) {
   if (enabled == _aiMode || (enabled && !aiModeAvailable())) return;
   _aiMode = enabled;
@@ -180,6 +186,7 @@ bool ArmController::loadConfig(const QString &path) {
     _jointVelocitiesRadians.assign(n, 0.0);
     _jointAccelerationsRadians.assign(n, 0.0);
     _payloadKg = 0.0;
+    _gripperOpen = false;
     _aiMode = false;
     _dynamicMode = false;
     _trajectoryScrubMode = false;
@@ -231,25 +238,26 @@ void ArmController::recompute() {
   const std::vector<double> &positions = state.position;
   const std::vector<double> &velocities = state.velocity;
   const std::vector<double> &accelerations = state.acceleration;
+  const double payload = effectivePayloadKg();
 
   if (_dynamicMode) {
     if (_aiMode && _dynamicSurrogate) {
       std::vector<double> raw_input = positions;
       raw_input.insert(raw_input.end(), velocities.begin(), velocities.end());
       raw_input.insert(raw_input.end(), accelerations.begin(), accelerations.end());
-      raw_input.push_back(_payloadKg);
+      raw_input.push_back(payload);
       _jointTorques = _dynamicSurrogate->predict_raw(raw_input);
     } else {
       const Eigen::VectorXd tau =
-          inverse_dynamics(_arm, positions, velocities, accelerations, _inertialLinks, _payloadKg, kGravity);
+          inverse_dynamics(_arm, positions, velocities, accelerations, _inertialLinks, payload, kGravity);
       _jointTorques.assign(static_cast<size_t>(tau.size()), 0.0);
       for (Eigen::Index i = 0; i < tau.size(); i++) _jointTorques[static_cast<size_t>(i)] = tau(i);
     }
   } else {
     if (_aiMode && _surrogate) {
-      _jointTorques = _surrogate->predict(positions, _payloadKg);
+      _jointTorques = _surrogate->predict(positions, payload);
     } else {
-      const Eigen::VectorXd tau = static_joint_torques(_arm, positions, _links, _payloadKg, kGravity);
+      const Eigen::VectorXd tau = static_joint_torques(_arm, positions, _links, payload, kGravity);
       _jointTorques.assign(static_cast<size_t>(tau.size()), 0.0);
       for (Eigen::Index i = 0; i < tau.size(); i++) _jointTorques[static_cast<size_t>(i)] = tau(i);
     }
@@ -257,7 +265,7 @@ void ArmController::recompute() {
 
   // Always computed via the exact engine - the AI surrogates predict a
   // combined torque only, not a decomposition.
-  _breakdown = decompose_torque(_arm, positions, velocities, accelerations, _inertialLinks, _payloadKg, kGravity);
+  _breakdown = decompose_torque(_arm, positions, velocities, accelerations, _inertialLinks, payload, kGravity);
 
   const std::vector<Eigen::Matrix4d> frames = _arm.forward_kinematics(positions);
   _jointPositions.clear();

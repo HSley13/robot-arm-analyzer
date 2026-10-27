@@ -328,3 +328,102 @@ TEST(ArmController, SaveConfigReturnsFalseOnAnUnwritablePath) {
   EXPECT_FALSE(controller.saveConfig("/nonexistent/directory/does_not_exist.json"));
   EXPECT_TRUE(controller.configMessage().contains("failed", Qt::CaseInsensitive));
 }
+
+TEST(ArmController, GripperDefaultsToClosedSoPayloadAffectsTorqueWithoutAnyGripperInteraction) {
+  // Every pre-existing payload test in this file never touches the
+  // gripper and still expects payloadKg to affect torque immediately -
+  // that only keeps working if the gripper defaults to closed.
+  ArmController controller(config_path(), surrogate_path());
+  ASSERT_FALSE(controller.gripperOpen());
+
+  controller.setJointAngleDegrees(0, 30.0);
+  const QVariantList torque_no_payload = controller.jointTorques();
+  controller.setPayloadKg(3.0);
+  const QVariantList torque_with_payload = controller.jointTorques();
+
+  bool any_changed = false;
+  for (int i = 0; i < torque_no_payload.size(); i++) {
+    if (torque_no_payload.at(i).toDouble() != torque_with_payload.at(i).toDouble()) any_changed = true;
+  }
+  EXPECT_TRUE(any_changed);
+}
+
+TEST(ArmController, OpeningGripperZeroesThePayloadsEffectOnTorque) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setJointAngleDegrees(0, 30.0);
+  controller.setPayloadKg(3.0);
+  const QVariantList torque_closed_with_payload = controller.jointTorques();
+
+  controller.setGripperOpen(true);
+  ASSERT_TRUE(controller.gripperOpen());
+  const QVariantList torque_open = controller.jointTorques();
+
+  // payloadKg() itself is untouched by opening the gripper - only its
+  // effect on torque is.
+  EXPECT_DOUBLE_EQ(controller.payloadKg(), 3.0);
+
+  // Opening the gripper must match torque computed with no payload at
+  // all, not just "be different from the closed-with-payload case".
+  controller.setGripperOpen(false);
+  controller.setPayloadKg(0.0);
+  const QVariantList torque_zero_payload = controller.jointTorques();
+  controller.setGripperOpen(true);
+  controller.setPayloadKg(3.0);
+  const QVariantList torque_open_again = controller.jointTorques();
+
+  ASSERT_EQ(torque_open_again.size(), torque_zero_payload.size());
+  for (int i = 0; i < torque_open_again.size(); i++) {
+    EXPECT_NEAR(torque_open_again.at(i).toDouble(), torque_zero_payload.at(i).toDouble(), 1e-9);
+  }
+
+  bool differs_from_closed = false;
+  for (int i = 0; i < torque_open.size(); i++) {
+    if (torque_open.at(i).toDouble() != torque_closed_with_payload.at(i).toDouble()) differs_from_closed = true;
+  }
+  EXPECT_TRUE(differs_from_closed);
+}
+
+TEST(ArmController, ClosingGripperAfterOpeningRestoresThePayloadsEffect) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setJointAngleDegrees(0, 30.0);
+  controller.setPayloadKg(3.0);
+  const QVariantList torque_before = controller.jointTorques();
+
+  controller.setGripperOpen(true);
+  controller.setGripperOpen(false);
+  const QVariantList torque_after = controller.jointTorques();
+
+  ASSERT_EQ(torque_before.size(), torque_after.size());
+  for (int i = 0; i < torque_before.size(); i++) {
+    EXPECT_DOUBLE_EQ(torque_before.at(i).toDouble(), torque_after.at(i).toDouble());
+  }
+}
+
+TEST(ArmController, GripperOpenAlsoZeroesThePayloadsEffectInDynamicModeAndBreakdown) {
+  ArmController controller(config_path(), surrogate_path(), dynamic_surrogate_path());
+  controller.setDynamicMode(true);
+  controller.setJointAngleDegrees(0, 15.0);
+  controller.setJointVelocityDegrees(0, 90.0);
+  controller.setPayloadKg(2.0);
+
+  controller.setGripperOpen(true);
+  const QVariantList gravity_open = controller.gravityTorques();
+
+  controller.setGripperOpen(false);
+  controller.setPayloadKg(0.0);
+  const QVariantList gravity_zero_payload = controller.gravityTorques();
+
+  ASSERT_EQ(gravity_open.size(), gravity_zero_payload.size());
+  for (int i = 0; i < gravity_open.size(); i++) {
+    EXPECT_NEAR(gravity_open.at(i).toDouble(), gravity_zero_payload.at(i).toDouble(), 1e-9);
+  }
+}
+
+TEST(ArmController, LoadConfigResetsGripperToClosed) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setGripperOpen(true);
+  ASSERT_TRUE(controller.gripperOpen());
+
+  ASSERT_TRUE(controller.loadConfig(QString::fromStdString(config_path())));
+  EXPECT_FALSE(controller.gripperOpen());
+}
