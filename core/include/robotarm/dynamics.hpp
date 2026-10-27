@@ -57,4 +57,34 @@ Eigen::VectorXd inverse_dynamics(const ArmModel &arm, const std::vector<double> 
                                   const std::vector<LinkInertial> &links, double payload_mass,
                                   const Eigen::Vector3d &gravity = Eigen::Vector3d(0.0, 0.0, -9.81));
 
+// The joint torque decomposed into its three physical causes - per the
+// roadmap's NovaSolver lesson: showing "here's a torque" tells an
+// engineer less than "here's *why* this joint is loaded" (gravity
+// holding the pose vs. inertia fighting the commanded acceleration vs.
+// velocity-driven Coriolis/centrifugal effects), and RNEA computes these
+// pieces internally anyway, so surfacing them separately costs almost
+// nothing extra.
+//
+// Each term is computed by calling inverse_dynamics() with the OTHER two
+// sources zeroed out (zero velocity/acceleration for gravity alone, zero
+// gravity/acceleration for Coriolis alone, zero gravity/velocity for
+// inertia alone) - valid because the rigid-body dynamics equation
+// tau = M(q)*qddot + C(q,qdot)*qdot + G(q) is an exact sum of these three
+// independent contributions. `total` is still computed directly (one
+// full call, not a sum of the three), so a decomposition bug would show
+// up as gravity+inertia+coriolis != total rather than silently defining
+// away the discrepancy - verified exactly in dynamics_test.cpp.
+struct TorqueBreakdown {
+  Eigen::VectorXd gravity;
+  Eigen::VectorXd inertia;
+  Eigen::VectorXd coriolis;
+  Eigen::VectorXd total;
+};
+
+TorqueBreakdown decompose_torque(const ArmModel &arm, const std::vector<double> &joint_values,
+                                  const std::vector<double> &joint_velocities,
+                                  const std::vector<double> &joint_accelerations,
+                                  const std::vector<LinkInertial> &links, double payload_mass,
+                                  const Eigen::Vector3d &gravity = Eigen::Vector3d(0.0, 0.0, -9.81));
+
 } // namespace robotarm
