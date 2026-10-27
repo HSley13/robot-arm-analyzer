@@ -12,6 +12,10 @@
 #include <QVector3D>
 
 #include "arm_controller.hpp"
+#include "robotarm/arm_model.hpp"
+#include "robotarm/dh.hpp"
+#include "robotarm/payload_capacity.hpp"
+#include "robotarm/statics.hpp"
 
 using robotarm::ArmController;
 
@@ -490,4 +494,113 @@ TEST(ArmController, SaveConfigThenLoadConfigRoundTripsAnEditedLength) {
 
   reloaded_target.setJointAngleDegrees(0, 0.0);
   EXPECT_NEAR(reloaded_target.linkLengths().at(0).toDouble(), 1.75, 1e-9);
+}
+
+TEST(ArmController, CurrentMaxSafePayloadKgIsPositiveAndBounded) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setJointAngleDegrees(0, 0.0); // extended horizontally - the worst case
+  controller.setJointAngleDegrees(1, 0.0);
+
+  const double result = controller.currentMaxSafePayloadKg();
+  EXPECT_GT(result, 0.0);
+  EXPECT_LT(result, 200.0); // the search ceiling ArmController uses
+}
+
+TEST(ArmController, CurrentMaxSafePayloadKgMatchesADirectComputationAtTheSamePose) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setJointAngleDegrees(0, 0.0);
+  controller.setJointAngleDegrees(1, 0.0);
+
+  // Reproduce the same computation independently, using the core
+  // function directly on a hand-built arm - this is specifically
+  // checking ArmController's wiring (right pose, right limits, right
+  // gravity vector), not max_safe_payload() itself (already covered
+  // by payload_capacity_tests).
+  const robotarm::ArmModel arm({robotarm::DHParameter(1.0), robotarm::DHParameter(0.5)});
+  const std::vector<robotarm::LinkMass> links = {robotarm::LinkMass(2.0), robotarm::LinkMass(1.0)};
+  const Eigen::Vector3d gravity_down_y(0.0, -9.81, 0.0);
+  const std::vector<double> joint_values = {0.0, 0.0};
+  const std::vector<double> limits = {50.0, 25.0};
+  auto evaluator = [&](double payload) {
+    return robotarm::static_joint_torques(arm, joint_values, links, payload, gravity_down_y);
+  };
+  const double expected = robotarm::max_safe_payload(evaluator, limits, 200.0);
+
+  EXPECT_NEAR(controller.currentMaxSafePayloadKg(), expected, 1e-2);
+}
+
+TEST(ArmController, CurrentMaxSafePayloadKgIsHigherWhenTheArmIsFolded) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setJointAngleDegrees(0, 0.0);
+  controller.setJointAngleDegrees(1, 0.0);
+  const double extended = controller.currentMaxSafePayloadKg();
+
+  controller.setJointAngleDegrees(1, -170.0); // elbow folded back toward the shoulder
+  const double folded = controller.currentMaxSafePayloadKg();
+
+  EXPECT_GT(folded, extended);
+}
+
+TEST(ArmController, RunPayloadScanClampsSampleCountIntoAReasonableRange) {
+  ArmController controller(config_path(), surrogate_path());
+
+  controller.runPayloadScan(1);
+  EXPECT_GE(controller.scanSampleCount(), 2);
+
+  controller.runPayloadScan(100000);
+  EXPECT_LE(controller.scanSampleCount(), 300);
+}
+
+TEST(ArmController, RunPayloadScanProducesADecreasingReachCurve) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setJointAngleDegrees(0, 0.0);
+  controller.runPayloadScan(20);
+
+  ASSERT_EQ(controller.scanSampleCount(), 20);
+  const QVariantList reach = controller.scanReachMeters();
+  const QVariantList exact_payload = controller.scanExactPayloadKg();
+  ASSERT_EQ(reach.size(), 20);
+  ASSERT_EQ(exact_payload.size(), 20);
+
+  // Folding the arm (the scan's whole premise) must shrink its reach,
+  // and the less-extended end must be able to carry at least as much
+  // as the fully-extended start - the actual point of the curve.
+  EXPECT_GT(reach.first().toDouble(), reach.last().toDouble());
+  EXPECT_GE(exact_payload.last().toDouble(), exact_payload.first().toDouble());
+}
+
+TEST(ArmController, RunPayloadScanIncludesAiResultsWhenASurrogateMatches) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.runPayloadScan(15);
+
+  EXPECT_TRUE(controller.scanAiAvailable());
+  EXPECT_EQ(controller.scanAiPayloadKg().size(), 15);
+  EXPECT_GE(controller.scanAiMilliseconds(), 0.0);
+  EXPECT_GE(controller.scanExactMilliseconds(), 0.0);
+}
+
+TEST(ArmController, RunPayloadScanHasNoAiResultsWithoutAMatchingSurrogate) {
+  ArmController controller(config_path(), "/nonexistent/weights.json");
+  controller.runPayloadScan(15);
+
+  EXPECT_FALSE(controller.scanAiAvailable());
+  EXPECT_TRUE(controller.scanAiPayloadKg().isEmpty());
+}
+
+TEST(ArmController, SetJointLengthClearsAPreviousScan) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.runPayloadScan(10);
+  ASSERT_EQ(controller.scanSampleCount(), 10);
+
+  controller.setJointLength(0, 1.2);
+  EXPECT_EQ(controller.scanSampleCount(), 0);
+}
+
+TEST(ArmController, LoadConfigClearsAPreviousScan) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.runPayloadScan(10);
+  ASSERT_EQ(controller.scanSampleCount(), 10);
+
+  ASSERT_TRUE(controller.loadConfig(QString::fromStdString(config_path())));
+  EXPECT_EQ(controller.scanSampleCount(), 0);
 }

@@ -1,10 +1,12 @@
 #include "arm_controller.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 
 #include <QColor>
 
+#include "robotarm/payload_capacity.hpp"
 #include "robotarm/units.hpp"
 
 namespace robotarm {
@@ -184,6 +186,13 @@ void ArmController::setJointLength(int index, double meters) {
   // changes, so AI mode isn't safe to leave on.
   _aiMode = false;
 
+  // Any previous payload scan described the arm's OLD shape - stale
+  // the moment its geometry changes, so clear it rather than leaving a
+  // misleading curve on screen until the next scan overwrites it.
+  _scanReachMeters.clear();
+  _scanExactPayloadKg.clear();
+  _scanAiPayloadKg.clear();
+
   recompute();
 }
 
@@ -210,6 +219,12 @@ bool ArmController::loadConfig(const QString &path) {
     _trajectoryProgress = 0.0;
     _recordedTrajectory.reset();
 
+    // A different arm invalidates any previous payload scan the same
+    // way setJointLength() does - see that function's own comment.
+    _scanReachMeters.clear();
+    _scanExactPayloadKg.clear();
+    _scanAiPayloadKg.clear();
+
     _configMessage = QString("Loaded '%1' (%2 joints)").arg(armName()).arg(n);
     recompute();
     return true;
@@ -231,6 +246,88 @@ bool ArmController::saveConfig(const QString &path) {
     emit resultsChanged();
     return false;
   }
+}
+
+void ArmController::runPayloadScan(int sampleCount) {
+  const int n = std::clamp(sampleCount, 2, 300);
+  const size_t joint_count = _arm.num_joints();
+  if (joint_count == 0) return;
+
+  std::vector<double> limits;
+  limits.reserve(_config.joints.size());
+  for (const JointConfig &joint : _config.joints) limits.push_back(joint.torque_limit);
+
+  // Sweep from fully extended (t=0) to folded (t=1): the shoulder
+  // stays at whatever angle it's currently at, while every other
+  // joint bends together by up to 110 degrees, continuously shrinking
+  // the end effector's distance from the base - the "reach" axis of
+  // the derating curve this is meant to produce.
+  const double shoulder_angle = _jointAnglesRadians[0];
+  const double fold_max_radians = to_radians(110.0);
+  const std::vector<double> zero_rates(joint_count, 0.0);
+  const bool dynamic = _dynamicMode;
+
+  std::vector<std::vector<double>> poses(static_cast<size_t>(n));
+  std::vector<double> reach_meters(static_cast<size_t>(n));
+  for (int i = 0; i < n; i++) {
+    const double t = (n > 1) ? static_cast<double>(i) / static_cast<double>(n - 1) : 0.0;
+    std::vector<double> pose(joint_count, 0.0);
+    pose[0] = shoulder_angle;
+    for (size_t j = 1; j < joint_count; j++) pose[j] = -t * fold_max_radians;
+    poses[static_cast<size_t>(i)] = pose;
+
+    const std::vector<Eigen::Matrix4d> frames = _arm.forward_kinematics(pose);
+    Eigen::Vector3d tip = Eigen::Vector3d::Zero();
+    if (!frames.empty()) tip = frames.back().block<3, 1>(0, 3);
+    reach_meters[static_cast<size_t>(i)] = tip.norm();
+  }
+
+  std::vector<double> exact_payload_kg(static_cast<size_t>(n));
+  const auto exact_start = std::chrono::steady_clock::now();
+  for (int i = 0; i < n; i++) {
+    const std::vector<double> &pose = poses[static_cast<size_t>(i)];
+    auto evaluator = [&](double candidate_payload) -> Eigen::VectorXd {
+      if (dynamic) return inverse_dynamics(_arm, pose, zero_rates, zero_rates, _inertialLinks, candidate_payload, kGravity);
+      return static_joint_torques(_arm, pose, _links, candidate_payload, kGravity);
+    };
+    exact_payload_kg[static_cast<size_t>(i)] = max_safe_payload(evaluator, limits, kPayloadSearchCeilingKg);
+  }
+  const auto exact_end = std::chrono::steady_clock::now();
+  _scanExactMilliseconds = std::chrono::duration<double, std::milli>(exact_end - exact_start).count();
+
+  _scanAiAvailable = aiModeAvailable();
+  std::vector<double> ai_payload_kg;
+  if (_scanAiAvailable) {
+    const Surrogate *surrogate = dynamic ? _dynamicSurrogate.get() : _surrogate.get();
+    ai_payload_kg.resize(static_cast<size_t>(n));
+    const auto ai_start = std::chrono::steady_clock::now();
+    for (int i = 0; i < n; i++) {
+      const std::vector<double> &pose = poses[static_cast<size_t>(i)];
+      auto evaluator = [&](double candidate_payload) -> Eigen::VectorXd {
+        std::vector<double> raw_input = pose;
+        if (dynamic) {
+          raw_input.insert(raw_input.end(), zero_rates.begin(), zero_rates.end());
+          raw_input.insert(raw_input.end(), zero_rates.begin(), zero_rates.end());
+        }
+        raw_input.push_back(candidate_payload);
+        const std::vector<double> result = surrogate->predict_raw(raw_input);
+        Eigen::VectorXd tau(static_cast<Eigen::Index>(result.size()));
+        for (size_t k = 0; k < result.size(); k++) tau(static_cast<Eigen::Index>(k)) = result[k];
+        return tau;
+      };
+      ai_payload_kg[static_cast<size_t>(i)] = max_safe_payload(evaluator, limits, kPayloadSearchCeilingKg);
+    }
+    const auto ai_end = std::chrono::steady_clock::now();
+    _scanAiMilliseconds = std::chrono::duration<double, std::milli>(ai_end - ai_start).count();
+  } else {
+    _scanAiMilliseconds = 0.0;
+  }
+
+  _scanReachMeters = reach_meters;
+  _scanExactPayloadKg = exact_payload_kg;
+  _scanAiPayloadKg = ai_payload_kg;
+
+  emit resultsChanged();
 }
 
 TrajectoryState ArmController::effectiveState() const {
@@ -295,6 +392,22 @@ void ArmController::recompute() {
   for (const DHParameter &joint : _arm.joints()) total_reach += joint.a;
   _canvasCenter = QVector3D(static_cast<float>(total_reach / 2.0), 0.0f, 0.0f);
 
+  // "How much more could this arm safely lift right now" - always via
+  // the exact engine (see the Q_PROPERTY doc comment), at the current
+  // pose/velocity/acceleration so it's asking about exactly what's on
+  // screen, not some other state.
+  std::vector<double> limits;
+  limits.reserve(_config.joints.size());
+  for (const JointConfig &joint : _config.joints) limits.push_back(joint.torque_limit);
+  auto exact_evaluator = [&](double candidate_payload) -> Eigen::VectorXd {
+    if (_dynamicMode) {
+      return inverse_dynamics(_arm, positions, velocities, accelerations, _inertialLinks, candidate_payload,
+                               kGravity);
+    }
+    return static_joint_torques(_arm, positions, _links, candidate_payload, kGravity);
+  };
+  _currentMaxSafePayloadKg = max_safe_payload(exact_evaluator, limits, kPayloadSearchCeilingKg);
+
   emit resultsChanged();
 }
 
@@ -357,6 +470,10 @@ QVariantList ArmController::linkLengths() const {
   }
   return result;
 }
+
+QVariantList ArmController::scanReachMeters() const { return to_variant_list(_scanReachMeters); }
+QVariantList ArmController::scanExactPayloadKg() const { return to_variant_list(_scanExactPayloadKg); }
+QVariantList ArmController::scanAiPayloadKg() const { return to_variant_list(_scanAiPayloadKg); }
 
 QVariantList ArmController::linkRotations() const {
   QVariantList result;
