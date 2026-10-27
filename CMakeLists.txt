@@ -24,6 +24,7 @@ FetchContent_MakeAvailable(googletest)
 add_subdirectory(core)
 add_subdirectory(ml)
 add_subdirectory(tools)
+add_subdirectory(app)
 
 enable_testing()
 add_subdirectory(tests)

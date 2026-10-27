@@ -6,7 +6,8 @@
             "generator": "Unix Makefiles",
             "binaryDir": "build",
             "cacheVariables": {
-                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "CMAKE_PREFIX_PATH": "/usr/local/Qt-6.10.0"
             }
         }
     ],
