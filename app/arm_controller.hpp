@@ -42,6 +42,15 @@ class ArmController : public QObject {
   Q_PROPERTY(QString configMessage READ configMessage NOTIFY resultsChanged)
 
   Q_PROPERTY(double payloadKg READ payloadKg WRITE setPayloadKg NOTIFY resultsChanged)
+  // Phase 5: the gripper is closed by default, so every pre-existing
+  // behavior ("payloadKg affects torque") is unchanged unless the user
+  // actually opens it. While open, effectiveState()'s payload is 0
+  // regardless of payloadKg's own value - the slider stages "how heavy
+  // is the thing you're about to pick up"; the gripper decides whether
+  // it's actually being held right now. Purely a presentation/pedagogy
+  // feature: open the gripper, drag the payload slider, nothing moves;
+  // close it, and the torques jump by the weight.
+  Q_PROPERTY(bool gripperOpen READ gripperOpen WRITE setGripperOpen NOTIFY resultsChanged)
   Q_PROPERTY(bool aiMode READ aiMode WRITE setAiMode NOTIFY resultsChanged)
 
   // Dynamic mode (Phase 2): when on, jointVelocitiesDegrees/
@@ -97,6 +106,8 @@ public:
 
   double payloadKg() const { return _payloadKg; }
   void setPayloadKg(double kg);
+  bool gripperOpen() const { return _gripperOpen; }
+  void setGripperOpen(bool open);
   bool aiMode() const { return _aiMode; }
   void setAiMode(bool enabled);
 
@@ -167,6 +178,13 @@ private:
   // place decides this so recompute() and the *Degrees() accessors can't
   // disagree with each other about what "current" means.
   TrajectoryState effectiveState() const;
+  // payloadKg() with the gripper's state applied: 0 while gripperOpen()
+  // is true, since an open gripper isn't holding anything regardless of
+  // what the payload slider is staged to. Every torque calculation in
+  // recompute() reads this instead of _payloadKg directly - one place
+  // decides this so a future calculation can't forget to check the
+  // gripper and silently apply a payload that isn't actually held.
+  double effectivePayloadKg() const { return _gripperOpen ? 0.0 : _payloadKg; }
 
   // Duration of each segment in _recordedTrajectory - between any two
   // consecutive waypoints, however many have been recorded. The whole
@@ -184,6 +202,7 @@ private:
   std::vector<double> _jointVelocitiesRadians;
   std::vector<double> _jointAccelerationsRadians;
   double _payloadKg = 0.0;
+  bool _gripperOpen = false; // closed by default - see the Q_PROPERTY doc comment above
   bool _aiMode = false;
   bool _dynamicMode = false;
 
