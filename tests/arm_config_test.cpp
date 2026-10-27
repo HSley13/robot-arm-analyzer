@@ -16,11 +16,13 @@
 using robotarm::ArmConfig;
 using robotarm::ArmModel;
 using robotarm::DHParameter;
+using robotarm::LinkInertial;
 using robotarm::LinkMass;
 using robotarm::load_arm_config;
 using robotarm::parse_arm_config;
 using robotarm::static_joint_torques;
 using robotarm::to_arm_model;
+using robotarm::to_link_inertials;
 using robotarm::to_link_masses;
 
 namespace {
@@ -135,4 +137,42 @@ TEST(ArmConfig, NonPositiveTorqueLimitThrows) {
 
 TEST(ArmConfig, LoadingMissingFileThrows) {
   EXPECT_THROW(load_arm_config("/nonexistent/path/does_not_exist.json"), std::runtime_error);
+}
+
+TEST(ArmConfig, DefaultsToRodInertialWhenOmitted) {
+  const ArmConfig config = parse_arm_config(two_link_planar_json());
+  const std::vector<LinkInertial> links = to_link_inertials(config);
+
+  ASSERT_EQ(links.size(), 2u);
+  const LinkInertial expected_link0 = LinkInertial::rod(2.0, 1.0);
+  EXPECT_DOUBLE_EQ(links[0].mass, expected_link0.mass);
+  EXPECT_NEAR(links[0].center_of_mass.x(), expected_link0.center_of_mass.x(), 1e-12);
+  EXPECT_NEAR(links[0].inertia(1, 1), expected_link0.inertia(1, 1), 1e-12);
+}
+
+TEST(ArmConfig, UsesExplicitInertialDataWhenGiven) {
+  nlohmann::json doc = two_link_planar_json();
+  doc["joints"][0]["center_of_mass"] = {-0.3, 0.1, 0.0};
+  doc["joints"][0]["inertia"] = {0.01, 0.02, 0.03, 0.0, 0.0, 0.0};
+
+  const ArmConfig config = parse_arm_config(doc);
+  const std::vector<LinkInertial> links = to_link_inertials(config);
+
+  EXPECT_NEAR(links[0].center_of_mass.x(), -0.3, 1e-12);
+  EXPECT_NEAR(links[0].center_of_mass.y(), 0.1, 1e-12);
+  EXPECT_NEAR(links[0].inertia(0, 0), 0.01, 1e-12);
+  EXPECT_NEAR(links[0].inertia(1, 1), 0.02, 1e-12);
+  EXPECT_NEAR(links[0].inertia(2, 2), 0.03, 1e-12);
+}
+
+TEST(ArmConfig, CenterOfMassWithoutInertiaThrows) {
+  nlohmann::json doc = two_link_planar_json();
+  doc["joints"][0]["center_of_mass"] = {-0.3, 0.0, 0.0};
+  EXPECT_THROW(parse_arm_config(doc), std::runtime_error);
+}
+
+TEST(ArmConfig, InertiaWithoutCenterOfMassThrows) {
+  nlohmann::json doc = two_link_planar_json();
+  doc["joints"][0]["inertia"] = {0.01, 0.02, 0.03, 0.0, 0.0, 0.0};
+  EXPECT_THROW(parse_arm_config(doc), std::runtime_error);
 }

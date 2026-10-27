@@ -35,3 +35,8 @@ target_link_libraries(arm_controller_tests PRIVATE robotarm_app_core gtest_main)
 target_compile_definitions(arm_controller_tests PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
 
 add_test(NAME arm_controller_tests COMMAND arm_controller_tests)
+
+add_executable(dynamics_tests dynamics_test.cpp)
+target_link_libraries(dynamics_tests PRIVATE robotarm_core gtest_main)
+
+add_test(NAME dynamics_tests COMMAND dynamics_tests)
