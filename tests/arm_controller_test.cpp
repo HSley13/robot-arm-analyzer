@@ -669,3 +669,123 @@ TEST(ArmController, ShowWorkspaceEnvelopeDefaultsToFalseAndIsToggleable) {
   controller.setShowWorkspaceEnvelope(false);
   EXPECT_FALSE(controller.showWorkspaceEnvelope());
 }
+
+TEST(ArmController, AddJointIncreasesJointCountAndExtendsPoseVectors) {
+  ArmController controller(config_path(), surrogate_path());
+  ASSERT_EQ(controller.jointCount(), 2);
+
+  controller.addJoint();
+
+  EXPECT_EQ(controller.jointCount(), 3);
+  EXPECT_EQ(controller.jointAnglesDegrees().size(), 3);
+  EXPECT_EQ(controller.jointTorqueLimits().size(), 3);
+  EXPECT_EQ(controller.linkLengths().size(), 3);
+  EXPECT_EQ(controller.jointPositions().size(), 4); // base + one per joint
+  EXPECT_NEAR(controller.jointAnglesDegrees().last().toDouble(), 0.0, 1e-9); // starts straight
+}
+
+TEST(ArmController, AddJointContinuesTheTaperConvention) {
+  ArmController controller(config_path(), surrogate_path());
+  const double last_length_before = controller.linkLengths().last().toDouble();
+  const double last_limit_before = controller.jointTorqueLimits().last().toDouble();
+
+  controller.addJoint();
+
+  // The new joint must be shorter and have a lower torque limit than
+  // the one it was appended after - the taper convention, not just
+  // "some new joint got added with arbitrary numbers".
+  EXPECT_LT(controller.linkLengths().last().toDouble(), last_length_before);
+  EXPECT_LT(controller.jointTorqueLimits().last().toDouble(), last_limit_before);
+}
+
+TEST(ArmController, AddJointDisablesAiModeAndClearsAPreviousScan) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setAiMode(true);
+  controller.runPayloadScan(10);
+  ASSERT_TRUE(controller.aiMode());
+  ASSERT_EQ(controller.scanSampleCount(), 10);
+
+  controller.addJoint();
+
+  EXPECT_FALSE(controller.aiMode());
+  EXPECT_EQ(controller.scanSampleCount(), 0);
+}
+
+TEST(ArmController, AddJointResetsTrajectoryScrubMode) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setTrajectoryScrubMode(true);
+  ASSERT_TRUE(controller.trajectoryScrubMode());
+
+  controller.addJoint(); // must not leave a 2-joint recording attached to a 3-joint arm
+
+  EXPECT_FALSE(controller.trajectoryScrubMode());
+  EXPECT_EQ(controller.trajectoryWaypointCount(), 0);
+}
+
+TEST(ArmController, RemoveLastJointDecreasesJointCountAndPoseVectors) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.addJoint();
+  ASSERT_EQ(controller.jointCount(), 3);
+
+  controller.removeLastJoint();
+
+  EXPECT_EQ(controller.jointCount(), 2);
+  EXPECT_EQ(controller.jointAnglesDegrees().size(), 2);
+  EXPECT_EQ(controller.jointPositions().size(), 3);
+}
+
+TEST(ArmController, RemoveLastJointRefusesToGoBelowOneJoint) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.removeLastJoint();
+  controller.removeLastJoint(); // the first already brought it to 1; this must be a no-op
+
+  EXPECT_EQ(controller.jointCount(), 1);
+}
+
+TEST(ArmController, AddThenRemoveRoundTripsBackToTheOriginalJointCount) {
+  ArmController controller(config_path(), surrogate_path());
+  const int original_count = controller.jointCount();
+
+  controller.addJoint();
+  controller.addJoint();
+  controller.removeLastJoint();
+  controller.removeLastJoint();
+
+  EXPECT_EQ(controller.jointCount(), original_count);
+}
+
+TEST(ArmController, AddJointThenSaveConfigRoundTripsTheNewJointCount) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.addJoint();
+  ASSERT_EQ(controller.jointCount(), 3);
+
+  const std::filesystem::path path =
+      std::filesystem::temp_directory_path() / "robotarm_arm_controller_added_joint_roundtrip_test.json";
+  ASSERT_TRUE(controller.saveConfig(QString::fromStdString(path.string())));
+
+  ArmController reloaded_target(config_path(), surrogate_path());
+  ASSERT_TRUE(reloaded_target.loadConfig(QString::fromStdString(path.string())));
+  std::filesystem::remove(path);
+
+  EXPECT_EQ(reloaded_target.jointCount(), 3);
+}
+
+TEST(ArmController, LoadConfigWithMoreJointsThanCurrentWorksEndToEnd) {
+  // Confirms the other half of "add more joints": loading a file
+  // whose joint count is larger than the currently-loaded arm's, not
+  // just a different arm with the SAME or fewer joints (already
+  // covered by LoadConfigWithADifferentJointCountResetsStateAndDisablesAi).
+  ArmController controller(config_path(), surrogate_path());
+  ASSERT_EQ(controller.jointCount(), 2);
+
+  ASSERT_TRUE(controller.loadConfig(QString::fromStdString(three_dof_config_path())));
+
+  EXPECT_EQ(controller.jointCount(), 3);
+  EXPECT_EQ(controller.jointAnglesDegrees().size(), 3);
+  EXPECT_EQ(controller.jointPositions().size(), 4);
+  EXPECT_GT(controller.canvasCenter().x(), 0.0);
+
+  // The newly-loaded arm's own torques must be computable without
+  // crashing or returning a mismatched-size result.
+  EXPECT_EQ(controller.jointTorques().size(), 3);
+}
