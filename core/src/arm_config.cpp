@@ -12,21 +12,19 @@ namespace {
 double require_number(const nlohmann::json &joint_json, const std::string &field, size_t index) {
   if (!joint_json.contains(field)) {
     throw std::runtime_error("arm config: joint " + std::to_string(index) + " is missing required field '" +
-                              field + "'");
+                             field + "'");
   }
   if (!joint_json.at(field).is_number()) {
     throw std::runtime_error("arm config: joint " + std::to_string(index) + " field '" + field +
-                              "' must be a number");
+                             "' must be a number");
   }
   return joint_json.at(field).get<double>();
 }
 
-double optional_number(const nlohmann::json &joint_json, const std::string &field, size_t index,
-                        double default_value) {
+double optional_number(const nlohmann::json &joint_json, const std::string &field, size_t index, double default_value) {
   if (!joint_json.contains(field)) return default_value;
   if (!joint_json.at(field).is_number()) {
-    throw std::runtime_error("arm config: joint " + std::to_string(index) + " field '" + field +
-                              "' must be a number");
+    throw std::runtime_error("arm config: joint " + std::to_string(index) + " field '" + field + "' must be a number");
   }
   return joint_json.at(field).get<double>();
 }
@@ -35,11 +33,13 @@ JointType parse_joint_type(const nlohmann::json &joint_json, size_t index) {
   if (!joint_json.contains("type") || !joint_json.at("type").is_string()) {
     throw std::runtime_error("arm config: joint " + std::to_string(index) + " is missing a string 'type' field");
   }
+
   const std::string type = joint_json.at("type").get<std::string>();
+
   if (type == "revolute") return JointType::Revolute;
   if (type == "prismatic") return JointType::Prismatic;
-  throw std::runtime_error("arm config: joint " + std::to_string(index) + " has unknown type '" + type +
-                            "' (expected 'revolute' or 'prismatic')");
+
+  throw std::runtime_error("arm config: joint " + std::to_string(index) + " has unknown type '" + type + "' (expected 'revolute' or 'prismatic')");
 }
 
 } // namespace
@@ -48,6 +48,7 @@ ArmConfig parse_arm_config(const nlohmann::json &document) {
   if (!document.contains("joints") || !document.at("joints").is_array()) {
     throw std::runtime_error("arm config: missing required array field 'joints'");
   }
+
   const nlohmann::json &joints_json = document.at("joints");
   if (joints_json.empty()) {
     throw std::runtime_error("arm config: 'joints' must have at least one entry");
