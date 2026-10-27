@@ -427,3 +427,67 @@ TEST(ArmController, LoadConfigResetsGripperToClosed) {
   ASSERT_TRUE(controller.loadConfig(QString::fromStdString(config_path())));
   EXPECT_FALSE(controller.gripperOpen());
 }
+
+TEST(ArmController, SetJointLengthChangesLinkLengthAndCanvasCenter) {
+  ArmController controller(config_path(), surrogate_path());
+  const QVector3D center_before = controller.canvasCenter();
+
+  controller.setJointAngleDegrees(0, 0.0); // theta=0, so link length == dh.a exactly
+  controller.setJointLength(0, 2.0);
+
+  EXPECT_NEAR(controller.linkLengths().at(0).toDouble(), 2.0, 1e-9);
+  EXPECT_GT(controller.canvasCenter().x(), center_before.x()); // reach grew, pivot moved with it
+}
+
+TEST(ArmController, SetJointLengthIgnoresNonPositiveValuesAndBadIndex) {
+  ArmController controller(config_path(), surrogate_path());
+  const double original = controller.linkLengths().at(0).toDouble();
+
+  controller.setJointLength(0, 0.0);
+  controller.setJointLength(0, -1.0);
+  EXPECT_DOUBLE_EQ(controller.linkLengths().at(0).toDouble(), original);
+
+  controller.setJointLength(99, 2.0); // must not crash
+}
+
+TEST(ArmController, SetJointLengthDisablesAiMode) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setAiMode(true);
+  ASSERT_TRUE(controller.aiMode());
+
+  controller.setJointLength(0, 1.5);
+  EXPECT_FALSE(controller.aiMode());
+}
+
+TEST(ArmController, SetJointLengthChangesTorqueForTheSamePose) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setJointAngleDegrees(0, 30.0);
+  controller.setJointAngleDegrees(1, -20.0);
+  const QVariantList torque_before = controller.jointTorques();
+
+  controller.setJointLength(0, 2.5); // a longer upper link shifts every downstream mass's moment arm
+
+  const QVariantList torque_after = controller.jointTorques();
+  ASSERT_EQ(torque_before.size(), torque_after.size());
+  bool any_changed = false;
+  for (int i = 0; i < torque_before.size(); i++) {
+    if (torque_before.at(i).toDouble() != torque_after.at(i).toDouble()) any_changed = true;
+  }
+  EXPECT_TRUE(any_changed);
+}
+
+TEST(ArmController, SaveConfigThenLoadConfigRoundTripsAnEditedLength) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setJointLength(0, 1.75);
+
+  const std::filesystem::path path =
+      std::filesystem::temp_directory_path() / "robotarm_arm_controller_length_roundtrip_test.json";
+  ASSERT_TRUE(controller.saveConfig(QString::fromStdString(path.string())));
+
+  ArmController reloaded_target(config_path(), surrogate_path());
+  ASSERT_TRUE(reloaded_target.loadConfig(QString::fromStdString(path.string())));
+  std::filesystem::remove(path);
+
+  reloaded_target.setJointAngleDegrees(0, 0.0);
+  EXPECT_NEAR(reloaded_target.linkLengths().at(0).toDouble(), 1.75, 1e-9);
+}

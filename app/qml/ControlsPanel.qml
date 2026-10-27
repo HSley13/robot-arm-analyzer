@@ -226,6 +226,35 @@ Rectangle {
                             }
                         }
 
+                        // Editable link length (Phase 6) - a real
+                        // geometry change, not just a pose change, so
+                        // it's a live-dragging Slider (immediate visual
+                        // feedback as the arm's shape changes) rather
+                        // than the torque limit's commit-on-enter
+                        // TextField above.
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Label {
+                                color: "#9aa0ab"
+                                text: "length"
+                            }
+
+                            Slider {
+                                Layout.fillWidth: true
+                                from: 0.1
+                                to: 2.0
+                                value: armController.linkLengths[jointCard.index]
+                                onMoved: armController.setJointLength(jointCard.index, value)
+                            }
+
+                            Label {
+                                color: "#9aa0ab"
+                                text: armController.linkLengths[jointCard.index].toFixed(2) + " m"
+                            }
+                        }
+
                         // Torque breakdown (Phase 2): gravity/inertia/
                         // Coriolis, per the roadmap's NovaSolver lesson
                         // - *why* a joint is loaded, not just how much.
