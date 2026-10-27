@@ -91,6 +91,28 @@ class ArmController : public QObject {
   Q_PROPERTY(QVariantList linkLengths READ linkLengths NOTIFY resultsChanged)
   Q_PROPERTY(QVariantList linkRotations READ linkRotations NOTIFY resultsChanged)
 
+  // Phase 6: "how much more could this arm safely lift right now,
+  // before any joint exceeds its torque limit" - a real, safety-
+  // relevant number (the kind a spec sheet's load-moment diagram
+  // answers), not just a comparison of two engines. Always computed
+  // via the exact engine regardless of aiMode, since this is the one
+  // number in the UI that's meant to be trusted outright.
+  Q_PROPERTY(double currentMaxSafePayloadKg READ currentMaxSafePayloadKg NOTIFY resultsChanged)
+
+  // runPayloadScan() results: a swept "payload vs. reach" curve (the
+  // same concept as a manufacturer's derating curve), computed twice -
+  // once through the exact engine, once through the AI surrogate - so
+  // scanExactMilliseconds/scanAiMilliseconds give a genuine, measured
+  // answer to "why use the AI surrogate at all", instead of the
+  // Exact/AI toggle's single-pose comparison.
+  Q_PROPERTY(QVariantList scanReachMeters READ scanReachMeters NOTIFY resultsChanged)
+  Q_PROPERTY(QVariantList scanExactPayloadKg READ scanExactPayloadKg NOTIFY resultsChanged)
+  Q_PROPERTY(QVariantList scanAiPayloadKg READ scanAiPayloadKg NOTIFY resultsChanged)
+  Q_PROPERTY(double scanExactMilliseconds READ scanExactMilliseconds NOTIFY resultsChanged)
+  Q_PROPERTY(double scanAiMilliseconds READ scanAiMilliseconds NOTIFY resultsChanged)
+  Q_PROPERTY(bool scanAiAvailable READ scanAiAvailable NOTIFY resultsChanged)
+  Q_PROPERTY(int scanSampleCount READ scanSampleCount NOTIFY resultsChanged)
+
 public:
   // surrogate_path/dynamic_surrogate_path may point to a file that
   // doesn't exist - AI mode is then simply unavailable for that mode
@@ -134,6 +156,15 @@ public:
   QVariantList linkMidpoints() const;
   QVariantList linkLengths() const;
   QVariantList linkRotations() const;
+
+  double currentMaxSafePayloadKg() const { return _currentMaxSafePayloadKg; }
+  QVariantList scanReachMeters() const;
+  QVariantList scanExactPayloadKg() const;
+  QVariantList scanAiPayloadKg() const;
+  double scanExactMilliseconds() const { return _scanExactMilliseconds; }
+  double scanAiMilliseconds() const { return _scanAiMilliseconds; }
+  bool scanAiAvailable() const { return _scanAiAvailable; }
+  int scanSampleCount() const { return static_cast<int>(_scanReachMeters.size()); }
 
   Q_INVOKABLE void setJointAngleDegrees(int index, double degrees);
   // Only take effect when trajectoryScrubMode is off - while scrubbing,
@@ -181,6 +212,17 @@ public:
   // throwing, matching loadConfig()'s convention.
   Q_INVOKABLE bool saveConfig(const QString &path);
 
+  // Sweeps the arm from fully extended to progressively folded (the
+  // shoulder stays at its current angle; every other joint bends
+  // together, so the end effector's distance from the base - its
+  // "reach" - shrinks continuously), computing max_safe_payload() at
+  // each sampled reach through the exact engine and, if the current
+  // mode has a matching surrogate, through it as well, timing each
+  // sweep as a whole. Clamped to [2, 300] samples - too few isn't a
+  // curve, and too many just makes the UI wait without showing
+  // anything new past a certain density.
+  Q_INVOKABLE void runPayloadScan(int sampleCount);
+
 signals:
   void resultsChanged();
 
@@ -205,6 +247,13 @@ private:
   // consecutive waypoints, however many have been recorded. The whole
   // recording's duration scales with waypoint count; this is per-segment.
   static constexpr double kTrajectoryDurationSeconds = 2.0;
+
+  // Upper bound max_safe_payload() searches up to, for
+  // currentMaxSafePayloadKg and runPayloadScan() - far past anything
+  // the payload slider itself allows (0-5kg), so "how much could this
+  // arm really hold" isn't artificially capped at the slider's own
+  // demo range.
+  static constexpr double kPayloadSearchCeilingKg = 200.0;
 
   ArmConfig _config;
   ArmModel _arm;
@@ -234,6 +283,14 @@ private:
   std::vector<double> _jointTorques;
   QVector3D _canvasCenter;
   QString _configMessage;
+
+  double _currentMaxSafePayloadKg = 0.0;
+  std::vector<double> _scanReachMeters;
+  std::vector<double> _scanExactPayloadKg;
+  std::vector<double> _scanAiPayloadKg;
+  double _scanExactMilliseconds = 0.0;
+  double _scanAiMilliseconds = 0.0;
+  bool _scanAiAvailable = false;
 };
 
 } // namespace robotarm

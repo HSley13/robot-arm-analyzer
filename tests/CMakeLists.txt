@@ -61,3 +61,8 @@ add_executable(recorded_trajectory_tests recorded_trajectory_test.cpp)
 target_link_libraries(recorded_trajectory_tests PRIVATE robotarm_core gtest_main)
 
 add_test(NAME recorded_trajectory_tests COMMAND recorded_trajectory_tests)
+
+add_executable(payload_capacity_tests payload_capacity_test.cpp)
+target_link_libraries(payload_capacity_tests PRIVATE robotarm_core gtest_main)
+
+add_test(NAME payload_capacity_tests COMMAND payload_capacity_tests)

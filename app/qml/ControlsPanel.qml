@@ -446,6 +446,105 @@ Rectangle {
                 }
             }
 
+            // Payload capacity (Phase 6): the live number answers "how
+            // much more could this arm safely lift right now", and the
+            // scan answers the question the Exact/AI toggle above never
+            // could on its own - whether the AI surrogate is actually
+            // worth using, measured, not just "close on one pose".
+            Rectangle {
+                Layout.fillWidth: true
+                color: "#171a2b"
+                radius: 14
+                border.color: "#262a40"
+                border.width: 1
+                implicitHeight: payloadCapacityColumn.implicitHeight + 28
+
+                ColumnLayout {
+                    id: payloadCapacityColumn
+                    anchors.fill: parent
+                    anchors.margins: 14
+                    spacing: 8
+
+                    Label {
+                        color: "white"
+                        font.bold: true
+                        text: "Payload capacity"
+                    }
+
+                    Label {
+                        color: "#17e0ff"
+                        font.bold: true
+                        font.pixelSize: 16
+                        text: "Safe right now: " + armController.currentMaxSafePayloadKg.toFixed(1) + " kg"
+                    }
+
+                    Button {
+                        Layout.fillWidth: true
+                        text: "Run workspace scan"
+                        onClicked: armController.runPayloadScan(40)
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
+                        visible: armController.scanSampleCount > 0
+
+                        Label {
+                            color: "#9aa0ab"
+                            font.pixelSize: 11
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                            text: armController.scanAiAvailable
+                                ? "Exact: " + armController.scanExactMilliseconds.toFixed(2) + " ms  ·  AI: "
+                                    + armController.scanAiMilliseconds.toFixed(2) + " ms  ("
+                                    + (armController.scanAiMilliseconds > 0
+                                        ? (armController.scanExactMilliseconds / armController.scanAiMilliseconds).toFixed(1)
+                                        : "?") + "x faster)"
+                                : "Exact: " + armController.scanExactMilliseconds.toFixed(2)
+                                    + " ms  ·  AI unavailable for this arm"
+                        }
+
+                        PayloadScanChart {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 150
+                            reachMeters: armController.scanReachMeters
+                            exactPayloadKg: armController.scanExactPayloadKg
+                            aiPayloadKg: armController.scanAiPayloadKg
+                            aiAvailable: armController.scanAiAvailable
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 14
+
+                            RowLayout {
+                                spacing: 5
+                                Rectangle { implicitWidth: 10; implicitHeight: 10; radius: 5; color: "#17e0ff" }
+                                Label { color: "#c7cbd6"; font.pixelSize: 11; text: "Exact" }
+                            }
+
+                            RowLayout {
+                                spacing: 5
+                                visible: armController.scanAiAvailable
+                                Rectangle { implicitWidth: 10; implicitHeight: 10; radius: 5; color: "#ff8a3d" }
+                                Label { color: "#c7cbd6"; font.pixelSize: 11; text: "AI" }
+                            }
+
+                            Item { Layout.fillWidth: true }
+                        }
+
+                        Label {
+                            color: "#7a8099"
+                            font.pixelSize: 10
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                            text: "Sweeps from the shoulder's current angle, folding every other "
+                                + "joint together, from fully extended down to folded."
+                        }
+                    }
+                }
+            }
+
             Rectangle {
                 Layout.fillWidth: true
                 color: "#171a2b"
