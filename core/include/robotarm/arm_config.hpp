@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 #include "robotarm/dh.hpp"
 
 namespace robotarm {
@@ -26,5 +28,11 @@ struct ArmConfig {
   std::string name;
   std::vector<JointConfig> joints;
 };
+
+// Parses an already-loaded JSON document into an ArmConfig. Throws
+// std::runtime_error with a specific message (which joint, what's wrong) on
+// any missing or malformed field - fail loudly on a bad config, don't
+// guess a default for something safety-relevant like a torque limit.
+ArmConfig parse_arm_config(const nlohmann::json &document);
 
 } // namespace robotarm
