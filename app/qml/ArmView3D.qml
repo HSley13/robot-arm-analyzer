@@ -255,14 +255,68 @@ Item {
             }
         }
 
-        // Payload marker at the end-effector, sized (loosely) by mass -
-        // standing in for "something attached to the hand" until a real
-        // gripper/hand mesh exists (Phase 3, Path B - a stretch goal).
+        // Gripper: a pivot Node sitting at the end effector, oriented
+        // like the arm's final link (so "forward" continues the arm's
+        // own direction), holding two fingers that splay open/closed.
+        // The existing motor-drum + indicator-lens Repeater3Ds above
+        // already draw a housing at this exact position (jointPositions'
+        // last entry is the wrist tip, included in that loop), so it
+        // doubles as this gripper's palm - no separate palm mesh needed.
+        Node {
+            id: gripperBase
+            readonly property int lastLinkIndex: armController.linkRotations.length - 1
+            visible: lastLinkIndex >= 0
+            position: armController.jointPositions.length > 0
+                      ? armController.jointPositions[armController.jointPositions.length - 1]
+                      : Qt.vector3d(0, 0, 0)
+            rotation: lastLinkIndex >= 0 ? armController.linkRotations[lastLinkIndex] : Qt.quaternion(1, 0, 0, 0)
+
+            // Both joints' angle lives in degrees here for a smooth
+            // open/close animation independent of how fast armController
+            // itself updates - splayed wide open, nearly parallel when
+            // gripping (never fully 0, so the fingers stay visually
+            // distinct even closed).
+            property real splayDegrees: armController.gripperOpen ? 24 : 5
+            Behavior on splayDegrees { NumberAnimation { duration: 300; easing.type: Easing.InOutQuad } }
+
+            Repeater3D {
+                model: 2
+
+                Node {
+                    required property int index
+                    readonly property real side: index === 0 ? 1 : -1
+                    rotation: Qt.vector3d(0, 0, gripperBase.splayDegrees * side)
+
+                    Model {
+                        source: "#Cube"
+                        position: Qt.vector3d(0, 0.07 / root.meshUnit, 0)
+                        scale: Qt.vector3d(0.025 / root.meshUnit, 0.14 / root.meshUnit, 0.02 / root.meshUnit)
+                        materials: PrincipledMaterial {
+                            baseColor: "#d7dbe2"
+                            metalness: 0.7
+                            roughness: 0.3
+                        }
+                    }
+                }
+            }
+        }
+
+        // Payload marker, sized (loosely) by mass, hanging below the
+        // gripper on a thin string - only shown while the gripper is
+        // closed (nothing is open and still holding) and there's
+        // actually a payload staged. Hangs straight down (-Y, the same
+        // "down" every torque calculation's gravity vector already
+        // uses) rather than along the arm's own direction, the way a
+        // real cable under tension would.
         Model {
             readonly property int lastIndex: armController.jointPositions.length - 1
+            readonly property vector3d tipPosition: lastIndex >= 0 ? armController.jointPositions[lastIndex]
+                                                                    : Qt.vector3d(0, 0, 0)
+            readonly property real hangMeters: 0.12 + armController.payloadKg * 0.01
+
             source: "#Cube"
-            visible: armController.payloadKg > 0 && lastIndex >= 0
-            position: lastIndex >= 0 ? armController.jointPositions[lastIndex] : Qt.vector3d(0, 0, 0)
+            visible: !armController.gripperOpen && armController.payloadKg > 0 && lastIndex >= 0
+            position: Qt.vector3d(tipPosition.x, tipPosition.y - hangMeters, tipPosition.z)
             scale: {
                 const meters = 0.1 + armController.payloadKg * 0.015
                 const s = meters / root.meshUnit
@@ -273,6 +327,28 @@ Item {
                 baseColor: "#e94560"
                 metalness: 0.1
                 roughness: 0.5
+            }
+        }
+
+        // The string itself: a thin vertical cylinder from the gripper
+        // tip down to the payload - always straight down by
+        // construction (both endpoints share x/z), so no rotation math
+        // is needed the way the tilted links need linkRotations.
+        Model {
+            readonly property int lastIndex: armController.jointPositions.length - 1
+            readonly property vector3d tipPosition: lastIndex >= 0 ? armController.jointPositions[lastIndex]
+                                                                    : Qt.vector3d(0, 0, 0)
+            readonly property real hangMeters: 0.12 + armController.payloadKg * 0.01
+
+            source: "#Cylinder"
+            visible: !armController.gripperOpen && armController.payloadKg > 0 && lastIndex >= 0
+            position: Qt.vector3d(tipPosition.x, tipPosition.y - hangMeters / 2, tipPosition.z)
+            scale: Qt.vector3d(0.006 / root.meshUnit, hangMeters / root.meshUnit, 0.006 / root.meshUnit)
+
+            materials: PrincipledMaterial {
+                baseColor: "#9aa0ab"
+                metalness: 0.2
+                roughness: 0.6
             }
         }
     }
