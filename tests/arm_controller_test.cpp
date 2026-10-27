@@ -213,3 +213,49 @@ TEST(ArmController, DisablingDynamicModeAlsoDisablesTrajectoryScrubMode) {
   controller.setDynamicMode(false);
   EXPECT_FALSE(controller.trajectoryScrubMode());
 }
+
+TEST(ArmController, EnablingScrubModeStartsWithTwoWaypoints) {
+  ArmController controller(config_path(), surrogate_path(), dynamic_surrogate_path());
+  EXPECT_EQ(controller.trajectoryWaypointCount(), 0); // none recorded before scrubbing starts
+
+  controller.setTrajectoryScrubMode(true);
+  EXPECT_EQ(controller.trajectoryWaypointCount(), 2); // [rest, captured pose]
+}
+
+TEST(ArmController, RecordWaypointExtendsTheRecordingAndPlaybackReachesIt) {
+  ArmController controller(config_path(), surrogate_path(), dynamic_surrogate_path());
+  controller.setJointAngleDegrees(0, 30.0);
+  controller.setJointAngleDegrees(1, -20.0);
+  controller.setTrajectoryScrubMode(true);
+  ASSERT_EQ(controller.trajectoryWaypointCount(), 2);
+
+  // Move to a new pose and record it as a third waypoint.
+  controller.setJointAngleDegrees(0, 70.0);
+  controller.setJointAngleDegrees(1, 10.0);
+  controller.recordWaypoint();
+  EXPECT_EQ(controller.trajectoryWaypointCount(), 3);
+
+  // Scrubbing to the very end must reach the newly-recorded waypoint,
+  // not the one recorded when scrubbing first turned on.
+  controller.setTrajectoryProgress(1.0);
+  EXPECT_NEAR(controller.jointAnglesDegrees().at(0).toDouble(), 70.0, 1e-4);
+  EXPECT_NEAR(controller.jointAnglesDegrees().at(1).toDouble(), 10.0, 1e-4);
+}
+
+TEST(ArmController, RecordWaypointIsIgnoredOutsideScrubMode) {
+  ArmController controller(config_path(), surrogate_path(), dynamic_surrogate_path());
+  controller.recordWaypoint(); // must not crash with no recording to extend
+  EXPECT_EQ(controller.trajectoryWaypointCount(), 0);
+}
+
+TEST(ArmController, ReEnablingScrubModeDiscardsThePreviousRecording) {
+  ArmController controller(config_path(), surrogate_path(), dynamic_surrogate_path());
+  controller.setTrajectoryScrubMode(true);
+  controller.recordWaypoint();
+  controller.recordWaypoint();
+  ASSERT_EQ(controller.trajectoryWaypointCount(), 4);
+
+  controller.setTrajectoryScrubMode(false);
+  controller.setTrajectoryScrubMode(true);
+  EXPECT_EQ(controller.trajectoryWaypointCount(), 2); // back to [rest, captured pose]
+}
