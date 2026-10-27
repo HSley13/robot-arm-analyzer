@@ -63,13 +63,6 @@ ArmController::ArmController(const std::filesystem::path &config_path, const std
     }
   }
 
-  double total_reach = 0.0;
-  for (const DHParameter &joint : _arm.joints()) total_reach += joint.a;
-  // Pivot the camera around the middle of the arm's reach, not the world
-  // origin (0,0,0) - the roadmap's prior-art finding that orbiting around
-  // world-origin is frustrating once the arm extends away from it.
-  _canvasCenter = QVector3D(static_cast<float>(total_reach / 2.0), 0.0f, 0.0f);
-
   recompute();
 }
 
@@ -170,6 +163,30 @@ void ArmController::setJointTorqueLimit(int index, double limit) {
   emit resultsChanged();
 }
 
+void ArmController::setJointLength(int index, double meters) {
+  if (index < 0 || static_cast<size_t>(index) >= _config.joints.size()) return;
+  if (meters <= 0.0) return;
+
+  JointConfig &joint = _config.joints[static_cast<size_t>(index)];
+  joint.dh.a = meters;
+  // Re-derive as a uniform rod of the new length - see the Q_INVOKABLE
+  // doc comment in the header for why this always happens, even for a
+  // joint that was loaded with an explicit inertia tensor.
+  joint.inertial = LinkInertial::rod(joint.mass, meters);
+
+  _arm = to_arm_model(_config);
+  _links = to_link_masses(_config);
+  _inertialLinks = to_link_inertials(_config);
+
+  // The surrogates were trained on the arm's original geometry and
+  // have no notion of link length as an input - their predictions
+  // would silently stop matching the exact engine the moment this
+  // changes, so AI mode isn't safe to leave on.
+  _aiMode = false;
+
+  recompute();
+}
+
 bool ArmController::loadConfig(const QString &path) {
   try {
     ArmConfig config = load_arm_config(path.toStdString());
@@ -192,10 +209,6 @@ bool ArmController::loadConfig(const QString &path) {
     _trajectoryScrubMode = false;
     _trajectoryProgress = 0.0;
     _recordedTrajectory.reset();
-
-    double total_reach = 0.0;
-    for (const DHParameter &joint : _arm.joints()) total_reach += joint.a;
-    _canvasCenter = QVector3D(static_cast<float>(total_reach / 2.0), 0.0f, 0.0f);
 
     _configMessage = QString("Loaded '%1' (%2 joints)").arg(armName()).arg(n);
     recompute();
@@ -272,6 +285,15 @@ void ArmController::recompute() {
   _jointPositions.reserve(frames.size() + 1);
   _jointPositions.push_back(Eigen::Vector3d::Zero()); // base origin
   for (const Eigen::Matrix4d &frame : frames) _jointPositions.push_back(frame.block<3, 1>(0, 3));
+
+  // Pivot the camera around the middle of the arm's reach, not the world
+  // origin (0,0,0) - the roadmap's prior-art finding that orbiting around
+  // world-origin is frustrating once the arm extends away from it.
+  // Recomputed here (not just once at construction) so it stays correct
+  // after loadConfig() or setJointLength() changes the arm's geometry.
+  double total_reach = 0.0;
+  for (const DHParameter &joint : _arm.joints()) total_reach += joint.a;
+  _canvasCenter = QVector3D(static_cast<float>(total_reach / 2.0), 0.0f, 0.0f);
 
   emit resultsChanged();
 }

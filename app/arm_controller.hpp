@@ -150,6 +150,21 @@ public:
   // can be tuned from the UI before saveConfig() writes it out.
   Q_INVOKABLE void setJointTorqueLimit(int index, double limit);
 
+  // Edits this joint's DH `a` (link length) in place and rebuilds _arm
+  // from the updated config - unlike setJointAngleDegrees(), this
+  // changes the arm's actual geometry, not just its current pose.
+  // Re-derives this link's inertial data as LinkInertial::rod(mass,
+  // meters) regardless of whether the loaded config originally gave it
+  // an explicit inertia tensor - a documented simplification, not an
+  // oversight: every config this project ships uses the default rod,
+  // and there's no way to tell post-parse whether a given JointConfig's
+  // `inertial` came from that default or an explicit override. Also
+  // turns aiMode off: a trained surrogate implicitly assumes the
+  // geometry it was trained on, and has no way to be told a link got
+  // longer or shorter, so its predictions would silently stop matching
+  // reality the moment this changes.
+  Q_INVOKABLE void setJointLength(int index, double meters);
+
   QString configMessage() const { return _configMessage; }
 
   // Replaces the current arm entirely with the one loaded from path:
