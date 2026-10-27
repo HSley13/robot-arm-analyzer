@@ -23,7 +23,7 @@ int main(int argc, char *argv[]) {
   // what makes the Exact/AI toggle meaningful; swapping arms from the UI
   // is a stretch goal, not required here.
   robotarm::ArmController controller(std::string(PROJECT_ROOT_DIR) + "/config/two_link_planar.json",
-                                      std::string(PROJECT_ROOT_DIR) + "/ml/models/two_link_planar.surrogate.json");
+                                     std::string(PROJECT_ROOT_DIR) + "/ml/models/two_link_planar.surrogate.json");
 
   QQmlApplicationEngine engine;
   engine.rootContext()->setContextProperty("armController", &controller);
@@ -42,15 +42,15 @@ int main(int argc, char *argv[]) {
     qmlWatcher.addPath(qmlDir.filePath(fileName));
   }
   QObject::connect(&qmlWatcher, &QFileSystemWatcher::fileChanged, &engine,
-                    [&engine, &mainQmlUrl, &qmlWatcher](const QString &path) {
-                      // Some editors replace the file (write a new inode)
-                      // rather than write in place, which drops it from
-                      // the watch list - re-add it so the next edit still
-                      // triggers a reload.
-                      if (!qmlWatcher.files().contains(path)) qmlWatcher.addPath(path);
-                      engine.clearComponentCache();
-                      engine.load(mainQmlUrl);
-                    });
+                   [&engine, &mainQmlUrl, &qmlWatcher](const QString &path) {
+                     // Some editors replace the file (write a new inode)
+                     // rather than write in place, which drops it from
+                     // the watch list - re-add it so the next edit still
+                     // triggers a reload.
+                     if (!qmlWatcher.files().contains(path)) qmlWatcher.addPath(path);
+                     engine.clearComponentCache();
+                     engine.load(mainQmlUrl);
+                   });
 
   engine.load(mainQmlUrl);
   if (engine.rootObjects().isEmpty()) return -1;
