@@ -19,6 +19,10 @@ __pycache__/
 .venv/
 venv/
 
+# Generated training data - regenerate via tools/generate_training_data
+# (see python/train_surrogate.py for the exact command); not source.
+python/data/
+
 # IDE / OS
 .DS_Store
 .vscode/
