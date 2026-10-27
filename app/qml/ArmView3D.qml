@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick3D
 import QtQuick3D.Helpers
@@ -8,6 +9,19 @@ import QtQuick3D.Helpers
 // from the exact DH forward kinematics (or the AI surrogate, depending
 // on armController.aiMode) - this view just places primitives.
 Item {
+    id: root
+
+    // Qt Quick 3D's built-in primitives (#Cube, #Sphere, #Cylinder, ...)
+    // are modeled at a fixed 100-unit native size, regardless of the
+    // scene's own unit choice (here, 1 scene unit = 1 meter, matching the
+    // physics engine's positions directly). Every Model.scale below is
+    // (desired meters) / meshUnit - unlike `position`, which is already
+    // in meters and needs no conversion. Forgetting this on a radius/size
+    // value (while remembering it for a link's length) is exactly the bug
+    // that first made the joints/payload render many meters wide next to
+    // a ~1.5m arm.
+    readonly property real meshUnit: 100.0
+
     View3D {
         anchors.fill: parent
 
@@ -29,7 +43,7 @@ Item {
 
             PerspectiveCamera {
                 id: camera
-                z: 4
+                z: 3
                 clipNear: 0.01
             }
         }
@@ -49,9 +63,7 @@ Item {
         Model {
             source: "#Cylinder"
             position: Qt.vector3d(0, -0.01, 0)
-            // Built-in primitives are 100 units in local space; dividing by
-            // 100 maps local units to scene meters.
-            scale: Qt.vector3d(2.0, 0.002, 2.0)
+            scale: Qt.vector3d(0.3 / root.meshUnit, 0.01 / root.meshUnit, 0.3 / root.meshUnit)
             materials: PrincipledMaterial {
                 baseColor: "#444455"
                 roughness: 0.8
@@ -66,7 +78,8 @@ Item {
                 source: "#Cylinder"
                 position: armController.linkMidpoints[index]
                 rotation: armController.linkRotations[index]
-                scale: Qt.vector3d(0.06, armController.linkLengths[index] / 100.0, 0.06)
+                scale: Qt.vector3d(0.05 / root.meshUnit, armController.linkLengths[index] / root.meshUnit,
+                                    0.05 / root.meshUnit)
 
                 materials: PrincipledMaterial {
                     baseColor: armController.jointColors[index]
@@ -83,7 +96,7 @@ Item {
                 required property int index
                 source: "#Sphere"
                 position: armController.jointPositions[index]
-                scale: Qt.vector3d(0.08, 0.08, 0.08)
+                scale: Qt.vector3d(0.09 / root.meshUnit, 0.09 / root.meshUnit, 0.09 / root.meshUnit)
 
                 materials: PrincipledMaterial {
                     baseColor: "#dddddd"
@@ -93,14 +106,17 @@ Item {
             }
         }
 
-        // Payload marker at the end-effector, sized (loosely) by mass.
+        // Payload marker at the end-effector, sized (loosely) by mass -
+        // standing in for "something attached to the hand" until a real
+        // gripper/hand mesh exists (Phase 3).
         Model {
             readonly property int lastIndex: armController.jointPositions.length - 1
             source: "#Cube"
             visible: armController.payloadKg > 0 && lastIndex >= 0
             position: lastIndex >= 0 ? armController.jointPositions[lastIndex] : Qt.vector3d(0, 0, 0)
             scale: {
-                const s = 0.08 + armController.payloadKg * 0.01
+                const meters = 0.1 + armController.payloadKg * 0.015
+                const s = meters / root.meshUnit
                 return Qt.vector3d(s, s, s)
             }
 

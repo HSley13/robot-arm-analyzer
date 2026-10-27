@@ -31,8 +31,7 @@ QColor torque_color(double torque, double limit) {
 
 } // namespace
 
-ArmController::ArmController(const std::filesystem::path &config_path, const std::filesystem::path &surrogate_path,
-                              QObject *parent)
+ArmController::ArmController(const std::filesystem::path &config_path, const std::filesystem::path &surrogate_path, QObject *parent)
     : QObject(parent), _config(load_arm_config(config_path)), _arm(to_arm_model(_config)),
       _links(to_link_masses(_config)), _jointAnglesRadians(_arm.num_joints(), 0.0) {
   try {
