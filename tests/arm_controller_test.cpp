@@ -3,6 +3,7 @@
 // toggle actually switches engines (and still agrees closely with Exact,
 // the same cross-check Module 5 already established), and the
 // color-threshold/camera-pivot logic the UI depends on is correct.
+#include <filesystem>
 #include <string>
 
 #include <gtest/gtest.h>
@@ -21,6 +22,9 @@ namespace {
 #endif
 
 std::string config_path() { return std::string(PROJECT_ROOT_DIR) + "/config/two_link_planar.json"; }
+std::string three_dof_config_path() {
+  return std::string(PROJECT_ROOT_DIR) + "/config/three_dof_with_prismatic.json";
+}
 std::string surrogate_path() { return std::string(PROJECT_ROOT_DIR) + "/ml/models/two_link_planar.surrogate.json"; }
 std::string dynamic_surrogate_path() {
   return std::string(PROJECT_ROOT_DIR) + "/ml/models/two_link_planar_dynamic.surrogate.json";
@@ -258,4 +262,69 @@ TEST(ArmController, ReEnablingScrubModeDiscardsThePreviousRecording) {
   controller.setTrajectoryScrubMode(false);
   controller.setTrajectoryScrubMode(true);
   EXPECT_EQ(controller.trajectoryWaypointCount(), 2); // back to [rest, captured pose]
+}
+
+TEST(ArmController, SetJointTorqueLimitUpdatesTheReportedLimit) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setJointTorqueLimit(0, 99.0);
+  EXPECT_DOUBLE_EQ(controller.jointTorqueLimits().at(0).toDouble(), 99.0);
+}
+
+TEST(ArmController, SetJointTorqueLimitIgnoresNonPositiveValuesAndBadIndex) {
+  ArmController controller(config_path(), surrogate_path());
+  const double original = controller.jointTorqueLimits().at(0).toDouble();
+
+  controller.setJointTorqueLimit(0, 0.0);
+  controller.setJointTorqueLimit(0, -5.0);
+  EXPECT_DOUBLE_EQ(controller.jointTorqueLimits().at(0).toDouble(), original);
+
+  controller.setJointTorqueLimit(99, 10.0); // must not crash
+}
+
+TEST(ArmController, SaveConfigThenLoadConfigRoundTripsEditedTorqueLimits) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setJointTorqueLimit(0, 123.0);
+
+  const std::filesystem::path path =
+      std::filesystem::temp_directory_path() / "robotarm_arm_controller_roundtrip_test.json";
+  ASSERT_TRUE(controller.saveConfig(QString::fromStdString(path.string())));
+
+  ArmController reloaded_target(config_path(), surrogate_path());
+  ASSERT_TRUE(reloaded_target.loadConfig(QString::fromStdString(path.string())));
+  std::filesystem::remove(path);
+
+  EXPECT_DOUBLE_EQ(reloaded_target.jointTorqueLimits().at(0).toDouble(), 123.0);
+}
+
+TEST(ArmController, LoadConfigWithADifferentJointCountResetsStateAndDisablesAi) {
+  ArmController controller(config_path(), surrogate_path(), dynamic_surrogate_path());
+  controller.setJointAngleDegrees(0, 45.0);
+  controller.setDynamicMode(true);
+  controller.setAiMode(true);
+  ASSERT_TRUE(controller.aiMode());
+
+  ASSERT_TRUE(controller.loadConfig(QString::fromStdString(three_dof_config_path())));
+  EXPECT_EQ(controller.jointCount(), 3);
+  EXPECT_FALSE(controller.aiMode()); // the two-link surrogate no longer matches
+  EXPECT_FALSE(controller.aiModeAvailable());
+  EXPECT_FALSE(controller.dynamicMode());
+  for (int i = 0; i < controller.jointAnglesDegrees().size(); i++) {
+    EXPECT_NEAR(controller.jointAnglesDegrees().at(i).toDouble(), 0.0, 1e-9);
+  }
+}
+
+TEST(ArmController, LoadConfigReturnsFalseAndLeavesTheArmUnchangedOnFailure) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setJointAngleDegrees(0, 30.0);
+
+  EXPECT_FALSE(controller.loadConfig("/nonexistent/path/does_not_exist.json"));
+  EXPECT_EQ(controller.jointCount(), 2); // unchanged - the failed load must not corrupt state
+  EXPECT_NEAR(controller.jointAnglesDegrees().at(0).toDouble(), 30.0, 1e-9);
+  EXPECT_TRUE(controller.configMessage().contains("failed", Qt::CaseInsensitive));
+}
+
+TEST(ArmController, SaveConfigReturnsFalseOnAnUnwritablePath) {
+  ArmController controller(config_path(), surrogate_path());
+  EXPECT_FALSE(controller.saveConfig("/nonexistent/directory/does_not_exist.json"));
+  EXPECT_TRUE(controller.configMessage().contains("failed", Qt::CaseInsensitive));
 }

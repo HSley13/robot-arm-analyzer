@@ -76,7 +76,12 @@ ArmController::ArmController(const std::filesystem::path &config_path, const std
 QString ArmController::armName() const { return QString::fromStdString(_config.name); }
 
 bool ArmController::aiModeAvailable() const {
-  return _dynamicMode ? (_dynamicSurrogate != nullptr) : (_surrogate != nullptr);
+  // Also requires the surrogate's own joint count to match the current
+  // arm's - loadConfig() (Phase 4) can swap in an arm with a different
+  // joint count than whatever the surrogate was trained on, in which case
+  // predict()/predict_raw() would be fed the wrong number of inputs.
+  const Surrogate *surrogate = _dynamicMode ? _dynamicSurrogate.get() : _surrogate.get();
+  return surrogate != nullptr && surrogate->num_joints() == _arm.num_joints();
 }
 
 void ArmController::setPayloadKg(double kg) {
@@ -150,6 +155,62 @@ void ArmController::setJointAccelerationDegrees(int index, double degreesPerSeco
   if (_trajectoryScrubMode) return;
   _jointAccelerationsRadians[static_cast<size_t>(index)] = to_radians(degreesPerSecondSquared);
   recompute();
+}
+
+void ArmController::setJointTorqueLimit(int index, double limit) {
+  if (index < 0 || static_cast<size_t>(index) >= _config.joints.size()) return;
+  if (limit <= 0.0) return; // matches parse_arm_config()'s own validation
+  _config.joints[static_cast<size_t>(index)].torque_limit = limit;
+  emit resultsChanged();
+}
+
+bool ArmController::loadConfig(const QString &path) {
+  try {
+    ArmConfig config = load_arm_config(path.toStdString());
+    _config = std::move(config);
+    _arm = to_arm_model(_config);
+    _links = to_link_masses(_config);
+    _inertialLinks = to_link_inertials(_config);
+
+    // None of the current pose/payload/mode state necessarily still makes
+    // sense for a different arm - most obviously, a different joint
+    // count - so reset to defaults rather than trying to carry it over.
+    const size_t n = _arm.num_joints();
+    _jointAnglesRadians.assign(n, 0.0);
+    _jointVelocitiesRadians.assign(n, 0.0);
+    _jointAccelerationsRadians.assign(n, 0.0);
+    _payloadKg = 0.0;
+    _aiMode = false;
+    _dynamicMode = false;
+    _trajectoryScrubMode = false;
+    _trajectoryProgress = 0.0;
+    _recordedTrajectory.reset();
+
+    double total_reach = 0.0;
+    for (const DHParameter &joint : _arm.joints()) total_reach += joint.a;
+    _canvasCenter = QVector3D(static_cast<float>(total_reach / 2.0), 0.0f, 0.0f);
+
+    _configMessage = QString("Loaded '%1' (%2 joints)").arg(armName()).arg(n);
+    recompute();
+    return true;
+  } catch (const std::exception &e) {
+    _configMessage = QString("Load failed: %1").arg(e.what());
+    emit resultsChanged();
+    return false;
+  }
+}
+
+bool ArmController::saveConfig(const QString &path) {
+  try {
+    save_arm_config(_config, path.toStdString());
+    _configMessage = QString("Saved to %1").arg(path);
+    emit resultsChanged();
+    return true;
+  } catch (const std::exception &e) {
+    _configMessage = QString("Save failed: %1").arg(e.what());
+    emit resultsChanged();
+    return false;
+  }
 }
 
 TrajectoryState ArmController::effectiveState() const {

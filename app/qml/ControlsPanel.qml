@@ -107,8 +107,35 @@ Rectangle {
                         Label {
                             color: "white"
                             Layout.fillWidth: true
-                            text: "τ = " + armController.jointTorques[jointRow.index].toFixed(2)
-                                + " / " + armController.jointTorqueLimits[jointRow.index].toFixed(1) + " N·m"
+                            text: "τ = " + armController.jointTorques[jointRow.index].toFixed(2) + " N·m"
+                        }
+                    }
+
+                    // Editable torque limit (Phase 4): staged here, then
+                    // written out by "Save config" below. Only commits on
+                    // editingFinished (not every keystroke), since a
+                    // half-typed number (e.g. "5." before the next digit)
+                    // would otherwise be rejected as non-positive.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        Label {
+                            color: "#aaaaaa"
+                            text: "limit"
+                        }
+
+                        TextField {
+                            id: torqueLimitField
+                            Layout.fillWidth: true
+                            text: armController.jointTorqueLimits[jointRow.index].toFixed(1)
+                            validator: DoubleValidator { bottom: 0.0001 }
+                            onEditingFinished: armController.setJointTorqueLimit(jointRow.index, parseFloat(text))
+                        }
+
+                        Label {
+                            color: "#aaaaaa"
+                            text: "N·m"
                         }
                     }
 
@@ -229,6 +256,50 @@ Rectangle {
                     color: "white"
                     opacity: armController.aiMode ? 1.0 : 0.5
                     text: "AI" + (armController.aiModeAvailable ? "" : " (no trained model)")
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 4
+
+                Label {
+                    color: "white"
+                    text: "Config file"
+                }
+
+                TextField {
+                    id: configPathField
+                    Layout.fillWidth: true
+                    placeholderText: "/path/to/arm_config.json"
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Button {
+                        Layout.fillWidth: true
+                        text: "Save"
+                        enabled: configPathField.text.length > 0
+                        onClicked: armController.saveConfig(configPathField.text)
+                    }
+
+                    Button {
+                        Layout.fillWidth: true
+                        text: "Load"
+                        enabled: configPathField.text.length > 0
+                        onClicked: armController.loadConfig(configPathField.text)
+                    }
+                }
+
+                Label {
+                    color: "#aaaaaa"
+                    font.pixelSize: 11
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                    visible: armController.configMessage.length > 0
+                    text: armController.configMessage
                 }
             }
 

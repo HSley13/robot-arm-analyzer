@@ -28,10 +28,18 @@ namespace robotarm {
 // directly, matching the plan's "three pieces only share data" goal.
 class ArmController : public QObject {
   Q_OBJECT
-  Q_PROPERTY(QString armName READ armName CONSTANT)
-  Q_PROPERTY(int jointCount READ jointCount CONSTANT)
+  // armName/jointCount/canvasCenter were CONSTANT before loadConfig()
+  // (Phase 4) made them change at runtime - loading a different arm can
+  // change its name, joint count, and reach (which canvasCenter pivots
+  // around).
+  Q_PROPERTY(QString armName READ armName NOTIFY resultsChanged)
+  Q_PROPERTY(int jointCount READ jointCount NOTIFY resultsChanged)
   Q_PROPERTY(bool aiModeAvailable READ aiModeAvailable NOTIFY resultsChanged)
-  Q_PROPERTY(QVector3D canvasCenter READ canvasCenter CONSTANT)
+  Q_PROPERTY(QVector3D canvasCenter READ canvasCenter NOTIFY resultsChanged)
+  // Feedback for loadConfig()/saveConfig() - success or failure, since
+  // both can fail (bad file, bad path) and the UI needs to tell the user
+  // why rather than silently doing nothing.
+  Q_PROPERTY(QString configMessage READ configMessage NOTIFY resultsChanged)
 
   Q_PROPERTY(double payloadKg READ payloadKg WRITE setPayloadKg NOTIFY resultsChanged)
   Q_PROPERTY(bool aiMode READ aiMode WRITE setAiMode NOTIFY resultsChanged)
@@ -57,7 +65,9 @@ class ArmController : public QObject {
   Q_PROPERTY(QVariantList jointVelocitiesDegrees READ jointVelocitiesDegrees NOTIFY resultsChanged)
   Q_PROPERTY(QVariantList jointAccelerationsDegrees READ jointAccelerationsDegrees NOTIFY resultsChanged)
   Q_PROPERTY(QVariantList jointTorques READ jointTorques NOTIFY resultsChanged)
-  Q_PROPERTY(QVariantList jointTorqueLimits READ jointTorqueLimits CONSTANT)
+  // Was CONSTANT before setJointTorqueLimit() (Phase 4) made limits
+  // user-editable from the UI, ahead of saving them to a config file.
+  Q_PROPERTY(QVariantList jointTorqueLimits READ jointTorqueLimits NOTIFY resultsChanged)
   Q_PROPERTY(QVariantList jointColors READ jointColors NOTIFY resultsChanged)
 
   // The torque breakdown (Phase 2): gravity/inertia/Coriolis, per the
@@ -124,6 +134,27 @@ public:
   // takes effect while trajectoryScrubMode is on.
   Q_INVOKABLE void recordWaypoint();
 
+  // Edits this joint's torque_limit in place (clamped to the same
+  // "must be positive" rule parse_arm_config() enforces on load) so it
+  // can be tuned from the UI before saveConfig() writes it out.
+  Q_INVOKABLE void setJointTorqueLimit(int index, double limit);
+
+  QString configMessage() const { return _configMessage; }
+
+  // Replaces the current arm entirely with the one loaded from path:
+  // geometry, mass, inertial data, torque limits, joint count. Resets
+  // pose/payload/mode state to defaults rather than trying to carry it
+  // over, since none of it necessarily still makes sense for a
+  // different arm (a different joint count, in particular). Returns
+  // false (and sets configMessage) instead of throwing, so a bad file
+  // reports an error in the UI rather than crashing it.
+  Q_INVOKABLE bool loadConfig(const QString &path);
+
+  // Writes the current arm (including any edits from setJointTorqueLimit)
+  // to path. Returns false (and sets configMessage) on failure instead of
+  // throwing, matching loadConfig()'s convention.
+  Q_INVOKABLE bool saveConfig(const QString &path);
+
 signals:
   void resultsChanged();
 
@@ -168,6 +199,7 @@ private:
   std::vector<Eigen::Vector3d> _jointPositions; // base origin + one per joint
   std::vector<double> _jointTorques;
   QVector3D _canvasCenter;
+  QString _configMessage;
 };
 
 } // namespace robotarm
