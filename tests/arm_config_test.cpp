@@ -1,0 +1,138 @@
+// Verifies the JSON arm config loader: parsing a valid config, converting
+// degrees to radians at the exact boundary, converting to ArmModel/LinkMass
+// and getting physics identical to a hand-built arm (the whole point of a
+// config loader is that it must not silently change the numbers), loading
+// an actual file from disk, and failing loudly - not silently guessing -
+// on malformed input.
+#include <stdexcept>
+#include <string>
+
+#include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
+
+#include "robotarm/arm_config.hpp"
+#include "robotarm/statics.hpp"
+
+using robotarm::ArmConfig;
+using robotarm::ArmModel;
+using robotarm::DHParameter;
+using robotarm::LinkMass;
+using robotarm::load_arm_config;
+using robotarm::parse_arm_config;
+using robotarm::static_joint_torques;
+using robotarm::to_arm_model;
+using robotarm::to_link_masses;
+
+namespace {
+
+constexpr double kPi = 3.14159265358979323846;
+
+nlohmann::json two_link_planar_json() {
+  return nlohmann::json::parse(R"json({
+    "name": "Two-Link Planar Arm (test)",
+    "joints": [
+      {"type": "revolute", "a": 1.0, "alpha_deg": 0.0, "d": 0.0, "theta_offset_deg": 0.0, "mass": 2.0, "torque_limit": 50.0},
+      {"type": "revolute", "a": 0.5, "alpha_deg": 0.0, "d": 0.0, "theta_offset_deg": 0.0, "mass": 1.0, "torque_limit": 25.0}
+    ]
+  })json");
+}
+
+} // namespace
+
+TEST(ArmConfig, ParsesValidConfig) {
+  const ArmConfig config = parse_arm_config(two_link_planar_json());
+
+  EXPECT_EQ(config.name, "Two-Link Planar Arm (test)");
+  ASSERT_EQ(config.joints.size(), 2u);
+
+  EXPECT_DOUBLE_EQ(config.joints[0].dh.a, 1.0);
+  EXPECT_NEAR(config.joints[0].dh.alpha, 0.0, 1e-12);
+  EXPECT_DOUBLE_EQ(config.joints[0].mass, 2.0);
+  EXPECT_DOUBLE_EQ(config.joints[0].torque_limit, 50.0);
+
+  EXPECT_DOUBLE_EQ(config.joints[1].dh.a, 0.5);
+  EXPECT_DOUBLE_EQ(config.joints[1].mass, 1.0);
+}
+
+TEST(ArmConfig, DegreesFieldsConvertToRadiansAtTheBoundary) {
+  nlohmann::json doc = two_link_planar_json();
+  doc["joints"][0]["alpha_deg"] = 90.0;
+  doc["joints"][0]["theta_offset_deg"] = 180.0;
+
+  const ArmConfig config = parse_arm_config(doc);
+  EXPECT_NEAR(config.joints[0].dh.alpha, kPi / 2.0, 1e-12);
+  EXPECT_NEAR(config.joints[0].dh.theta, kPi, 1e-12);
+}
+
+TEST(ArmConfig, ConversionMatchesHandBuiltArmExactly) {
+  const ArmConfig config = parse_arm_config(two_link_planar_json());
+  const ArmModel arm = to_arm_model(config);
+  const std::vector<LinkMass> links = to_link_masses(config);
+
+  const std::vector<double> theta = {30.0 * kPi / 180.0, 45.0 * kPi / 180.0};
+  const double payload = 0.5;
+  const Eigen::Vector3d gravity_down_y(0.0, -9.81, 0.0);
+
+  const Eigen::VectorXd tau_from_config = static_joint_torques(arm, theta, links, payload, gravity_down_y);
+
+  const ArmModel hand_built_arm({DHParameter(1.0), DHParameter(0.5)});
+  const std::vector<LinkMass> hand_built_links = {LinkMass(2.0), LinkMass(1.0)};
+  const Eigen::VectorXd tau_hand_built =
+      static_joint_torques(hand_built_arm, theta, hand_built_links, payload, gravity_down_y);
+
+  ASSERT_EQ(tau_from_config.size(), tau_hand_built.size());
+  EXPECT_NEAR(tau_from_config(0), tau_hand_built(0), 1e-12);
+  EXPECT_NEAR(tau_from_config(1), tau_hand_built(1), 1e-12);
+}
+
+TEST(ArmConfig, LoadsFromFile) {
+#ifndef PROJECT_ROOT_DIR
+#error "PROJECT_ROOT_DIR must be defined by the build"
+#endif
+  const ArmConfig config = load_arm_config(std::string(PROJECT_ROOT_DIR) + "/config/two_link_planar.json");
+  ASSERT_EQ(config.joints.size(), 2u);
+  EXPECT_DOUBLE_EQ(config.joints[0].dh.a, 1.0);
+  EXPECT_DOUBLE_EQ(config.joints[1].torque_limit, 25.0);
+}
+
+TEST(ArmConfig, LoadsThreeDofConfigWithPrismaticJoint) {
+  const ArmConfig config =
+      load_arm_config(std::string(PROJECT_ROOT_DIR) + "/config/three_dof_with_prismatic.json");
+  ASSERT_EQ(config.joints.size(), 3u);
+  EXPECT_NEAR(config.joints[0].dh.alpha, -kPi / 2.0, 1e-12);
+  EXPECT_EQ(config.joints[2].dh.type, robotarm::JointType::Prismatic);
+}
+
+TEST(ArmConfig, MissingTorqueLimitThrows) {
+  nlohmann::json doc = two_link_planar_json();
+  doc["joints"][0].erase("torque_limit");
+  EXPECT_THROW(parse_arm_config(doc), std::runtime_error);
+}
+
+TEST(ArmConfig, UnknownJointTypeThrows) {
+  nlohmann::json doc = two_link_planar_json();
+  doc["joints"][0]["type"] = "rotary";
+  EXPECT_THROW(parse_arm_config(doc), std::runtime_error);
+}
+
+TEST(ArmConfig, EmptyJointsArrayThrows) {
+  nlohmann::json doc;
+  doc["joints"] = nlohmann::json::array();
+  EXPECT_THROW(parse_arm_config(doc), std::runtime_error);
+}
+
+TEST(ArmConfig, NegativeMassThrows) {
+  nlohmann::json doc = two_link_planar_json();
+  doc["joints"][0]["mass"] = -1.0;
+  EXPECT_THROW(parse_arm_config(doc), std::runtime_error);
+}
+
+TEST(ArmConfig, NonPositiveTorqueLimitThrows) {
+  nlohmann::json doc = two_link_planar_json();
+  doc["joints"][0]["torque_limit"] = 0.0;
+  EXPECT_THROW(parse_arm_config(doc), std::runtime_error);
+}
+
+TEST(ArmConfig, LoadingMissingFileThrows) {
+  EXPECT_THROW(load_arm_config("/nonexistent/path/does_not_exist.json"), std::runtime_error);
+}
