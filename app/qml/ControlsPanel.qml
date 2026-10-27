@@ -166,6 +166,47 @@ Rectangle {
                 }
             }
 
+            // Dynamic joint count (Phase 6): add/remove a joint from
+            // the END of the chain without replacing the whole arm via
+            // Save/Load. New joints default to continuing the taper
+            // convention (shorter, lighter, lower torque limit than
+            // the one before) and are fully editable afterward via
+            // the same per-joint controls below.
+            Rectangle {
+                Layout.fillWidth: true
+                color: "#171a2b"
+                radius: 14
+                border.color: "#262a40"
+                border.width: 1
+                implicitHeight: jointCountRow.implicitHeight + 28
+
+                RowLayout {
+                    id: jointCountRow
+                    anchors.fill: parent
+                    anchors.margins: 14
+                    spacing: 8
+
+                    Label {
+                        color: "white"
+                        font.bold: true
+                        text: "Joints: " + armController.jointCount
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    Button {
+                        text: "− Remove"
+                        enabled: armController.jointCount > 1
+                        onClicked: armController.removeLastJoint()
+                    }
+
+                    Button {
+                        text: "+ Add joint"
+                        onClicked: armController.addJoint()
+                    }
+                }
+            }
+
             Repeater {
                 model: armController.jointCount
 

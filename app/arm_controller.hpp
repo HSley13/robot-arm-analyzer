@@ -217,6 +217,31 @@ public:
   // reality the moment this changes.
   Q_INVOKABLE void setJointLength(int index, double meters);
 
+  // Appends a new revolute joint to the end of the chain - a real
+  // topology change, not just an edited existing joint. Defaults
+  // continue the tapering convention the 3D view already draws (each
+  // new joint shorter/lighter/weaker than the one before it): 0.7x
+  // the previous last joint's length, 0.6x its mass, 0.5x its torque
+  // limit (or fixed defaults - 0.5m/1.0kg/20 N*m - if this is the very
+  // first joint on an otherwise-empty arm, which shouldn't normally
+  // happen but costs nothing to handle). None of these numbers are
+  // meant to be physically authoritative - every new joint's length
+  // and torque limit stay editable afterward via the existing
+  // controls, same as any other joint.
+  //
+  // Invalidates the same things loadConfig() does for a joint-count
+  // change: aiMode (surrogate joint count no longer matches), any
+  // payload scan (described the old shape), and trajectory scrubbing
+  // (a recording's waypoints are sized to the OLD joint count and
+  // would no longer match _jointAnglesRadians).
+  Q_INVOKABLE void addJoint();
+
+  // Removes the LAST joint in the chain - mirrors addJoint(), not
+  // arbitrary-index removal, so nothing downstream needs renumbering.
+  // Refuses to go below 1 joint (an arm needs at least one). Same
+  // invalidation as addJoint().
+  Q_INVOKABLE void removeLastJoint();
+
   QString configMessage() const { return _configMessage; }
 
   // Replaces the current arm entirely with the one loaded from path:

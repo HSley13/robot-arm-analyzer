@@ -209,6 +209,71 @@ void ArmController::setJointLength(int index, double meters) {
   recompute();
 }
 
+void ArmController::addJoint() {
+  JointConfig joint;
+  joint.dh.type = JointType::Revolute;
+  joint.dh.alpha = 0.0;
+  joint.dh.d = 0.0;
+  joint.dh.theta = 0.0;
+
+  if (!_config.joints.empty()) {
+    const JointConfig &last = _config.joints.back();
+    joint.dh.a = std::max(0.1, last.dh.a * 0.7);
+    joint.mass = std::max(0.1, last.mass * 0.6);
+    joint.torque_limit = std::max(1.0, last.torque_limit * 0.5);
+  } else {
+    joint.dh.a = 0.5;
+    joint.mass = 1.0;
+    joint.torque_limit = 20.0;
+  }
+  joint.inertial = LinkInertial::rod(joint.mass, joint.dh.a);
+  _config.joints.push_back(joint);
+
+  _arm = to_arm_model(_config);
+  _links = to_link_masses(_config);
+  _inertialLinks = to_link_inertials(_config);
+
+  _jointAnglesRadians.push_back(0.0);
+  _jointVelocitiesRadians.push_back(0.0);
+  _jointAccelerationsRadians.push_back(0.0);
+
+  // A joint-count change invalidates everything loadConfig() already
+  // invalidates for the same reason: the surrogate's joint count no
+  // longer matches, any payload scan described the old shape, and a
+  // trajectory recording's waypoints are sized to the OLD joint count.
+  _aiMode = false;
+  _scanReachMeters.clear();
+  _scanExactPayloadKg.clear();
+  _scanAiPayloadKg.clear();
+  _trajectoryScrubMode = false;
+  _recordedTrajectory.reset();
+
+  recompute();
+}
+
+void ArmController::removeLastJoint() {
+  if (_config.joints.size() <= 1) return; // an arm needs at least one joint
+
+  _config.joints.pop_back();
+
+  _arm = to_arm_model(_config);
+  _links = to_link_masses(_config);
+  _inertialLinks = to_link_inertials(_config);
+
+  _jointAnglesRadians.pop_back();
+  _jointVelocitiesRadians.pop_back();
+  _jointAccelerationsRadians.pop_back();
+
+  _aiMode = false;
+  _scanReachMeters.clear();
+  _scanExactPayloadKg.clear();
+  _scanAiPayloadKg.clear();
+  _trajectoryScrubMode = false;
+  _recordedTrajectory.reset();
+
+  recompute();
+}
+
 bool ArmController::loadConfig(const QString &path) {
   try {
     ArmConfig config = load_arm_config(path.toStdString());
