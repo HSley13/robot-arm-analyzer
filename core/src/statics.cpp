@@ -32,9 +32,7 @@ Eigen::MatrixXd geometric_jacobian(const ArmModel &arm, const std::vector<double
   return jacobian;
 }
 
-Eigen::VectorXd static_joint_torques(const ArmModel &arm, const std::vector<double> &joint_values,
-                                      const std::vector<LinkMass> &links, double payload_mass,
-                                      const Eigen::Vector3d &gravity) {
+Eigen::VectorXd static_joint_torques(const ArmModel &arm, const std::vector<double> &joint_values, const std::vector<LinkMass> &links, double payload_mass, const Eigen::Vector3d &gravity) {
   assert(links.size() == arm.num_joints());
   const size_t n = arm.num_joints();
 
@@ -43,6 +41,7 @@ Eigen::VectorXd static_joint_torques(const ArmModel &arm, const std::vector<doub
 
   for (size_t k = 1; k <= n; k++) {
     if (links[k - 1].mass == 0.0) continue;
+
     wrench.head<3>() = links[k - 1].mass * gravity;
     load_moment += geometric_jacobian(arm, joint_values, k).transpose() * wrench;
   }

@@ -44,8 +44,6 @@ struct LinkMass {
 //
 // `gravity` is the gravitational acceleration vector expressed in the base
 // frame (default: -9.81 m/s^2 along base Z, i.e. base Z is "up").
-Eigen::VectorXd static_joint_torques(const ArmModel &arm, const std::vector<double> &joint_values,
-                                      const std::vector<LinkMass> &links, double payload_mass,
-                                      const Eigen::Vector3d &gravity = Eigen::Vector3d(0.0, 0.0, -9.81));
+Eigen::VectorXd static_joint_torques(const ArmModel &arm, const std::vector<double> &joint_values, const std::vector<LinkMass> &links, double payload_mass, const Eigen::Vector3d &gravity = Eigen::Vector3d(0.0, 0.0, -9.81));
 
 } // namespace robotarm
