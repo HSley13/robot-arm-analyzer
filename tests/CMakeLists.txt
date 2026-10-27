@@ -40,3 +40,8 @@ add_executable(dynamics_tests dynamics_test.cpp)
 target_link_libraries(dynamics_tests PRIVATE robotarm_core gtest_main)
 
 add_test(NAME dynamics_tests COMMAND dynamics_tests)
+
+add_executable(trajectory_tests trajectory_test.cpp)
+target_link_libraries(trajectory_tests PRIVATE robotarm_core gtest_main)
+
+add_test(NAME trajectory_tests COMMAND trajectory_tests)
