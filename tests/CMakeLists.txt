@@ -51,3 +51,8 @@ target_link_libraries(dynamic_surrogate_tests PRIVATE robotarm_core robotarm_ml 
 target_compile_definitions(dynamic_surrogate_tests PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
 
 add_test(NAME dynamic_surrogate_tests COMMAND dynamic_surrogate_tests)
+
+add_executable(kinematic_tree_tests kinematic_tree_test.cpp)
+target_link_libraries(kinematic_tree_tests PRIVATE robotarm_core gtest_main)
+
+add_test(NAME kinematic_tree_tests COMMAND kinematic_tree_tests)

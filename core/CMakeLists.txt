@@ -7,6 +7,7 @@ add_library(robotarm_core
     src/arm_config.cpp
     src/dynamics.cpp
     src/trajectory.cpp
+    src/kinematic_tree.cpp
 )
 
 target_include_directories(robotarm_core PUBLIC
