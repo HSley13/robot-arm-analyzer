@@ -23,3 +23,9 @@ target_link_libraries(arm_config_tests PRIVATE robotarm_core gtest_main)
 target_compile_definitions(arm_config_tests PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
 
 add_test(NAME arm_config_tests COMMAND arm_config_tests)
+
+add_executable(surrogate_tests surrogate_test.cpp)
+target_link_libraries(surrogate_tests PRIVATE robotarm_core robotarm_ml gtest_main)
+target_compile_definitions(surrogate_tests PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
+
+add_test(NAME surrogate_tests COMMAND surrogate_tests)
