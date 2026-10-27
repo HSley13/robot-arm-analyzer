@@ -1,5 +1,6 @@
 #include "robotarm/arm_config.hpp"
 
+#include <fstream>
 #include <stdexcept>
 
 #include "robotarm/units.hpp"
@@ -79,6 +80,35 @@ ArmConfig parse_arm_config(const nlohmann::json &document) {
   }
 
   return config;
+}
+
+ArmConfig load_arm_config(const std::filesystem::path &path) {
+  std::ifstream file(path);
+  if (!file) {
+    throw std::runtime_error("arm config: could not open file '" + path.string() + "'");
+  }
+
+  nlohmann::json document;
+  file >> document;
+  return parse_arm_config(document);
+}
+
+ArmModel to_arm_model(const ArmConfig &config) {
+  std::vector<DHParameter> joints;
+  joints.reserve(config.joints.size());
+  for (const JointConfig &joint : config.joints) {
+    joints.push_back(joint.dh);
+  }
+  return ArmModel(joints);
+}
+
+std::vector<LinkMass> to_link_masses(const ArmConfig &config) {
+  std::vector<LinkMass> links;
+  links.reserve(config.joints.size());
+  for (const JointConfig &joint : config.joints) {
+    links.push_back(LinkMass(joint.mass));
+  }
+  return links;
 }
 
 } // namespace robotarm

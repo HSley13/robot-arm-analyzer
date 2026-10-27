@@ -1,11 +1,14 @@
 #pragma once
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
 #include <nlohmann/json.hpp>
 
+#include "robotarm/arm_model.hpp"
 #include "robotarm/dh.hpp"
+#include "robotarm/statics.hpp"
 
 namespace robotarm {
 
@@ -34,5 +37,18 @@ struct ArmConfig {
 // any missing or malformed field - fail loudly on a bad config, don't
 // guess a default for something safety-relevant like a torque limit.
 ArmConfig parse_arm_config(const nlohmann::json &document);
+
+// Reads and parses an arm config file from disk. Throws std::runtime_error
+// if the file can't be opened, in addition to parse_arm_config()'s own
+// validation errors.
+ArmConfig load_arm_config(const std::filesystem::path &path);
+
+// Converts the geometry portion of an ArmConfig into the ArmModel the
+// kinematics/statics layers operate on.
+ArmModel to_arm_model(const ArmConfig &config);
+
+// Converts the mass portion of an ArmConfig into the LinkMass list
+// static_joint_torques() expects.
+std::vector<LinkMass> to_link_masses(const ArmConfig &config);
 
 } // namespace robotarm
