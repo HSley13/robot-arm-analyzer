@@ -3,14 +3,18 @@ import QtQuick
 import QtQuick3D
 import QtQuick3D.Helpers
 
-// Phase 3, Path A: procedural geometry stays exactly as Phase 1 built it
-// (cylinders for links, spheres for joints) - per the roadmap, the actual
-// rigged-mesh "looks like a real hand" work (Path B) is a genuinely
-// different skill set and a stretch goal, not required here. What
-// changes in this module is materials and lighting: PBR material
-// parameters tuned per part, a two-light key/fill rig with shadows, and
-// ambient occlusion/tonemapping on the environment - no textures or 3D
-// modeling software needed for any of it.
+// Phase 5: a from-scratch look pass driven by direct feedback that the
+// Phase 1/3 arm ("two cylinders and two spheres") didn't read as a robot
+// arm at all. Still entirely procedural geometry - no textures, no 3D
+// modeling software - but assembled to suggest real hardware: a grounded
+// two-piece pedestal the shoulder rises out of, limbs that taper from
+// shoulder to wrist like a real arm's bicep/forearm/wrist, and joints
+// built from a cylindrical "motor drum" (its flat face is the joint's own
+// rotation axis, since every joint here rotates about Z) instead of a
+// bare sphere. The torque-limit color readout moved from tinting the
+// whole limb to a slim "status band" wrapped around each link's middle,
+// so the chassis itself can read as a single consistent material (brushed
+// steel) with its own cyan accent lighting, independent of load state.
 Item {
     id: root
 
@@ -25,6 +29,14 @@ Item {
     // a ~1.5m arm.
     readonly property real meshUnit: 100.0
 
+    // Link/joint sizing tapers from shoulder (index 0) to wrist (the
+    // highest index) so the arm reads as bicep -> forearm -> wrist, not
+    // a uniform tube - and degrades gracefully for any joint count (2, 3,
+    // or whatever a loaded config has), not just the 3-DOF arm this was
+    // designed against.
+    function linkDiameterMeters(index) { return Math.max(0.05, 0.11 - index * 0.03) }
+    function jointDrumDiameterMeters(index) { return Math.max(0.09, 0.16 - index * 0.025) }
+
     View3D {
         id: view3D
         anchors.fill: parent
@@ -36,7 +48,7 @@ Item {
         camera: camera
 
         environment: SceneEnvironment {
-            clearColor: "#1a1a2e"
+            clearColor: "#0e1021"
             backgroundMode: SceneEnvironment.Color
             antialiasingMode: SceneEnvironment.MSAA
             antialiasingQuality: SceneEnvironment.High
@@ -75,7 +87,7 @@ Item {
         }
 
         // Key light: the main directional light, casting shadows onto
-        // the base disc for a sense of grounding.
+        // the pedestal for a sense of grounding.
         DirectionalLight {
             eulerRotation: Qt.vector3d(-45, -45, 0)
             brightness: 1.3
@@ -93,16 +105,46 @@ Item {
             castsShadow: false
         }
 
-        // A thin disc marking the base/world origin, for visual reference
-        // - matte, non-metal, so it reads as a platform, not a link.
+        // Pedestal: a wide, flat foot bolted to "the floor" and a
+        // narrower column rising to meet the shoulder joint at the
+        // origin - a real base, not just a reference disc. Matte,
+        // non-metal, so it visually grounds the arm instead of competing
+        // with its brushed-metal limbs.
+        Model {
+            source: "#Cylinder"
+            position: Qt.vector3d(0, -0.34, 0)
+            scale: Qt.vector3d(0.55 / root.meshUnit, 0.08 / root.meshUnit, 0.55 / root.meshUnit)
+            materials: PrincipledMaterial {
+                baseColor: "#24262e"
+                metalness: 0.1
+                roughness: 0.85
+            }
+        }
+
+        Model {
+            source: "#Cylinder"
+            position: Qt.vector3d(0, -0.15, 0)
+            scale: Qt.vector3d(0.28 / root.meshUnit, 0.3 / root.meshUnit, 0.28 / root.meshUnit)
+            materials: PrincipledMaterial {
+                baseColor: "#2a2d36"
+                metalness: 0.15
+                roughness: 0.8
+            }
+        }
+
+        // A thin glowing collar where the column meets the shoulder -
+        // the one deliberately "futuristic" accent on the base, done
+        // with an emissive PrincipledMaterial rather than a texture or
+        // a light of its own.
         Model {
             source: "#Cylinder"
             position: Qt.vector3d(0, -0.01, 0)
-            scale: Qt.vector3d(0.3 / root.meshUnit, 0.01 / root.meshUnit, 0.3 / root.meshUnit)
+            scale: Qt.vector3d(0.3 / root.meshUnit, 0.015 / root.meshUnit, 0.3 / root.meshUnit)
             materials: PrincipledMaterial {
-                baseColor: "#33333d"
+                baseColor: "#113a42"
+                emissiveFactor: Qt.vector3d(0.08, 0.85, 1.0)
                 metalness: 0.0
-                roughness: 0.9
+                roughness: 0.3
             }
         }
 
@@ -114,22 +156,84 @@ Item {
                 source: "#Cylinder"
                 position: armController.linkMidpoints[index]
                 rotation: armController.linkRotations[index]
-                scale: Qt.vector3d(0.05 / root.meshUnit, armController.linkLengths[index] / root.meshUnit,
-                                    0.05 / root.meshUnit)
+                scale: {
+                    const diameter = root.linkDiameterMeters(index) / root.meshUnit
+                    return Qt.vector3d(diameter, armController.linkLengths[index] / root.meshUnit, diameter)
+                }
 
-                // Brushed-metal look. baseColor stays the torque-limit
-                // green/amber/red readout carried over from Phase 1 - the
-                // "is this joint overloaded" signal is functional, not
-                // just decorative, so Phase 3's polish tunes the material
-                // response around it rather than replacing it.
+                // A single consistent brushed-steel chassis color for
+                // every limb - the torque-limit readout moved to the
+                // status band below, so this material no longer has to
+                // double as both "what the limb is made of" and "is it
+                // overloaded".
                 materials: PrincipledMaterial {
-                    baseColor: armController.jointColors[index]
-                    metalness: 0.75
-                    roughness: 0.35
+                    baseColor: "#d7dbe2"
+                    metalness: 0.8
+                    roughness: 0.3
                 }
             }
         }
 
+        // Status band: a short, slightly-wider collar wrapped around
+        // each link's middle, carrying the green/amber/red torque-limit
+        // color that used to tint the whole limb. Keeping the signal but
+        // moving it here reads more like a real safety-rated machine
+        // (a status light band) than a limb that changes color outright.
+        Repeater3D {
+            model: armController.linkLengths.length
+
+            Model {
+                required property int index
+                source: "#Cylinder"
+                position: armController.linkMidpoints[index]
+                rotation: armController.linkRotations[index]
+                scale: {
+                    const diameter = (root.linkDiameterMeters(index) + 0.03) / root.meshUnit
+                    return Qt.vector3d(diameter, 0.05 / root.meshUnit, diameter)
+                }
+
+                materials: PrincipledMaterial {
+                    baseColor: armController.jointColors[index]
+                    metalness: 0.2
+                    roughness: 0.4
+                }
+            }
+        }
+
+        // Joint "motor drum": a cylinder rotated so its flat circular
+        // face points along Z - every joint in every arm config this
+        // project loads rotates about Z (alpha_deg is always 0, so DH's
+        // z-axis never tips out of the arm's plane of motion), so this
+        // face is literally the joint's own rotation axis, not just a
+        // decorative choice. Reads as a motor housing bolted across the
+        // joint, the way a real servo/motor drum looks on an actual arm.
+        Repeater3D {
+            model: armController.jointPositions.length
+
+            Model {
+                required property int index
+                source: "#Cylinder"
+                position: armController.jointPositions[index]
+                rotation: Qt.vector3d(90, 0, 0)
+                scale: {
+                    const diameter = root.jointDrumDiameterMeters(index) / root.meshUnit
+                    return Qt.vector3d(diameter, 0.09 / root.meshUnit, diameter)
+                }
+
+                // Dark matte-plastic housing, deliberately distinct from
+                // the limbs' brushed-metal chassis so a viewer can tell
+                // joints from links at a glance, structurally.
+                materials: PrincipledMaterial {
+                    baseColor: "#2a2a33"
+                    metalness: 0.3
+                    roughness: 0.5
+                }
+            }
+        }
+
+        // Center cap on each motor drum - a small glossy cyan "indicator
+        // lens", the same accent color as the pedestal collar, tying the
+        // whole arm's lighting language together.
         Repeater3D {
             model: armController.jointPositions.length
 
@@ -137,15 +241,16 @@ Item {
                 required property int index
                 source: "#Sphere"
                 position: armController.jointPositions[index]
-                scale: Qt.vector3d(0.09 / root.meshUnit, 0.09 / root.meshUnit, 0.09 / root.meshUnit)
+                scale: {
+                    const diameter = (root.jointDrumDiameterMeters(index) * 0.45) / root.meshUnit
+                    return Qt.vector3d(diameter, diameter, diameter)
+                }
 
-                // Dark matte-plastic "joint housing" look, deliberately
-                // distinct from the links' color-coded metal so a viewer
-                // can tell joints from links at a glance, structurally.
                 materials: PrincipledMaterial {
-                    baseColor: "#2a2a33"
-                    metalness: 0.2
-                    roughness: 0.55
+                    baseColor: "#0d2126"
+                    emissiveFactor: Qt.vector3d(0.08, 0.85, 1.0)
+                    metalness: 0.0
+                    roughness: 0.25
                 }
             }
         }
