@@ -45,3 +45,9 @@ add_executable(trajectory_tests trajectory_test.cpp)
 target_link_libraries(trajectory_tests PRIVATE robotarm_core gtest_main)
 
 add_test(NAME trajectory_tests COMMAND trajectory_tests)
+
+add_executable(dynamic_surrogate_tests dynamic_surrogate_test.cpp)
+target_link_libraries(dynamic_surrogate_tests PRIVATE robotarm_core robotarm_ml gtest_main)
+target_compile_definitions(dynamic_surrogate_tests PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
+
+add_test(NAME dynamic_surrogate_tests COMMAND dynamic_surrogate_tests)
