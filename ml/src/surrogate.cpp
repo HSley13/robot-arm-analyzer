@@ -58,21 +58,31 @@ std::vector<double> Surrogate::predict(const std::vector<double> &joint_values, 
                                  std::to_string(joint_values.size()));
   }
 
-  Eigen::VectorXd input(static_cast<Eigen::Index>(_num_joints) + 1);
-  for (size_t i = 0; i < _num_joints; i++) input(static_cast<Eigen::Index>(i)) = joint_values[i];
-  input(static_cast<Eigen::Index>(_num_joints)) = payload;
+  std::vector<double> input(joint_values);
+  input.push_back(payload);
+  return predict_raw(input);
+}
+
+std::vector<double> Surrogate::predict_raw(const std::vector<double> &input) const {
+  if (input.size() != input_dim()) {
+    throw std::invalid_argument("surrogate: expected " + std::to_string(input_dim()) + " input values, got " +
+                                 std::to_string(input.size()));
+  }
+
+  Eigen::VectorXd input_vector(static_cast<Eigen::Index>(input.size()));
+  for (size_t i = 0; i < input.size(); i++) input_vector(static_cast<Eigen::Index>(i)) = input[i];
 
   // The hand-written forward pass the plan calls for: two ReLU hidden
   // layers, one linear output layer. Normalization is already folded into
   // w1/b1 and w3/b3 (see train_surrogate.py), so this runs directly on the
   // raw input and produces raw torques - no separate normalization step.
-  const Eigen::VectorXd h1 = (_w1 * input + _b1).cwiseMax(0.0);
+  const Eigen::VectorXd h1 = (_w1 * input_vector + _b1).cwiseMax(0.0);
   const Eigen::VectorXd h2 = (_w2 * h1 + _b2).cwiseMax(0.0);
   const Eigen::VectorXd output = _w3 * h2 + _b3;
 
-  std::vector<double> torques(static_cast<size_t>(output.size()));
-  for (Eigen::Index i = 0; i < output.size(); i++) torques[static_cast<size_t>(i)] = output(i);
-  return torques;
+  std::vector<double> result(static_cast<size_t>(output.size()));
+  for (Eigen::Index i = 0; i < output.size(); i++) result[static_cast<size_t>(i)] = output(i);
+  return result;
 }
 
 } // namespace robotarm

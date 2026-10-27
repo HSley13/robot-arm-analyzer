@@ -1,2 +1,5 @@
 add_executable(generate_training_data generate_training_data.cpp)
 target_link_libraries(generate_training_data PRIVATE robotarm_core)
+
+add_executable(generate_dynamic_training_data generate_dynamic_training_data.cpp)
+target_link_libraries(generate_dynamic_training_data PRIVATE robotarm_core)

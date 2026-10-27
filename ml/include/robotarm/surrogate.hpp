@@ -20,11 +20,23 @@ class Surrogate {
 public:
   explicit Surrogate(const std::filesystem::path &weights_path);
 
-  // joint_values (one per joint) followed by payload mass (kg) - the same
-  // input layout the training CSV uses. Returns one torque per joint.
+  // joint_values (one per joint) followed by payload mass (kg) - the
+  // static surrogate's input layout (Module 5). Returns one torque per
+  // joint. Delegates to predict_raw() after assembling this specific
+  // layout - see that method for the dynamic surrogate's layout
+  // (Module P2-M4), which has more inputs than just joint_values+payload.
   std::vector<double> predict(const std::vector<double> &joint_values, double payload) const;
 
+  // Runs the forward pass directly on an already-assembled input vector,
+  // which must have exactly input_dim() entries. Any trained MLP of this
+  // shape (two ReLU hidden layers, one linear output layer, normalization
+  // folded into the weights) works through this one generic path -
+  // predict() above is just a convenience for the static surrogate's
+  // specific [joint_values..., payload] layout.
+  std::vector<double> predict_raw(const std::vector<double> &input) const;
+
   size_t num_joints() const { return _num_joints; }
+  size_t input_dim() const { return static_cast<size_t>(_w1.cols()); }
   double val_mean_abs_error() const { return _val_mean_abs_error; }
   double val_max_abs_error() const { return _val_max_abs_error; }
 
