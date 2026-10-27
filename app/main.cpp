@@ -19,9 +19,12 @@
 int main(int argc, char *argv[]) {
   QGuiApplication app(argc, argv);
 
-  // Phase 1/2 loads one hardcoded arm - the config/AI-surrogate pairing is
-  // what makes the Exact/AI toggle meaningful; swapping arms from the UI
-  // is a stretch goal, not required here.
+  // Starts with this one hardcoded arm, matched to a trained AI
+  // surrogate - the pairing is what makes the Exact/AI toggle meaningful
+  // on startup. ArmController::loadConfig() (Phase 4) can swap in a
+  // different arm afterward from the UI; AI mode then simply becomes
+  // unavailable unless the new arm happens to have the same joint count
+  // this surrogate was trained on.
   robotarm::ArmController controller(std::string(PROJECT_ROOT_DIR) + "/config/two_link_planar.json",
                                      std::string(PROJECT_ROOT_DIR) + "/ml/models/two_link_planar.surrogate.json",
                                      std::string(PROJECT_ROOT_DIR) +
