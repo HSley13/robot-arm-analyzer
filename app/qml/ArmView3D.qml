@@ -26,7 +26,14 @@ Item {
     readonly property real meshUnit: 100.0
 
     View3D {
+        id: view3D
         anchors.fill: parent
+        // Explicit, not just "whichever camera node happens to render" -
+        // view3D.mapFrom3DScene() (used by the joint-drag overlay below)
+        // needs this set explicitly to resolve screen positions; without
+        // it, rendering still worked but mapFrom3DScene() warned at
+        // runtime and returned a meaningless position.
+        camera: camera
 
         environment: SceneEnvironment {
             clearColor: "#1a1a2e"
@@ -161,6 +168,76 @@ Item {
                 baseColor: "#e94560"
                 metalness: 0.1
                 roughness: 0.5
+            }
+        }
+    }
+
+    // Exposed at the root level so the overlay below (each a Repeater
+    // delegate - a separate component boundary under
+    // `pragma ComponentBehavior: Bound` above) can force a dependency on
+    // the camera explicitly. view3D.mapFrom3DScene() below depends on
+    // the camera's current transform, but nothing in that call reads a
+    // QML property directly, so without this, QML's binding tracker has
+    // no way to know to re-run it while the user orbits - the overlay
+    // would silently drift out of sync with the joints it's supposed to
+    // sit on.
+    readonly property vector3d cameraEulerRotation: cameraOrigin.eulerRotation
+    readonly property real cameraDistance: camera.z
+
+    // Direct manipulation: a small draggable ring per joint (not per
+    // jointPositions entry - the last entry is the end-effector tip, not
+    // a pivot), projected onto its screen position. Dragging it left/
+    // right changes that joint's angle directly in the main view, not
+    // just via the sidebar sliders. These are plain 2D Items stacked on
+    // top of the View3D, not 3D ray-picking - standard Qt Quick 2D event
+    // delivery means a press that lands on a ring is consumed there and
+    // never reaches the View3D's OrbitCameraController underneath, so
+    // this can't conflict with camera-orbit dragging the way two
+    // competing 3D pointer handlers could.
+    Repeater {
+        model: armController.jointCount
+
+        Rectangle {
+            id: jointHandle
+            required property int index
+
+            readonly property vector3d screenPosition: {
+                const _cameraRotationDependency = root.cameraEulerRotation
+                const _cameraDistanceDependency = root.cameraDistance
+                return view3D.mapFrom3DScene(armController.jointPositions[index])
+            }
+
+            enabled: !armController.trajectoryScrubMode
+            x: screenPosition.x - width / 2
+            y: screenPosition.y - height / 2
+            width: 28
+            height: 28
+            radius: width / 2
+            color: "transparent"
+            opacity: enabled ? 1.0 : 0.3
+            border.width: dragHandler.active ? 3 : 2
+            border.color: dragHandler.active ? "#ffffff" : "#cccccc"
+
+            DragHandler {
+                id: dragHandler
+                target: null
+                property double baseAngleDegrees: 0
+
+                onActiveChanged: {
+                    if (active) baseAngleDegrees = armController.jointAnglesDegrees[jointHandle.index]
+                }
+
+                onCentroidChanged: {
+                    if (!active) return
+                    // Horizontal drag maps to degrees - a simple, generic
+                    // convention (like dragging a numeric field), not a
+                    // literal rotation gesture, since the joint's actual
+                    // rotation axis isn't generally aligned with the
+                    // screen from any given camera angle.
+                    const deltaPixels = centroid.position.x - centroid.pressPosition.x
+                    const sensitivity = 0.5 // degrees per pixel
+                    armController.setJointAngleDegrees(jointHandle.index, baseAngleDegrees + deltaPixels * sensitivity)
+                }
             }
         }
     }
