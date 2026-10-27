@@ -148,6 +148,37 @@ Item {
             }
         }
 
+        // Workspace envelope (Phase 6, toggled off by default): a
+        // translucent disc in the arm's own XY motion plane showing
+        // how far it can reach - radius = the sum of every link's
+        // length (canvasCenter.x is already exactly half that, reused
+        // here rather than adding a second property for the same
+        // number). Rotated 90 about X for the same reason the joint
+        // motor drums are: the built-in cylinder's flat face is
+        // normally perpendicular to Y, and this needs it perpendicular
+        // to Z instead, flat in the plane the arm actually moves in.
+        // A single disc, not a true annulus with a cut-out center for
+        // arms whose first link is much longer than the rest can't
+        // quite reach - a deliberate simplification (Qt Quick 3D has
+        // no ring primitive to subtract one disc from another), not
+        // an attempt at an exact reachable-workspace boundary.
+        Model {
+            readonly property real maxReachMeters: armController.canvasCenter.x * 2
+            source: "#Cylinder"
+            visible: armController.showWorkspaceEnvelope
+            rotation: Qt.vector3d(90, 0, 0)
+            opacity: 0.12
+            scale: {
+                const diameter = (maxReachMeters * 2) / root.meshUnit
+                return Qt.vector3d(diameter, 0.005 / root.meshUnit, diameter)
+            }
+            materials: PrincipledMaterial {
+                baseColor: "#17e0ff"
+                metalness: 0.0
+                roughness: 0.6
+            }
+        }
+
         Repeater3D {
             model: armController.linkLengths.length
 
