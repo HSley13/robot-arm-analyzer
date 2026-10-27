@@ -25,10 +25,17 @@ int main(int argc, char *argv[]) {
   // different arm afterward from the UI; AI mode then simply becomes
   // unavailable unless the new arm happens to have the same joint count
   // this surrogate was trained on.
-  robotarm::ArmController controller(std::string(PROJECT_ROOT_DIR) + "/config/two_link_planar.json",
-                                     std::string(PROJECT_ROOT_DIR) + "/ml/models/two_link_planar.surrogate.json",
+  //
+  // Phase 5: switched the default from the 2-joint, 2-segment arm to a
+  // 3-joint shoulder/elbow/wrist arm - user feedback was that the
+  // original didn't read as a robot arm at all ("a sphere inside a
+  // cube"). config/two_link_planar.json is still exactly what it was
+  // (loadable from the UI, and still what every pre-Phase-5 test targets
+  // directly by path) - only this default changed.
+  robotarm::ArmController controller(std::string(PROJECT_ROOT_DIR) + "/config/three_dof_arm.json",
+                                     std::string(PROJECT_ROOT_DIR) + "/ml/models/three_dof_arm.surrogate.json",
                                      std::string(PROJECT_ROOT_DIR) +
-                                         "/ml/models/two_link_planar_dynamic.surrogate.json");
+                                         "/ml/models/three_dof_arm_dynamic.surrogate.json");
 
   QQmlApplicationEngine engine;
   engine.rootContext()->setContextProperty("armController", &controller);
