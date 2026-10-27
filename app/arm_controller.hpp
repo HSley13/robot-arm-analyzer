@@ -13,6 +13,7 @@
 #include "robotarm/arm_config.hpp"
 #include "robotarm/arm_model.hpp"
 #include "robotarm/dynamics.hpp"
+#include "robotarm/recorded_trajectory.hpp"
 #include "robotarm/statics.hpp"
 #include "robotarm/surrogate.hpp"
 #include "robotarm/trajectory.hpp"
@@ -39,14 +40,18 @@ class ArmController : public QObject {
   // jointAccelerationsDegrees feed inverse_dynamics() (or the dynamic AI
   // surrogate) instead of the static (at-rest) calculation.
   Q_PROPERTY(bool dynamicMode READ dynamicMode WRITE setDynamicMode NOTIFY resultsChanged)
-  // Trajectory scrubbing (Phase 2): per the roadmap, "scrub through a
-  // simple trajectory" instead of specifying velocity/acceleration
-  // directly - dragging trajectoryProgress (0..1) moves the pose along a
-  // CubicTrajectory from rest to whatever pose was current when scrub
-  // mode was turned on, with velocity/acceleration read off that
-  // trajectory automatically. Implies dynamicMode.
+  // Trajectory scrubbing (Phase 2) and multi-waypoint recording/playback
+  // (Phase 4): per the roadmap, "scrub through a simple trajectory"
+  // instead of specifying velocity/acceleration directly, and "record/
+  // scrub through a sequence of poses". Enabling trajectoryScrubMode
+  // seeds a RecordedTrajectory with [rest, current pose]; recordWaypoint()
+  // appends the current pose as another stop. Dragging trajectoryProgress
+  // (0..1, spanning the WHOLE recording, however many waypoints) moves
+  // the pose along it, with velocity/acceleration read off automatically.
+  // Implies dynamicMode.
   Q_PROPERTY(bool trajectoryScrubMode READ trajectoryScrubMode WRITE setTrajectoryScrubMode NOTIFY resultsChanged)
   Q_PROPERTY(double trajectoryProgress READ trajectoryProgress WRITE setTrajectoryProgress NOTIFY resultsChanged)
+  Q_PROPERTY(int trajectoryWaypointCount READ trajectoryWaypointCount NOTIFY resultsChanged)
 
   Q_PROPERTY(QVariantList jointAnglesDegrees READ jointAnglesDegrees NOTIFY resultsChanged)
   Q_PROPERTY(QVariantList jointVelocitiesDegrees READ jointVelocitiesDegrees NOTIFY resultsChanged)
@@ -91,6 +96,7 @@ public:
   void setTrajectoryScrubMode(bool enabled);
   double trajectoryProgress() const { return _trajectoryProgress; }
   void setTrajectoryProgress(double progress);
+  int trajectoryWaypointCount() const;
 
   QVariantList jointAnglesDegrees() const;
   QVariantList jointVelocitiesDegrees() const;
@@ -113,6 +119,10 @@ public:
   // velocity/acceleration are read off the trajectory instead.
   Q_INVOKABLE void setJointVelocityDegrees(int index, double degreesPerSecond);
   Q_INVOKABLE void setJointAccelerationDegrees(int index, double degreesPerSecondSquared);
+  // Appends the current pose (jointAnglesDegrees' underlying target) as
+  // a new waypoint, extending the recording by one more segment. Only
+  // takes effect while trajectoryScrubMode is on.
+  Q_INVOKABLE void recordWaypoint();
 
 signals:
   void resultsChanged();
@@ -120,13 +130,16 @@ signals:
 private:
   void recompute();
   // The current position/velocity/acceleration, trajectory-aware: while
-  // scrubbing, all three are read off the CubicTrajectory; otherwise
+  // scrubbing, all three are read off _recordedTrajectory; otherwise
   // position is the directly-set pose, and velocity/acceleration are
   // zero outside dynamicMode or the manually-set values inside it. One
   // place decides this so recompute() and the *Degrees() accessors can't
   // disagree with each other about what "current" means.
   TrajectoryState effectiveState() const;
 
+  // Duration of each segment in _recordedTrajectory - between any two
+  // consecutive waypoints, however many have been recorded. The whole
+  // recording's duration scales with waypoint count; this is per-segment.
   static constexpr double kTrajectoryDurationSeconds = 2.0;
 
   ArmConfig _config;
@@ -145,8 +158,10 @@ private:
 
   bool _trajectoryScrubMode = false;
   double _trajectoryProgress = 0.0;
-  std::vector<double> _trajectoryStart;  // zero pose, captured when scrubbing starts
-  std::vector<double> _trajectoryTarget; // pose at the moment scrubbing was enabled
+  // Rebuilt from [rest, current pose] every time scrubbing is turned
+  // on (discarding any previous recording) - null when scrubbing has
+  // never been enabled, since RecordedTrajectory has no empty state.
+  std::unique_ptr<RecordedTrajectory> _recordedTrajectory;
 
   TorqueBreakdown _breakdown;
 

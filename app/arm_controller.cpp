@@ -104,8 +104,11 @@ void ArmController::setTrajectoryScrubMode(bool enabled) {
   _trajectoryScrubMode = enabled;
   if (enabled) {
     _dynamicMode = true;
-    _trajectoryTarget = _jointAnglesRadians;
-    _trajectoryStart.assign(_jointAnglesRadians.size(), 0.0);
+    // Discards any previous recording - always starts fresh from
+    // [rest, current pose] when scrubbing is (re-)enabled.
+    const std::vector<double> rest(_jointAnglesRadians.size(), 0.0);
+    _recordedTrajectory = std::make_unique<RecordedTrajectory>(
+        std::vector<std::vector<double>>{rest, _jointAnglesRadians}, kTrajectoryDurationSeconds);
     _trajectoryProgress = 0.0;
     if (_aiMode && !aiModeAvailable()) _aiMode = false;
   }
@@ -116,6 +119,16 @@ void ArmController::setTrajectoryProgress(double progress) {
   const double clamped = std::clamp(progress, 0.0, 1.0);
   if (clamped == _trajectoryProgress) return;
   _trajectoryProgress = clamped;
+  recompute();
+}
+
+int ArmController::trajectoryWaypointCount() const {
+  return _recordedTrajectory ? static_cast<int>(_recordedTrajectory->num_waypoints()) : 0;
+}
+
+void ArmController::recordWaypoint() {
+  if (!_trajectoryScrubMode || !_recordedTrajectory) return;
+  _recordedTrajectory->add_waypoint(_jointAnglesRadians);
   recompute();
 }
 
@@ -140,9 +153,8 @@ void ArmController::setJointAccelerationDegrees(int index, double degreesPerSeco
 }
 
 TrajectoryState ArmController::effectiveState() const {
-  if (_trajectoryScrubMode) {
-    const CubicTrajectory trajectory(_trajectoryStart, _trajectoryTarget, kTrajectoryDurationSeconds);
-    return trajectory.evaluate(_trajectoryProgress * kTrajectoryDurationSeconds);
+  if (_trajectoryScrubMode && _recordedTrajectory) {
+    return _recordedTrajectory->evaluate(_trajectoryProgress * _recordedTrajectory->total_duration());
   }
 
   TrajectoryState state;

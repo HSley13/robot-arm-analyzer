@@ -56,3 +56,8 @@ add_executable(kinematic_tree_tests kinematic_tree_test.cpp)
 target_link_libraries(kinematic_tree_tests PRIVATE robotarm_core gtest_main)
 
 add_test(NAME kinematic_tree_tests COMMAND kinematic_tree_tests)
+
+add_executable(recorded_trajectory_tests recorded_trajectory_test.cpp)
+target_link_libraries(recorded_trajectory_tests PRIVATE robotarm_core gtest_main)
+
+add_test(NAME recorded_trajectory_tests COMMAND recorded_trajectory_tests)
