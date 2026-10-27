@@ -167,6 +167,19 @@ public:
   int scanSampleCount() const { return static_cast<int>(_scanReachMeters.size()); }
 
   Q_INVOKABLE void setJointAngleDegrees(int index, double degrees);
+
+  // Click-to-reach inverse kinematics: solves for joint angles that
+  // bring the end effector to (xMeters, yMeters) in the base frame's
+  // XY plane (z is always 0 - every arm this project models is
+  // planar, since every joint rotates about the same Z axis, so a
+  // third coordinate wouldn't mean anything here), starting the
+  // search from the CURRENT pose as its initial guess. An unreachable
+  // target still updates the pose to whatever solve_inverse_kinematics()
+  // converges on - the closest reachable approach, not a no-op -
+  // exactly like it would for a real arm straining toward something
+  // just out of reach.
+  Q_INVOKABLE void moveToTarget(double xMeters, double yMeters);
+
   // Only take effect when trajectoryScrubMode is off - while scrubbing,
   // velocity/acceleration are read off the trajectory instead.
   Q_INVOKABLE void setJointVelocityDegrees(int index, double degreesPerSecond);

@@ -81,6 +81,73 @@ Rectangle {
                 }
             }
 
+            // Click-to-reach inverse kinematics (Phase 6): drag the
+            // dot on the pad, or type exact coordinates - the two
+            // interactions every robot arm demo/simulator researched
+            // for this feature supports. The pad is a flat top-down
+            // view of the arm's own XY motion plane, not a 3D click on
+            // the view at right - see ReachPad.qml for why that's
+            // deliberate, not a missing feature.
+            Rectangle {
+                Layout.fillWidth: true
+                color: "#171a2b"
+                radius: 14
+                border.color: "#262a40"
+                border.width: 1
+                implicitHeight: moveToTargetColumn.implicitHeight + 28
+
+                ColumnLayout {
+                    id: moveToTargetColumn
+                    anchors.fill: parent
+                    anchors.margins: 14
+                    spacing: 8
+
+                    Label {
+                        color: "white"
+                        font.bold: true
+                        text: "Move to target"
+                    }
+
+                    ReachPad {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.preferredWidth: 170
+                        Layout.preferredHeight: 170
+                        rangeMeters: Math.max(armController.canvasCenter.x * 2, 0.5)
+                        maxReachMeters: armController.canvasCenter.x * 2
+                        markerXMeters: armController.jointPositions.length > 0
+                            ? armController.jointPositions[armController.jointPositions.length - 1].x : 0
+                        markerYMeters: armController.jointPositions.length > 0
+                            ? armController.jointPositions[armController.jointPositions.length - 1].y : 0
+                        onTargetMoved: (x, y) => armController.moveToTarget(x, y)
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        TextField {
+                            id: targetXField
+                            Layout.fillWidth: true
+                            placeholderText: "x (m)"
+                            validator: DoubleValidator {}
+                        }
+
+                        TextField {
+                            id: targetYField
+                            Layout.fillWidth: true
+                            placeholderText: "y (m)"
+                            validator: DoubleValidator {}
+                        }
+
+                        Button {
+                            text: "Go"
+                            enabled: targetXField.text.length > 0 && targetYField.text.length > 0
+                            onClicked: armController.moveToTarget(parseFloat(targetXField.text), parseFloat(targetYField.text))
+                        }
+                    }
+                }
+            }
+
             Repeater {
                 model: armController.jointCount
 

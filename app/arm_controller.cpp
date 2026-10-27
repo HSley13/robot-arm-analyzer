@@ -6,6 +6,7 @@
 
 #include <QColor>
 
+#include "robotarm/inverse_kinematics.hpp"
 #include "robotarm/payload_capacity.hpp"
 #include "robotarm/units.hpp"
 
@@ -141,6 +142,12 @@ void ArmController::recordWaypoint() {
 void ArmController::setJointAngleDegrees(int index, double degrees) {
   if (index < 0 || static_cast<size_t>(index) >= _jointAnglesRadians.size()) return;
   _jointAnglesRadians[static_cast<size_t>(index)] = to_radians(degrees);
+  recompute();
+}
+
+void ArmController::moveToTarget(double xMeters, double yMeters) {
+  const Eigen::Vector3d target(xMeters, yMeters, 0.0);
+  _jointAnglesRadians = solve_inverse_kinematics(_arm, _jointAnglesRadians, target);
   recompute();
 }
 

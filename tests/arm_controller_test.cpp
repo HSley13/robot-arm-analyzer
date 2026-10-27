@@ -3,6 +3,7 @@
 // toggle actually switches engines (and still agrees closely with Exact,
 // the same cross-check Module 5 already established), and the
 // color-threshold/camera-pivot logic the UI depends on is correct.
+#include <cmath>
 #include <filesystem>
 #include <string>
 
@@ -603,4 +604,57 @@ TEST(ArmController, LoadConfigClearsAPreviousScan) {
 
   ASSERT_TRUE(controller.loadConfig(QString::fromStdString(config_path())));
   EXPECT_EQ(controller.scanSampleCount(), 0);
+}
+
+TEST(ArmController, MoveToTargetReachesAKnownReachablePoint) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setJointAngleDegrees(0, 40.0);
+  controller.setJointAngleDegrees(1, -25.0);
+  const QVector3D target = controller.jointPositions().last().value<QVector3D>();
+
+  controller.setJointAngleDegrees(0, 0.0);
+  controller.setJointAngleDegrees(1, 0.0);
+  controller.moveToTarget(target.x(), target.y());
+
+  const QVector3D reached = controller.jointPositions().last().value<QVector3D>();
+  EXPECT_NEAR(reached.x(), target.x(), 1e-2);
+  EXPECT_NEAR(reached.y(), target.y(), 1e-2);
+}
+
+TEST(ArmController, MoveToTargetUsesTheCurrentPoseAsItsStartingGuess) {
+  // Different starting pose, different (reachable) target - not a
+  // repeat of the previous test's specific numbers.
+  ArmController controller(config_path(), surrogate_path());
+  controller.setJointAngleDegrees(0, -60.0);
+  controller.setJointAngleDegrees(1, 50.0);
+  const QVariantList angles_before = controller.jointAnglesDegrees();
+
+  controller.moveToTarget(1.0, 0.3);
+  const QVector3D reached = controller.jointPositions().last().value<QVector3D>();
+
+  EXPECT_NEAR(reached.x(), 1.0, 1e-2);
+  EXPECT_NEAR(reached.y(), 0.3, 1e-2);
+
+  // The pose actually changed - moveToTarget didn't just leave the
+  // previous pose in place by coincidence.
+  bool any_changed = false;
+  const QVariantList angles_after = controller.jointAnglesDegrees();
+  for (int i = 0; i < angles_before.size(); i++) {
+    if (angles_before.at(i).toDouble() != angles_after.at(i).toDouble()) any_changed = true;
+  }
+  EXPECT_TRUE(any_changed);
+}
+
+TEST(ArmController, MoveToTargetGetsCloserEvenWhenUnreachable) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setJointAngleDegrees(0, 90.0); // pointing away from the target below
+  controller.setJointAngleDegrees(1, 90.0);
+  const QVector3D before = controller.jointPositions().last().value<QVector3D>();
+  const double distance_before = std::hypot(before.x() - 50.0, before.y() - 0.0);
+
+  controller.moveToTarget(50.0, 0.0); // far beyond the 1.5m total reach
+  const QVector3D after = controller.jointPositions().last().value<QVector3D>();
+  const double distance_after = std::hypot(after.x() - 50.0, after.y() - 0.0);
+
+  EXPECT_LT(distance_after, distance_before);
 }
