@@ -301,20 +301,21 @@ Item {
             }
         }
 
-        // Payload marker, sized (loosely) by mass, hanging below the
-        // gripper on a thin string - only shown while the gripper is
-        // closed (nothing is open and still holding) and there's
-        // actually a payload staged. Hangs straight down (-Y, the same
-        // "down" every torque calculation's gravity vector already
-        // uses) rather than along the arm's own direction, the way a
-        // real cable under tension would.
+        // Payload marker - a weight hanging on a string, not a crate,
+        // so a sphere reads better than a cube here - sized (loosely)
+        // by mass, hanging below the gripper on a thin string - only
+        // shown while the gripper is closed (nothing is open and still
+        // holding) and there's actually a payload staged. Hangs
+        // straight down (-Y, the same "down" every torque calculation's
+        // gravity vector already uses) rather than along the arm's own
+        // direction, the way a real cable under tension would.
         Model {
             readonly property int lastIndex: armController.jointPositions.length - 1
             readonly property vector3d tipPosition: lastIndex >= 0 ? armController.jointPositions[lastIndex]
                                                                     : Qt.vector3d(0, 0, 0)
             readonly property real hangMeters: 0.12 + armController.payloadKg * 0.01
 
-            source: "#Cube"
+            source: "#Sphere"
             visible: !armController.gripperOpen && armController.payloadKg > 0 && lastIndex >= 0
             position: Qt.vector3d(tipPosition.x, tipPosition.y - hangMeters, tipPosition.z)
             scale: {
