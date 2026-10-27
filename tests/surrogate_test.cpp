@@ -86,3 +86,32 @@ TEST(Surrogate, ThrowsOnWrongInputSize) {
 TEST(Surrogate, ThrowsOnMissingWeightsFile) {
   EXPECT_THROW(Surrogate("/nonexistent/path/does_not_exist.json"), std::runtime_error);
 }
+
+TEST(Surrogate, PredictDelegatesToPredictRawIdentically) {
+  // predict() is documented as just assembling [joint_values..., payload]
+  // and calling predict_raw() - verify that's actually true, not just a
+  // comment, so a future refactor of one can't silently diverge from the
+  // other.
+  const Surrogate surrogate(weights_path());
+  ASSERT_EQ(surrogate.input_dim(), surrogate.num_joints() + 1);
+
+  const std::vector<double> joint_values = {1.2, -0.7};
+  const double payload = 2.0;
+
+  std::vector<double> raw_input = joint_values;
+  raw_input.push_back(payload);
+
+  const std::vector<double> via_predict = surrogate.predict(joint_values, payload);
+  const std::vector<double> via_raw = surrogate.predict_raw(raw_input);
+
+  ASSERT_EQ(via_predict.size(), via_raw.size());
+  for (size_t i = 0; i < via_predict.size(); i++) {
+    EXPECT_DOUBLE_EQ(via_predict[i], via_raw[i]);
+  }
+}
+
+TEST(Surrogate, PredictRawThrowsOnWrongInputSize) {
+  const Surrogate surrogate(weights_path());
+  EXPECT_THROW(surrogate.predict_raw({0.0, 0.0}), std::invalid_argument);
+  EXPECT_THROW(surrogate.predict_raw({0.0, 0.0, 0.0, 0.0}), std::invalid_argument);
+}
