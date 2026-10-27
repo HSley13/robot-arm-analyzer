@@ -130,3 +130,45 @@ TEST(Dynamics, PureAngularAccelerationMatchesParallelAxisTheorem) {
   ASSERT_EQ(tau.size(), 1);
   EXPECT_NEAR(tau(0), mass * length * length * alpha, 1e-9);
 }
+
+TEST(Dynamics, TorqueBreakdownSumsExactlyToTheDirectTotal) {
+  // The whole point of decompose_torque() is that gravity+inertia+coriolis
+  // must equal a DIRECTLY computed total, not just whatever the sum
+  // happens to be - this is the actual verification, not the component
+  // values individually.
+  const ArmModel arm({DHParameter(1.0), DHParameter(0.5)});
+  const std::vector<LinkInertial> links = {LinkInertial::rod(2.0, 1.0), LinkInertial::rod(1.0, 0.5)};
+
+  const std::vector<double> theta = {0.6, -1.1};
+  const std::vector<double> velocity = {1.3, -0.9};
+  const std::vector<double> acceleration = {2.5, 1.7};
+  const double payload = 1.5;
+  const Eigen::Vector3d gravity(0.0, -9.81, 0.0);
+
+  const robotarm::TorqueBreakdown breakdown =
+      robotarm::decompose_torque(arm, theta, velocity, acceleration, links, payload, gravity);
+  const Eigen::VectorXd direct_total = inverse_dynamics(arm, theta, velocity, acceleration, links, payload, gravity);
+
+  ASSERT_EQ(breakdown.total.size(), direct_total.size());
+  for (Eigen::Index i = 0; i < direct_total.size(); i++) {
+    EXPECT_NEAR(breakdown.total(i), direct_total(i), 1e-9) << "joint " << i << " (direct total)";
+    const double sum = breakdown.gravity(i) + breakdown.inertia(i) + breakdown.coriolis(i);
+    EXPECT_NEAR(sum, direct_total(i), 1e-9) << "joint " << i << " (sum of components)";
+  }
+}
+
+TEST(Dynamics, BreakdownComponentsAreZeroWhenTheirCauseIsAbsent) {
+  // At rest (zero velocity, zero acceleration), inertia and Coriolis must
+  // both vanish, leaving gravity as the entire total - directly testing
+  // that each term is actually isolated, not just summing correctly.
+  const ArmModel arm({DHParameter(1.0)});
+  const std::vector<LinkInertial> links = {LinkInertial::rod(2.0, 1.0)};
+  const std::vector<double> theta = {0.4};
+  const std::vector<double> zero = {0.0};
+  const Eigen::Vector3d gravity(0.0, -9.81, 0.0);
+
+  const robotarm::TorqueBreakdown breakdown = robotarm::decompose_torque(arm, theta, zero, zero, links, 0.0, gravity);
+  EXPECT_NEAR(breakdown.inertia(0), 0.0, 1e-12);
+  EXPECT_NEAR(breakdown.coriolis(0), 0.0, 1e-12);
+  EXPECT_NEAR(breakdown.gravity(0), breakdown.total(0), 1e-9);
+}

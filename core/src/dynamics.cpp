@@ -123,4 +123,23 @@ Eigen::VectorXd inverse_dynamics(const ArmModel &arm, const std::vector<double> 
   return tau;
 }
 
+TorqueBreakdown decompose_torque(const ArmModel &arm, const std::vector<double> &joint_values,
+                                  const std::vector<double> &joint_velocities,
+                                  const std::vector<double> &joint_accelerations,
+                                  const std::vector<LinkInertial> &links, double payload_mass,
+                                  const Eigen::Vector3d &gravity) {
+  const size_t n = arm.num_joints();
+  const std::vector<double> zero(n, 0.0);
+  const Eigen::Vector3d no_gravity = Eigen::Vector3d::Zero();
+
+  TorqueBreakdown breakdown;
+  breakdown.gravity = inverse_dynamics(arm, joint_values, zero, zero, links, payload_mass, gravity);
+  breakdown.inertia = inverse_dynamics(arm, joint_values, zero, joint_accelerations, links, payload_mass, no_gravity);
+  breakdown.coriolis =
+      inverse_dynamics(arm, joint_values, joint_velocities, zero, links, payload_mass, no_gravity);
+  breakdown.total =
+      inverse_dynamics(arm, joint_values, joint_velocities, joint_accelerations, links, payload_mass, gravity);
+  return breakdown;
+}
+
 } // namespace robotarm
