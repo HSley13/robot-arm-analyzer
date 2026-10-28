@@ -705,14 +705,19 @@ Rectangle {
                         text: "Config file"
                     }
 
-                    // Drag a .json config file from the Finder onto
-                    // this zone to load it immediately - no typing or
-                    // browsing needed. Highlights while a file is
-                    // dragged over it, same cyan accent as the rest of
-                    // this UI's interactive affordances.
+                    // One combined load zone, no typed path at all:
+                    // drop a .json file from the Finder anywhere on
+                    // it, or click the button in its middle to browse
+                    // for one instead - both end up calling
+                    // loadConfig() the same way. The Button and the
+                    // DropArea don't conflict despite overlapping:
+                    // a DropArea only reacts to an external OS drag
+                    // session, never to an ordinary click, so the
+                    // button underneath it still receives clicks
+                    // normally.
                     Rectangle {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 44
+                        Layout.preferredHeight: 84
                         radius: 8
                         color: dropArea.containsDrag ? "#1c2a3a" : "#11131f"
                         border.color: dropArea.containsDrag ? "#17e0ff" : "#262a40"
@@ -721,11 +726,22 @@ Rectangle {
                         Behavior on color { ColorAnimation { duration: 120 } }
                         Behavior on border.color { ColorAnimation { duration: 120 } }
 
-                        Label {
+                        ColumnLayout {
                             anchors.centerIn: parent
-                            color: "#7a8099"
-                            font.pixelSize: 11
-                            text: "Drop a config .json file here"
+                            spacing: 8
+
+                            Label {
+                                Layout.alignment: Qt.AlignHCenter
+                                color: "#7a8099"
+                                font.pixelSize: 11
+                                text: "Drop a config .json file here"
+                            }
+
+                            Button {
+                                Layout.alignment: Qt.AlignHCenter
+                                text: "Browse…"
+                                onClicked: loadFileDialog.open()
+                            }
                         }
 
                         DropArea {
@@ -733,53 +749,31 @@ Rectangle {
                             anchors.fill: parent
                             onDropped: (drop) => {
                                 if (!drop.hasUrls || drop.urls.length === 0) return
-                                const path = root.urlToLocalPath(drop.urls[0])
-                                configPathField.text = path
-                                armController.loadConfig(path)
+                                armController.loadConfig(root.urlToLocalPath(drop.urls[0]))
                             }
                         }
                     }
 
-                    TextField {
-                        id: configPathField
+                    Button {
                         Layout.fillWidth: true
-                        placeholderText: "/path/to/arm_config.json"
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-
-                        Button {
-                            Layout.fillWidth: true
-                            text: "Browse…"
-                            onClicked: configFileDialog.open()
-                        }
-
-                        Button {
-                            Layout.fillWidth: true
-                            text: "Save"
-                            enabled: configPathField.text.length > 0
-                            onClicked: armController.saveConfig(configPathField.text)
-                        }
-
-                        Button {
-                            Layout.fillWidth: true
-                            text: "Load"
-                            enabled: configPathField.text.length > 0
-                            onClicked: armController.loadConfig(configPathField.text)
-                        }
+                        text: "Save…"
+                        onClicked: saveFileDialog.open()
                     }
 
                     FileDialog {
-                        id: configFileDialog
+                        id: loadFileDialog
                         title: "Choose an arm config file"
+                        fileMode: FileDialog.OpenFile
                         nameFilters: ["JSON files (*.json)", "All files (*)"]
-                        onAccepted: {
-                            const path = root.urlToLocalPath(selectedFile)
-                            configPathField.text = path
-                            armController.loadConfig(path)
-                        }
+                        onAccepted: armController.loadConfig(root.urlToLocalPath(selectedFile))
+                    }
+
+                    FileDialog {
+                        id: saveFileDialog
+                        title: "Save arm config as"
+                        fileMode: FileDialog.SaveFile
+                        nameFilters: ["JSON files (*.json)", "All files (*)"]
+                        onAccepted: armController.saveConfig(root.urlToLocalPath(selectedFile))
                     }
 
                     Label {
