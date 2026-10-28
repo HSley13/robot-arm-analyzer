@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 
 // Phase 5: redesigned around direct feedback that the plain-Slider
@@ -15,7 +16,20 @@ import QtQuick.Layouts
 // color palette matches the 3D view's own (dark navy background, cyan
 // accent) so the sidebar reads as part of the same instrument panel.
 Rectangle {
+    id: root
     color: "#0e1021"
+
+    // Converts a file:// URL (from FileDialog.selectedFile or a
+    // DropArea's drop.urls) into a plain local path string -
+    // armController.loadConfig()/saveConfig() take a filesystem path,
+    // not a URL, and QML has no built-in url-to-local-path conversion.
+    // Only handles the file:// scheme this app's own file pickers and
+    // OS drag-and-drop actually produce, not arbitrary URLs.
+    function urlToLocalPath(fileUrl) {
+        let path = fileUrl.toString()
+        if (path.startsWith("file://")) path = path.substring(7)
+        return decodeURIComponent(path)
+    }
 
     ScrollView {
         anchors.fill: parent
@@ -691,6 +705,41 @@ Rectangle {
                         text: "Config file"
                     }
 
+                    // Drag a .json config file from the Finder onto
+                    // this zone to load it immediately - no typing or
+                    // browsing needed. Highlights while a file is
+                    // dragged over it, same cyan accent as the rest of
+                    // this UI's interactive affordances.
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 44
+                        radius: 8
+                        color: dropArea.containsDrag ? "#1c2a3a" : "#11131f"
+                        border.color: dropArea.containsDrag ? "#17e0ff" : "#262a40"
+                        border.width: 1
+
+                        Behavior on color { ColorAnimation { duration: 120 } }
+                        Behavior on border.color { ColorAnimation { duration: 120 } }
+
+                        Label {
+                            anchors.centerIn: parent
+                            color: "#7a8099"
+                            font.pixelSize: 11
+                            text: "Drop a config .json file here"
+                        }
+
+                        DropArea {
+                            id: dropArea
+                            anchors.fill: parent
+                            onDropped: (drop) => {
+                                if (!drop.hasUrls || drop.urls.length === 0) return
+                                const path = root.urlToLocalPath(drop.urls[0])
+                                configPathField.text = path
+                                armController.loadConfig(path)
+                            }
+                        }
+                    }
+
                     TextField {
                         id: configPathField
                         Layout.fillWidth: true
@@ -700,6 +749,12 @@ Rectangle {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 8
+
+                        Button {
+                            Layout.fillWidth: true
+                            text: "Browse…"
+                            onClicked: configFileDialog.open()
+                        }
 
                         Button {
                             Layout.fillWidth: true
@@ -713,6 +768,17 @@ Rectangle {
                             text: "Load"
                             enabled: configPathField.text.length > 0
                             onClicked: armController.loadConfig(configPathField.text)
+                        }
+                    }
+
+                    FileDialog {
+                        id: configFileDialog
+                        title: "Choose an arm config file"
+                        nameFilters: ["JSON files (*.json)", "All files (*)"]
+                        onAccepted: {
+                            const path = root.urlToLocalPath(selectedFile)
+                            configPathField.text = path
+                            armController.loadConfig(path)
                         }
                     }
 

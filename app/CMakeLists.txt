@@ -1,4 +1,4 @@
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Quick3D QuickControls2)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Quick3D QuickControls2 QuickDialogs2)
 
 # Split out from the executable so arm_controller.cpp is testable with
 # plain GTest, without needing a QGuiApplication/QML engine.
@@ -22,6 +22,7 @@ target_link_libraries(robotarm_app PRIVATE
     Qt6::Quick
     Qt6::Quick3D
     Qt6::QuickControls2
+    Qt6::QuickDialogs2
     robotarm_app_core
 )
 
