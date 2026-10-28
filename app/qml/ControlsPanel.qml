@@ -395,6 +395,45 @@ Rectangle {
                             }
                         }
 
+                        // Editable link mass (Phase 6) - the arm's own
+                        // weight, not the payload it carries, so it
+                        // can be scaled to simulate something far
+                        // lighter or heavier than the shipped
+                        // defaults. The slider covers a convenient
+                        // everyday range (0-100kg); the field next to
+                        // it takes any value at all, since a fixed
+                        // slider range can never cover "whatever scale
+                        // someone is actually designing for."
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Label {
+                                color: "#9aa0ab"
+                                text: "mass"
+                            }
+
+                            Slider {
+                                Layout.fillWidth: true
+                                from: 0
+                                to: 100
+                                value: armController.jointMassesKg[jointCard.index]
+                                onMoved: armController.setJointMass(jointCard.index, value)
+                            }
+
+                            TextField {
+                                implicitWidth: 60
+                                text: armController.jointMassesKg[jointCard.index].toFixed(1)
+                                validator: DoubleValidator { bottom: 0 }
+                                onEditingFinished: armController.setJointMass(jointCard.index, parseFloat(text))
+                            }
+
+                            Label {
+                                color: "#9aa0ab"
+                                text: "kg"
+                            }
+                        }
+
                         // Torque breakdown (Phase 2): gravity/inertia/
                         // Coriolis, per the roadmap's NovaSolver lesson
                         // - *why* a joint is loaded, not just how much.
@@ -430,15 +469,39 @@ Rectangle {
                     Label {
                         color: "white"
                         font.bold: true
-                        text: "Payload: " + armController.payloadKg.toFixed(2) + " kg"
+                        text: "Payload"
                     }
 
-                    Slider {
+                    // The slider's range (0-50kg) is just a convenient
+                    // everyday scale for dragging - it was previously
+                    // capped at 5kg with no way to go higher at all.
+                    // The field next to it takes any value, so this
+                    // arm can carry whatever someone is actually
+                    // designing it to lift, not just what fits a
+                    // slider.
+                    RowLayout {
                         Layout.fillWidth: true
-                        from: 0
-                        to: 5
-                        value: armController.payloadKg
-                        onMoved: armController.payloadKg = value
+                        spacing: 8
+
+                        Slider {
+                            Layout.fillWidth: true
+                            from: 0
+                            to: 50
+                            value: armController.payloadKg
+                            onMoved: armController.payloadKg = value
+                        }
+
+                        TextField {
+                            implicitWidth: 70
+                            text: armController.payloadKg.toFixed(1)
+                            validator: DoubleValidator { bottom: 0 }
+                            onEditingFinished: armController.payloadKg = parseFloat(text)
+                        }
+
+                        Label {
+                            color: "#9aa0ab"
+                            text: "kg"
+                        }
                     }
 
                     // The gripper decides whether the staged payload
