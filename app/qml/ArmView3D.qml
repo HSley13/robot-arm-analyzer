@@ -407,19 +407,10 @@ Item {
     // never reaches the View3D's OrbitCameraController underneath, so
     // this can't conflict with camera-orbit dragging the way two
     // competing 3D pointer handlers could.
-    //
-    // Visibility (user feedback: this looked like it didn't exist at
-    // all): the ring used to be a fully transparent fill with only a
-    // thin gray outline and no hover feedback, so there was nothing
-    // to notice before you happened to click exactly on it. Now it's
-    // a faint-but-always-visible cyan ring (the same accent color as
-    // every other interactive/status element this project uses),
-    // brightens further on hover with an open-hand cursor, and shows
-    // a floating degree readout while actually dragging.
     Repeater {
         model: armController.jointCount
 
-        Item {
+        Rectangle {
             id: jointHandle
             required property int index
 
@@ -432,51 +423,13 @@ Item {
             enabled: !armController.trajectoryScrubMode
             x: screenPosition.x - width / 2
             y: screenPosition.y - height / 2
-            width: 32
-            height: 32
+            width: 28
+            height: 28
+            radius: width / 2
+            color: "transparent"
             opacity: enabled ? 1.0 : 0.3
-
-            Rectangle {
-                anchors.fill: parent
-                radius: width / 2
-                color: dragHandler.active ? Qt.rgba(0.09, 0.88, 1.0, 0.3)
-                     : (hoverHandler.hovered ? Qt.rgba(0.09, 0.88, 1.0, 0.15) : Qt.rgba(0.09, 0.88, 1.0, 0.05))
-                border.width: dragHandler.active ? 3 : 2
-                border.color: dragHandler.active ? "#ffffff" : (hoverHandler.hovered ? "#17e0ff" : "#4a5468")
-
-                Behavior on color { ColorAnimation { duration: 120 } }
-                Behavior on border.color { ColorAnimation { duration: 120 } }
-            }
-
-            // Floating angle readout, only while actually dragging -
-            // immediate numeric feedback right where the hand is,
-            // without needing to glance at the sidebar dial.
-            Rectangle {
-                visible: dragHandler.active
-                anchors.bottom: parent.top
-                anchors.bottomMargin: 6
-                anchors.horizontalCenter: parent.horizontalCenter
-                width: angleReadout.implicitWidth + 10
-                height: angleReadout.implicitHeight + 6
-                radius: 4
-                color: "#0e1021"
-                border.color: "#17e0ff"
-                border.width: 1
-
-                Text {
-                    id: angleReadout
-                    anchors.centerIn: parent
-                    color: "white"
-                    font.bold: true
-                    font.pixelSize: 12
-                    text: Math.round(armController.jointAnglesDegrees[jointHandle.index]) + "°"
-                }
-            }
-
-            HoverHandler {
-                id: hoverHandler
-                cursorShape: dragHandler.active ? Qt.ClosedHandCursor : Qt.OpenHandCursor
-            }
+            border.width: dragHandler.active ? 3 : 2
+            border.color: dragHandler.active ? "#ffffff" : "#cccccc"
 
             DragHandler {
                 id: dragHandler

@@ -209,6 +209,34 @@ void ArmController::setJointLength(int index, double meters) {
   recompute();
 }
 
+void ArmController::setJointMass(int index, double kg) {
+  if (index < 0 || static_cast<size_t>(index) >= _config.joints.size()) return;
+  if (kg < 0.0) return; // matches parse_arm_config()'s own rule - 0 itself is valid
+
+  JointConfig &joint = _config.joints[static_cast<size_t>(index)];
+  joint.mass = kg;
+  joint.inertial = LinkInertial::rod(kg, joint.dh.a);
+
+  // Geometry is untouched by a mass change - only the mass/inertia
+  // data _links/_inertialLinks carry needs rebuilding, unlike
+  // setJointLength()'s _arm = to_arm_model(_config).
+  _links = to_link_masses(_config);
+  _inertialLinks = to_link_inertials(_config);
+
+  // Same reasoning as setJointLength(): the surrogate's training
+  // data baked in the ORIGINAL masses, so its predictions would
+  // silently stop matching reality the moment one changes.
+  _aiMode = false;
+
+  // Any previous payload scan described the arm's OLD weight - same
+  // staleness reasoning as setJointLength().
+  _scanReachMeters.clear();
+  _scanExactPayloadKg.clear();
+  _scanAiPayloadKg.clear();
+
+  recompute();
+}
+
 void ArmController::addJoint() {
   JointConfig joint;
   joint.dh.type = JointType::Revolute;
@@ -512,6 +540,12 @@ QVariantList ArmController::jointTorques() const { return to_variant_list(_joint
 QVariantList ArmController::jointTorqueLimits() const {
   QVariantList result;
   for (const JointConfig &joint : _config.joints) result.append(joint.torque_limit);
+  return result;
+}
+
+QVariantList ArmController::jointMassesKg() const {
+  QVariantList result;
+  for (const JointConfig &joint : _config.joints) result.append(joint.mass);
   return result;
 }
 

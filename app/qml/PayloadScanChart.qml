@@ -29,12 +29,23 @@ Item {
         property var ai: root.aiPayloadKg
         property bool aiOn: root.aiAvailable
 
-        onReachChanged: requestPaint()
-        onExactChanged: requestPaint()
-        onAiChanged: requestPaint()
-        onAiOnChanged: requestPaint()
-        onWidthChanged: requestPaint()
-        onHeightChanged: requestPaint()
+        // Qt.callLater(), not a direct requestPaint() call: these
+        // handlers can fire during the initial layout pass (e.g.
+        // onWidthChanged, the moment the ScrollView/ColumnLayout
+        // above first sizes this item), before the window is
+        // necessarily attached to the render thread yet - calling
+        // requestPaint() synchronously at that exact moment is what
+        // produced an intermittent "Updates can only be scheduled
+        // from GUI thread or from QQuickItem::updatePaintNode()"
+        // warning (observed in ~1 of every 6-10 runs). Deferring to
+        // the next event loop iteration lets construction/layout
+        // settle first.
+        onReachChanged: Qt.callLater(requestPaint)
+        onExactChanged: Qt.callLater(requestPaint)
+        onAiChanged: Qt.callLater(requestPaint)
+        onAiOnChanged: Qt.callLater(requestPaint)
+        onWidthChanged: Qt.callLater(requestPaint)
+        onHeightChanged: Qt.callLater(requestPaint)
 
         onPaint: {
             const ctx = getContext("2d")

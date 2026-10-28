@@ -497,6 +497,75 @@ TEST(ArmController, SaveConfigThenLoadConfigRoundTripsAnEditedLength) {
   EXPECT_NEAR(reloaded_target.linkLengths().at(0).toDouble(), 1.75, 1e-9);
 }
 
+TEST(ArmController, SetJointMassChangesTheReportedMass) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setJointMass(0, 500.0); // simulate a much heavier arm, not just a heavier payload
+  EXPECT_DOUBLE_EQ(controller.jointMassesKg().at(0).toDouble(), 500.0);
+}
+
+TEST(ArmController, SetJointMassAcceptsZeroButRejectsNegativeAndBadIndex) {
+  ArmController controller(config_path(), surrogate_path());
+  const double original = controller.jointMassesKg().at(0).toDouble();
+
+  controller.setJointMass(0, -1.0);
+  EXPECT_DOUBLE_EQ(controller.jointMassesKg().at(0).toDouble(), original);
+
+  controller.setJointMass(0, 0.0); // a massless link is valid, unlike a non-positive length
+  EXPECT_DOUBLE_EQ(controller.jointMassesKg().at(0).toDouble(), 0.0);
+
+  controller.setJointMass(99, 5.0); // must not crash
+}
+
+TEST(ArmController, SetJointMassDisablesAiMode) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setAiMode(true);
+  ASSERT_TRUE(controller.aiMode());
+
+  controller.setJointMass(0, 10.0);
+  EXPECT_FALSE(controller.aiMode());
+}
+
+TEST(ArmController, SetJointMassChangesTorqueForTheSamePose) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setJointAngleDegrees(0, 20.0);
+  controller.setJointAngleDegrees(1, -15.0);
+  const QVariantList torque_before = controller.jointTorques();
+
+  controller.setJointMass(0, 50.0); // a much heavier link loads every upstream joint more
+
+  const QVariantList torque_after = controller.jointTorques();
+  ASSERT_EQ(torque_before.size(), torque_after.size());
+  bool any_changed = false;
+  for (int i = 0; i < torque_before.size(); i++) {
+    if (torque_before.at(i).toDouble() != torque_after.at(i).toDouble()) any_changed = true;
+  }
+  EXPECT_TRUE(any_changed);
+}
+
+TEST(ArmController, SetJointMassClearsAPreviousScan) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.runPayloadScan(10);
+  ASSERT_EQ(controller.scanSampleCount(), 10);
+
+  controller.setJointMass(0, 20.0);
+  EXPECT_EQ(controller.scanSampleCount(), 0);
+}
+
+TEST(ArmController, SaveConfigThenLoadConfigRoundTripsAnEditedMass) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setJointMass(0, 123.0);
+
+  const std::filesystem::path path =
+      std::filesystem::temp_directory_path() / "robotarm_arm_controller_mass_roundtrip_test.json";
+  ASSERT_TRUE(controller.saveConfig(QString::fromStdString(path.string())));
+
+  ArmController reloaded_target(config_path(), surrogate_path());
+  ASSERT_TRUE(reloaded_target.loadConfig(QString::fromStdString(path.string())));
+  std::filesystem::remove(path);
+
+  EXPECT_DOUBLE_EQ(reloaded_target.jointMassesKg().at(0).toDouble(), 123.0);
+}
+
 TEST(ArmController, CurrentMaxSafePayloadKgIsPositiveAndBounded) {
   ArmController controller(config_path(), surrogate_path());
   controller.setJointAngleDegrees(0, 0.0); // extended horizontally - the worst case
