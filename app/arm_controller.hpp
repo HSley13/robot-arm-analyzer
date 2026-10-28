@@ -84,6 +84,10 @@ class ArmController : public QObject {
   // user-editable from the UI, ahead of saving them to a config file.
   Q_PROPERTY(QVariantList jointTorqueLimits READ jointTorqueLimits NOTIFY resultsChanged)
   Q_PROPERTY(QVariantList jointColors READ jointColors NOTIFY resultsChanged)
+  // Each joint's own mass, kg - editable via setJointMass() so the
+  // arm itself can be scaled up or down (a tiny precision arm vs. a
+  // massive industrial one), not just the payload it's carrying.
+  Q_PROPERTY(QVariantList jointMassesKg READ jointMassesKg NOTIFY resultsChanged)
 
   // The torque breakdown (Phase 2): gravity/inertia/Coriolis, per the
   // roadmap's NovaSolver lesson. Always valid even outside dynamic mode
@@ -155,6 +159,7 @@ public:
   QVariantList jointTorques() const;
   QVariantList jointTorqueLimits() const;
   QVariantList jointColors() const;
+  QVariantList jointMassesKg() const;
 
   QVariantList gravityTorques() const;
   QVariantList inertiaTorques() const;
@@ -216,6 +221,19 @@ public:
   // longer or shorter, so its predictions would silently stop matching
   // reality the moment this changes.
   Q_INVOKABLE void setJointLength(int index, double meters);
+
+  // Edits this joint's own mass in place - the arm's weight, not the
+  // payload it's carrying, so the whole arm can be scaled to simulate
+  // something much lighter or heavier than the shipped defaults.
+  // Rejects negative values only (matching parse_arm_config()'s own
+  // rule - a massless link, mass 0, is valid). Re-derives this link's
+  // inertial data as LinkInertial::rod(kg, a) the same way
+  // setJointLength() does, and for the same reason turns aiMode off:
+  // the surrogate's training data baked in the ORIGINAL masses, so
+  // its predictions would silently stop matching reality the moment
+  // a mass changes. Geometry (_arm) is untouched - only _links/
+  // _inertialLinks need rebuilding.
+  Q_INVOKABLE void setJointMass(int index, double kg);
 
   // Appends a new revolute joint to the end of the chain - a real
   // topology change, not just an edited existing joint. Defaults
