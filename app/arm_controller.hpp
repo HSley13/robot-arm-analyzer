@@ -52,13 +52,6 @@ class ArmController : public QObject {
   // close it, and the torques jump by the weight.
   Q_PROPERTY(bool gripperOpen READ gripperOpen WRITE setGripperOpen NOTIFY resultsChanged)
   Q_PROPERTY(bool aiMode READ aiMode WRITE setAiMode NOTIFY resultsChanged)
-  // Purely a UI toggle (no physics behind it, unlike every other bool
-  // property above) - stored here anyway because ControlsPanel.qml's
-  // switch and ArmView3D.qml's workspace-envelope disc are siblings
-  // under Main.qml, not parent/child, and armController is the one
-  // thing both already have access to.
-  Q_PROPERTY(bool showWorkspaceEnvelope READ showWorkspaceEnvelope WRITE setShowWorkspaceEnvelope NOTIFY resultsChanged)
-
   // Dynamic mode (Phase 2): when on, jointVelocitiesDegrees/
   // jointAccelerationsDegrees feed inverse_dynamics() (or the dynamic AI
   // surrogate) instead of the static (at-rest) calculation.
@@ -140,8 +133,6 @@ public:
   void setPayloadKg(double kg);
   bool gripperOpen() const { return _gripperOpen; }
   void setGripperOpen(bool open);
-  bool showWorkspaceEnvelope() const { return _showWorkspaceEnvelope; }
-  void setShowWorkspaceEnvelope(bool show);
   bool aiMode() const { return _aiMode; }
   void setAiMode(bool enabled);
 
@@ -331,7 +322,6 @@ private:
   std::vector<double> _jointAccelerationsRadians;
   double _payloadKg = 0.0;
   bool _gripperOpen = false; // closed by default - see the Q_PROPERTY doc comment above
-  bool _showWorkspaceEnvelope = false;
   bool _aiMode = false;
   bool _dynamicMode = false;
 

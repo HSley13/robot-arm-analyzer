@@ -40,11 +40,10 @@ Window {
 
             ControlsPanel {
                 // Follows the bottom bar's own height (not a fixed
-                // guess) plus a flat margin, on request, to be "a bit
-                // wider" than a literal 1:1 match - so the two panels
-                // framing the 3D view still read as one consistent
-                // border thickness, just not pinned exactly equal.
-                Layout.preferredWidth: bottomBar.implicitHeight + 60
+                // guess) but smaller - proportional to it, not equal
+                // to it - so the sidebar stays narrower than the
+                // bottom bar is tall, on request.
+                Layout.preferredWidth: bottomBar.implicitHeight * 0.75
                 Layout.fillHeight: true
             }
         }

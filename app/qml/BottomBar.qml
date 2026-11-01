@@ -44,19 +44,26 @@ Rectangle {
             // settings that are each small on their own, combined
             // into ONE card instead of three, stacked vertically so
             // all three are automatically the same width (one shared
-            // column) and the same height by default (each section
-            // below uses the same sectionHeight constant) - order
-            // between them doesn't matter, so Exact/AI sits on top
-            // here simply because it was first in the sidebar before.
-            // Only the Static/Dynamic section can grow taller than the
-            // others, and only while Scrub trajectory is actually on
-            // (its own extra recording controls) - an intentional,
-            // occasional exception, not a layout bug.
+            // column) - order between them doesn't matter, so
+            // Exact/AI sits on top here simply because it was first
+            // in the sidebar before. The card's OVERALL height is
+            // pinned to match a joint card's height exactly (see
+            // implicitHeight below, and the trailing spacer at the
+            // end of combinedColumn that absorbs the difference),
+            // not just each section individually.
             Rectangle {
                 id: combinedCard
-                readonly property int sectionHeight: 112
                 Layout.preferredWidth: 190
-                implicitHeight: combinedColumn.implicitHeight + 20
+                // Matches a joint card's own height exactly, not an
+                // independent guess - jointRepeater.itemAt(0) is
+                // representative of every joint card (same layout,
+                // just different numbers), and this stays correct
+                // automatically as that height changes (e.g. Dynamic
+                // mode adding the velocity/acceleration/breakdown
+                // section to every joint card).
+                implicitHeight: jointRepeater.count > 0
+                    ? jointRepeater.itemAt(0).implicitHeight
+                    : combinedColumn.implicitHeight + 20
                 color: "#171a2b"
                 radius: 14
                 border.color: "#262a40"
@@ -72,7 +79,6 @@ Rectangle {
                     // joint torque.
                     ColumnLayout {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: combinedCard.sectionHeight
                         spacing: 5
 
                         RowLayout {
@@ -97,19 +103,6 @@ Rectangle {
                                 text: "AI" + (armController.aiModeAvailable ? "" : " (none)")
                             }
                         }
-
-                        // What this switch actually does, spelled out
-                        // once - "Exact" and "AI" otherwise read as
-                        // two unexplained words.
-                        Label {
-                            color: "#7a8099"
-                            font.pixelSize: 10
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            text: "Exact runs the real physics engine. AI approximates it "
-                                + "with a trained neural network - usually close, much faster."
-                        }
                     }
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#262a40" }
@@ -121,7 +114,6 @@ Rectangle {
                     // rest.
                     ColumnLayout {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Math.max(combinedCard.sectionHeight, implicitHeight)
                         spacing: 5
 
                         RowLayout {
@@ -144,16 +136,6 @@ Rectangle {
                                 opacity: armController.dynamicMode ? 1.0 : 0.5
                                 text: "Dynamic"
                             }
-                        }
-
-                        Label {
-                            color: "#7a8099"
-                            font.pixelSize: 10
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            text: "Dynamic adds each joint's velocity/acceleration into the "
-                                + "torque calculation, instead of treating the arm as at rest."
                         }
 
                         RowLayout {
@@ -212,7 +194,7 @@ Rectangle {
                     // per-joint cards to the right.
                     ColumnLayout {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: combinedCard.sectionHeight
+                        Layout.fillHeight: true
                         spacing: 6
 
                         Label {
@@ -247,6 +229,7 @@ Rectangle {
             }
 
             Repeater {
+                id: jointRepeater
                 model: armController.jointCount
 
                 Rectangle {

@@ -30,10 +30,14 @@ Item {
     function metersFromPx(px) { return (px - width / 2) / (width / 2) * rangeMeters }
     function metersFromPy(py) { return -(py - height / 2) / (height / 2) * rangeMeters }
 
+    // A true circle, not a rounded square - this pad represents the
+    // arm's reach, which is itself circular, so the backdrop reads as
+    // the same shape as the reference reach ring drawn on top of it
+    // rather than a square window it happens to sit inside.
     Rectangle {
         anchors.fill: parent
         color: "#11131f"
-        radius: 10
+        radius: width / 2
         border.color: "#262a40"
         border.width: 1
     }

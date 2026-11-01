@@ -148,24 +148,27 @@ Item {
             }
         }
 
-        // Workspace envelope (Phase 6, toggled off by default): a
-        // translucent disc in the arm's own XY motion plane showing
-        // how far it can reach - radius = the sum of every link's
-        // length (canvasCenter.x is already exactly half that, reused
-        // here rather than adding a second property for the same
-        // number). Rotated 90 about X for the same reason the joint
-        // motor drums are: the built-in cylinder's flat face is
-        // normally perpendicular to Y, and this needs it perpendicular
-        // to Z instead, flat in the plane the arm actually moves in.
-        // A single disc, not a true annulus with a cut-out center for
-        // arms whose first link is much longer than the rest can't
-        // quite reach - a deliberate simplification (Qt Quick 3D has
-        // no ring primitive to subtract one disc from another), not
-        // an attempt at an exact reachable-workspace boundary.
+        // Workspace envelope (Phase 6): a translucent disc in the
+        // arm's own XY motion plane showing how far it can reach -
+        // radius = the sum of every link's length (canvasCenter.x is
+        // already exactly half that, reused here rather than adding a
+        // second property for the same number), so it already tracks
+        // setJointLength() changes live, the same way the sidebar's
+        // reach pad does. Always visible (no toggle - this used to be
+        // switch-gated, but the reach is exactly the kind of thing
+        // that should never need asking for). Rotated 90 about X for
+        // the same reason the joint motor drums are: the built-in
+        // cylinder's flat face is normally perpendicular to Y, and
+        // this needs it perpendicular to Z instead, flat in the plane
+        // the arm actually moves in. A single disc, not a true
+        // annulus with a cut-out center for arms whose first link is
+        // much longer than the rest can't quite reach - a deliberate
+        // simplification (Qt Quick 3D has no ring primitive to
+        // subtract one disc from another), not an attempt at an exact
+        // reachable-workspace boundary.
         Model {
             readonly property real maxReachMeters: armController.canvasCenter.x * 2
             source: "#Cylinder"
-            visible: armController.showWorkspaceEnvelope
             rotation: Qt.vector3d(90, 0, 0)
             opacity: 0.12
             scale: {
