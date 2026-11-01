@@ -401,16 +401,26 @@ Item {
     // jointPositions entry - the last entry is the end-effector tip, not
     // a pivot), projected onto its screen position. Dragging it left/
     // right changes that joint's angle directly in the main view, not
-    // just via the sidebar sliders. These are plain 2D Items stacked on
-    // top of the View3D, not 3D ray-picking - standard Qt Quick 2D event
-    // delivery means a press that lands on a ring is consumed there and
-    // never reaches the View3D's OrbitCameraController underneath, so
-    // this can't conflict with camera-orbit dragging the way two
-    // competing 3D pointer handlers could.
+    // just via the sidebar/bottom-bar controls. These are plain 2D Items
+    // stacked on top of the View3D, not 3D ray-picking - standard Qt
+    // Quick 2D event delivery means a press that lands on a ring is
+    // consumed there and never reaches the View3D's OrbitCameraController
+    // underneath, so this can't conflict with camera-orbit dragging the
+    // way two competing 3D pointer handlers could.
+    //
+    // Visibility: a faint-but-always-visible cyan ring (the same accent
+    // color as every other interactive/status element this project
+    // uses) at rest, brightening further on hover with an open-hand
+    // cursor, brighter still (plus a white border) while actually
+    // dragging, with a floating degree readout right above the handle
+    // then - click-and-select-a-joint-in-3D-space needs to actually be
+    // noticeable to be discoverable at all, not just technically
+    // present (an earlier, fully-transparent-fill/thin-gray-outline
+    // version of this same ring genuinely looked like it didn't exist).
     Repeater {
         model: armController.jointCount
 
-        Rectangle {
+        Item {
             id: jointHandle
             required property int index
 
@@ -423,13 +433,51 @@ Item {
             enabled: !armController.trajectoryScrubMode
             x: screenPosition.x - width / 2
             y: screenPosition.y - height / 2
-            width: 28
-            height: 28
-            radius: width / 2
-            color: "transparent"
+            width: 32
+            height: 32
             opacity: enabled ? 1.0 : 0.3
-            border.width: dragHandler.active ? 3 : 2
-            border.color: dragHandler.active ? "#ffffff" : "#cccccc"
+
+            Rectangle {
+                anchors.fill: parent
+                radius: width / 2
+                color: dragHandler.active ? Qt.rgba(0.09, 0.88, 1.0, 0.3)
+                     : (hoverHandler.hovered ? Qt.rgba(0.09, 0.88, 1.0, 0.15) : Qt.rgba(0.09, 0.88, 1.0, 0.05))
+                border.width: dragHandler.active ? 3 : 2
+                border.color: dragHandler.active ? "#ffffff" : (hoverHandler.hovered ? "#17e0ff" : "#4a5468")
+
+                Behavior on color { ColorAnimation { duration: 120 } }
+                Behavior on border.color { ColorAnimation { duration: 120 } }
+            }
+
+            // Floating angle readout, only while actually dragging -
+            // immediate numeric feedback right where the hand is,
+            // without needing to glance at the bottom bar's dial.
+            Rectangle {
+                visible: dragHandler.active
+                anchors.bottom: parent.top
+                anchors.bottomMargin: 6
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: angleReadout.implicitWidth + 10
+                height: angleReadout.implicitHeight + 6
+                radius: 4
+                color: "#0e1021"
+                border.color: "#17e0ff"
+                border.width: 1
+
+                Text {
+                    id: angleReadout
+                    anchors.centerIn: parent
+                    color: "white"
+                    font.bold: true
+                    font.pixelSize: 12
+                    text: Math.round(armController.jointAnglesDegrees[jointHandle.index]) + "°"
+                }
+            }
+
+            HoverHandler {
+                id: hoverHandler
+                cursorShape: dragHandler.active ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+            }
 
             DragHandler {
                 id: dragHandler
