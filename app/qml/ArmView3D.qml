@@ -105,46 +105,97 @@ Item {
             castsShadow: false
         }
 
-        // Pedestal: a wide, flat foot bolted to "the floor" and a
-        // narrower column rising to meet the shoulder joint at the
-        // origin - a real base, not just a reference disc. Matte,
-        // non-metal, so it visually grounds the arm instead of competing
-        // with its brushed-metal limbs.
-        Model {
-            source: "#Cylinder"
-            position: Qt.vector3d(0, -0.34, 0)
-            scale: Qt.vector3d(0.55 / root.meshUnit, 0.08 / root.meshUnit, 0.55 / root.meshUnit)
-            materials: PrincipledMaterial {
-                baseColor: "#24262e"
-                metalness: 0.1
-                roughness: 0.85
-            }
-        }
+        // Phase 6: the whole base - pedestal, chassis, wheels - rides
+        // together under one Node bound to armController.baseX/Y, so
+        // driveTo() moves the arm's own grounding structure along with
+        // it rather than leaving it stranded at the world origin. The
+        // Behavior animates the drive itself (driveTo() is instant on
+        // the backend, per its own doc comment - see arm_controller.hpp)
+        // the same way splayDegrees already animates the gripper.
+        Node {
+            id: mobileBase
+            position: Qt.vector3d(armController.baseX, armController.baseY, 0)
+            Behavior on position { Vector3dAnimation { duration: 600; easing.type: Easing.InOutQuad } }
 
-        Model {
-            source: "#Cylinder"
-            position: Qt.vector3d(0, -0.15, 0)
-            scale: Qt.vector3d(0.28 / root.meshUnit, 0.3 / root.meshUnit, 0.28 / root.meshUnit)
-            materials: PrincipledMaterial {
-                baseColor: "#2a2d36"
-                metalness: 0.15
-                roughness: 0.8
+            // Mobile chassis: a low, wide platform the pedestal bolts
+            // onto - what turns "a pedestal standing on the floor" into
+            // "a pedestal standing on something that can drive".
+            Model {
+                source: "#Cube"
+                position: Qt.vector3d(0, -0.42, 0)
+                scale: Qt.vector3d(0.75 / root.meshUnit, 0.12 / root.meshUnit, 0.55 / root.meshUnit)
+                materials: PrincipledMaterial {
+                    baseColor: "#1c1e26"
+                    metalness: 0.4
+                    roughness: 0.6
+                }
             }
-        }
 
-        // A thin glowing collar where the column meets the shoulder -
-        // the one deliberately "futuristic" accent on the base, done
-        // with an emissive PrincipledMaterial rather than a texture or
-        // a light of its own.
-        Model {
-            source: "#Cylinder"
-            position: Qt.vector3d(0, -0.01, 0)
-            scale: Qt.vector3d(0.3 / root.meshUnit, 0.015 / root.meshUnit, 0.3 / root.meshUnit)
-            materials: PrincipledMaterial {
-                baseColor: "#113a42"
-                emissiveFactor: Qt.vector3d(0.08, 0.85, 1.0)
-                metalness: 0.0
-                roughness: 0.3
+            // Four wheels at the chassis corners - cylinders rotated
+            // the same way the joint motor drums are (flat face along
+            // Z), so their rolling axis runs along X, matching the
+            // chassis's own X/Z footprint rather than a direction
+            // unrelated to how driveTo() actually moves the base.
+            Repeater3D {
+                model: 4
+
+                Model {
+                    required property int index
+                    readonly property real xSide: (index % 2 === 0) ? 1 : -1
+                    readonly property real zSide: (index < 2) ? 1 : -1
+                    source: "#Cylinder"
+                    position: Qt.vector3d(0.30 * xSide, -0.46, 0.24 * zSide)
+                    rotation: Qt.vector3d(90, 0, 0)
+                    scale: Qt.vector3d(0.16 / root.meshUnit, 0.07 / root.meshUnit, 0.16 / root.meshUnit)
+                    materials: PrincipledMaterial {
+                        baseColor: "#17191f"
+                        metalness: 0.1
+                        roughness: 0.7
+                    }
+                }
+            }
+
+            // Pedestal: a wide, flat foot bolted to the chassis and a
+            // narrower column rising to meet the shoulder joint at the
+            // origin - a real base, not just a reference disc. Matte,
+            // non-metal, so it visually grounds the arm instead of
+            // competing with its brushed-metal limbs.
+            Model {
+                source: "#Cylinder"
+                position: Qt.vector3d(0, -0.34, 0)
+                scale: Qt.vector3d(0.55 / root.meshUnit, 0.08 / root.meshUnit, 0.55 / root.meshUnit)
+                materials: PrincipledMaterial {
+                    baseColor: "#24262e"
+                    metalness: 0.1
+                    roughness: 0.85
+                }
+            }
+
+            Model {
+                source: "#Cylinder"
+                position: Qt.vector3d(0, -0.15, 0)
+                scale: Qt.vector3d(0.28 / root.meshUnit, 0.3 / root.meshUnit, 0.28 / root.meshUnit)
+                materials: PrincipledMaterial {
+                    baseColor: "#2a2d36"
+                    metalness: 0.15
+                    roughness: 0.8
+                }
+            }
+
+            // A thin glowing collar where the column meets the shoulder -
+            // the one deliberately "futuristic" accent on the base, done
+            // with an emissive PrincipledMaterial rather than a texture or
+            // a light of its own.
+            Model {
+                source: "#Cylinder"
+                position: Qt.vector3d(0, -0.01, 0)
+                scale: Qt.vector3d(0.3 / root.meshUnit, 0.015 / root.meshUnit, 0.3 / root.meshUnit)
+                materials: PrincipledMaterial {
+                    baseColor: "#113a42"
+                    emissiveFactor: Qt.vector3d(0.08, 0.85, 1.0)
+                    metalness: 0.0
+                    roughness: 0.3
+                }
             }
         }
 
@@ -163,9 +214,10 @@ Item {
         // no ring primitive to subtract one disc from another), not
         // an attempt at an exact reachable-workspace boundary.
         Model {
-            readonly property real maxReachMeters: armController.canvasCenter.x * 2
+            readonly property real maxReachMeters: armController.canvasCenter.x * 2 - armController.baseX * 2
             source: "#Cylinder"
             visible: armController.showWorkspaceEnvelope
+            position: Qt.vector3d(armController.baseX, armController.baseY, 0)
             rotation: Qt.vector3d(90, 0, 0)
             opacity: 0.12
             scale: {
@@ -320,7 +372,16 @@ Item {
 
                     Model {
                         source: "#Cube"
-                        position: Qt.vector3d(0, 0.07 / root.meshUnit, 0)
+                        // position is already in meters and needs no
+                        // meshUnit conversion (see the file's own top
+                        // comment) - dividing it here was a pre-existing
+                        // bug that left the finger's own half-height
+                        // (0.07m, from its 0.14m scale below) poking
+                        // back through the wrist almost as far as it
+                        // extended forward, instead of starting at the
+                        // pivot and reaching outward from it like an
+                        // actual fingertip.
+                        position: Qt.vector3d(0, 0.07, 0)
                         scale: Qt.vector3d(0.025 / root.meshUnit, 0.14 / root.meshUnit, 0.02 / root.meshUnit)
                         materials: PrincipledMaterial {
                             baseColor: "#d7dbe2"
