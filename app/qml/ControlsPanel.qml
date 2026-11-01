@@ -20,11 +20,15 @@ import QtQuick.Layouts
 // BottomBar.qml entirely - every joint's full card now shows side by
 // side there instead of one at a time behind a chip selector here
 // (user feedback: didn't want to switch between joints in a panel at
-// all). This sidebar holds only the settings that aren't "about one
-// specific joint": reach targeting, payload, AI mode, Static/Dynamic
-// mode, the payload-capacity scan, and config file I/O. No tabs
-// either - everything here is always visible, all at once, matching
-// "the default should be [everything] and nothing [hidden]".
+// all). No tabs either - everything here is always visible, all at
+// once.
+//
+// Round 4: narrowed further, on request, to only the four things
+// that are explicitly the sidebar's job - reach targeting, payload,
+// the payload-capacity scan, and config file I/O. The legend, AI
+// toggle, and Static/Dynamic mode moved to BottomBar.qml, which had
+// room to spare once every joint's own card moved there (round 3) -
+// see that file for why a ROW has room a COLUMN doesn't.
 Rectangle {
     id: root
     color: "#0e1021"
@@ -57,52 +61,6 @@ Rectangle {
                 color: "white"
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
-            }
-
-            // Legend: explains the gauge's color zones exactly once,
-            // instead of leaving a viewer to guess what "amber" means
-            // the first time they see it on a specific joint.
-            Rectangle {
-                Layout.fillWidth: true
-                color: "#171a2b"
-                radius: 12
-                border.color: "#262a40"
-                border.width: 1
-                implicitHeight: legendRow.implicitHeight + 16
-
-                RowLayout {
-                    id: legendRow
-                    anchors.fill: parent
-                    anchors.margins: 8
-                    spacing: 10
-
-                    Repeater {
-                        model: [
-                            { color: "#2ecc71", label: "Safe" },
-                            { color: "#ffbf00", label: "Caution" },
-                            { color: "#ff4d4f", label: "Overload" }
-                        ]
-
-                        RowLayout {
-                            required property var modelData
-                            spacing: 5
-
-                            Rectangle {
-                                implicitWidth: 10
-                                implicitHeight: 10
-                                radius: 5
-                                color: parent.modelData.color
-                            }
-                            Label {
-                                color: "#c7cbd6"
-                                font.pixelSize: 11
-                                text: parent.modelData.label
-                            }
-                        }
-                    }
-
-                    Item { Layout.fillWidth: true }
-                }
             }
 
             // Click-to-reach inverse kinematics (Phase 6): drag the
@@ -156,8 +114,21 @@ Rectangle {
                         Layout.alignment: Qt.AlignHCenter
                         Layout.preferredWidth: 170
                         Layout.preferredHeight: 170
-                        rangeMeters: Math.max(armController.canvasCenter.x * 2, 0.5)
-                        maxReachMeters: armController.canvasCenter.x * 2
+                        // The pad's own visible range is deliberately
+                        // WIDER than the reach circle (not equal to
+                        // it) - margin around the circle to drag into
+                        // past the boundary, instead of the circle's
+                        // edge landing exactly on the pad's own edge.
+                        // Dragging right at that edge is exactly where
+                        // the arm is forced fully extended (a genuine
+                        // kinematic singularity - see
+                        // solve_inverse_kinematics()'s own doc comment)
+                        // and feels the least responsive, so giving it
+                        // room on every side makes it easier to stay
+                        // off that exact boundary by accident.
+                        readonly property real reachDiameterMeters: armController.canvasCenter.x * 2
+                        rangeMeters: Math.max(reachDiameterMeters * 1.4, 0.5)
+                        maxReachMeters: reachDiameterMeters
                         markerXMeters: armController.jointPositions.length > 0
                             ? armController.jointPositions[armController.jointPositions.length - 1].x : 0
                         markerYMeters: armController.jointPositions.length > 0
@@ -245,154 +216,6 @@ Rectangle {
                             color: "white"
                             opacity: armController.gripperOpen ? 0.5 : 1.0
                             text: "Closed (holding payload)"
-                        }
-                    }
-                }
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                color: "#171a2b"
-                radius: 14
-                border.color: "#262a40"
-                border.width: 1
-                implicitHeight: aiColumn.implicitHeight + 16
-
-                ColumnLayout {
-                    id: aiColumn
-                    anchors.fill: parent
-                    anchors.margins: 8
-                    spacing: 5
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 5
-
-                        Label {
-                            color: "white"
-                            opacity: armController.aiMode ? 0.5 : 1.0
-                            text: "Exact"
-                        }
-
-                        Switch {
-                            checked: armController.aiMode
-                            enabled: armController.aiModeAvailable
-                            onToggled: armController.aiMode = checked
-                        }
-
-                        Label {
-                            color: "white"
-                            opacity: armController.aiMode ? 1.0 : 0.5
-                            text: "AI" + (armController.aiModeAvailable ? "" : " (no trained model)")
-                        }
-                    }
-
-                    // What this switch actually does, spelled out
-                    // once - "Exact" and "AI" otherwise read as two
-                    // unexplained words.
-                    Label {
-                        color: "#7a8099"
-                        font.pixelSize: 10
-                        wrapMode: Text.WordWrap
-                        Layout.fillWidth: true
-                        text: "Exact runs the real physics engine. AI asks a small neural "
-                            + "network trained to approximate it instead - usually very "
-                            + "close, and much faster (see Payload capacity below)."
-                    }
-                }
-            }
-
-            // Static/Dynamic (Phase 2): switches jointVelocitiesDegrees/
-            // jointAccelerationsDegrees (set per joint in the bottom
-            // bar) into inverse_dynamics() (or the dynamic AI
-            // surrogate) instead of treating the arm as at rest.
-            Rectangle {
-                Layout.fillWidth: true
-                color: "#171a2b"
-                radius: 14
-                border.color: "#262a40"
-                border.width: 1
-                implicitHeight: modeColumn.implicitHeight + 16
-
-                ColumnLayout {
-                    id: modeColumn
-                    anchors.fill: parent
-                    anchors.margins: 8
-                    spacing: 5
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 5
-
-                        Label {
-                            color: "white"
-                            opacity: armController.dynamicMode ? 0.5 : 1.0
-                            text: "Static"
-                        }
-
-                        Switch {
-                            checked: armController.dynamicMode
-                            onToggled: armController.dynamicMode = checked
-                        }
-
-                        Label {
-                            color: "white"
-                            opacity: armController.dynamicMode ? 1.0 : 0.5
-                            text: "Dynamic"
-                        }
-                    }
-
-                    Label {
-                        color: "#7a8099"
-                        font.pixelSize: 10
-                        wrapMode: Text.WordWrap
-                        Layout.fillWidth: true
-                        text: "Dynamic adds each joint's velocity/acceleration into the "
-                            + "torque calculation (gravity + inertia + Coriolis), instead "
-                            + "of treating the arm as momentarily at rest. Velocity/"
-                            + "acceleration and the torque breakdown are set per joint "
-                            + "below the 3D view."
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 5
-                        visible: armController.dynamicMode
-
-                        Label {
-                            color: "white"
-                            text: "Scrub trajectory"
-                        }
-
-                        Switch {
-                            checked: armController.trajectoryScrubMode
-                            onToggled: armController.trajectoryScrubMode = checked
-                        }
-                    }
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 4
-                        visible: armController.trajectoryScrubMode
-
-                        Label {
-                            color: "#9aa0ab"
-                            font.pixelSize: 12
-                            text: "Recording: " + armController.trajectoryWaypointCount + " waypoints (drag to scrub)"
-                        }
-
-                        Slider {
-                            Layout.fillWidth: true
-                            from: 0
-                            to: 1
-                            value: armController.trajectoryProgress
-                            onMoved: armController.trajectoryProgress = value
-                        }
-
-                        Button {
-                            Layout.fillWidth: true
-                            text: "Record waypoint at current angles"
-                            onClicked: armController.recordWaypoint()
                         }
                     }
                 }
