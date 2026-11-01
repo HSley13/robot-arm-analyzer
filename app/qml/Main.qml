@@ -43,7 +43,7 @@ Window {
                 // guess) but smaller - proportional to it, not equal
                 // to it - so the sidebar stays narrower than the
                 // bottom bar is tall, on request.
-                Layout.preferredWidth: bottomBar.implicitHeight * 0.75
+                Layout.preferredWidth: bottomBar.implicitHeight * 0.7
                 Layout.fillHeight: true
             }
         }
