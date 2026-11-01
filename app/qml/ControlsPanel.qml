@@ -95,17 +95,13 @@ Rectangle {
                 }
             }
 
-            // Drive & reach (Phase 6): one pad showing every point
-            // that matters in the arm's shared XY plane - where it's
-            // aiming (cyan), where the payload rests (pink), and where
-            // the mobile base itself is (violet) - since a real demo
-            // is "drive over, then reach the rest of the way", not
-            // two unrelated controls. Drag a dot, or type exact
-            // coordinates - the two interactions every robot arm demo/
-            // simulator researched for this feature supports. The pad
-            // is a flat top-down view, not a 3D click on the view at
-            // right - see ReachPad.qml for why that's deliberate, not
-            // a missing feature.
+            // Click-to-reach inverse kinematics (Phase 6): drag the
+            // dot on the pad, or type exact coordinates - the two
+            // interactions every robot arm demo/simulator researched
+            // for this feature supports. The pad is a flat top-down
+            // view of the arm's own XY motion plane, not a 3D click on
+            // the view at right - see ReachPad.qml for why that's
+            // deliberate, not a missing feature.
             Rectangle {
                 Layout.fillWidth: true
                 color: "#171a2b"
@@ -127,7 +123,7 @@ Rectangle {
                         Label {
                             color: "white"
                             font.bold: true
-                            text: "Drive & reach"
+                            text: "Move to target"
                         }
 
                         Item { Layout.fillWidth: true }
@@ -148,73 +144,13 @@ Rectangle {
                         Layout.alignment: Qt.AlignHCenter
                         Layout.preferredWidth: 170
                         Layout.preferredHeight: 170
-                        // Wide enough to always fit the base whether
-                        // it's parked at the origin or driven out to
-                        // meet a distant payload, not just the arm's
-                        // own reach around wherever it happens to be.
-                        rangeMeters: Math.max(
-                            (armController.canvasCenter.x - armController.baseX) * 2,
-                            Math.abs(armController.baseX) * 1.3,
-                            Math.abs(armController.baseY) * 1.3,
-                            Math.abs(armController.payloadX) * 1.3,
-                            Math.abs(armController.payloadY) * 1.3,
-                            0.5)
-                        maxReachMeters: (armController.canvasCenter.x - armController.baseX) * 2
-                        reachCenterXMeters: armController.baseX
-                        reachCenterYMeters: armController.baseY
+                        rangeMeters: Math.max(armController.canvasCenter.x * 2, 0.5)
+                        maxReachMeters: armController.canvasCenter.x * 2
                         markerXMeters: armController.jointPositions.length > 0
                             ? armController.jointPositions[armController.jointPositions.length - 1].x : 0
                         markerYMeters: armController.jointPositions.length > 0
                             ? armController.jointPositions[armController.jointPositions.length - 1].y : 0
                         onTargetMoved: (x, y) => armController.moveToTarget(x, y)
-
-                        // The payload's own place in this same plane
-                        // (Phase 6) - drag the pink dot to set down
-                        // where it rests; it locks (can't be dragged)
-                        // while the gripper is actually holding it,
-                        // since placePayload() would silently no-op
-                        // then anyway.
-                        showPayloadMarker: true
-                        payloadXMeters: armController.payloadX
-                        payloadYMeters: armController.payloadY
-                        payloadLocked: armController.payloadAttached
-                        onPayloadMoved: (x, y) => armController.placePayload(x, y)
-
-                        // The mobile base's own place (Phase 6) - drag
-                        // the violet dot to drive it directly.
-                        showBaseMarker: true
-                        baseXMeters: armController.baseX
-                        baseYMeters: armController.baseY
-                        onBaseMoved: (x, y) => armController.driveTo(x, y)
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 10
-
-                        RowLayout {
-                            spacing: 5
-                            Rectangle { implicitWidth: 9; implicitHeight: 9; radius: 4.5; color: "#17e0ff" }
-                            Label { color: "#7a8099"; font.pixelSize: 10; text: "target" }
-                        }
-                        RowLayout {
-                            spacing: 5
-                            Rectangle { implicitWidth: 9; implicitHeight: 9; radius: 4.5; color: "#e94560" }
-                            Label { color: "#7a8099"; font.pixelSize: 10; text: "payload" }
-                        }
-                        RowLayout {
-                            spacing: 5
-                            Rectangle { implicitWidth: 9; implicitHeight: 9; radius: 4.5; color: "#9b6bff" }
-                            Label { color: "#7a8099"; font.pixelSize: 10; text: "base" }
-                        }
-                        Item { Layout.fillWidth: true }
-                    }
-
-                    Label {
-                        color: "#9aa0ab"
-                        font.pixelSize: 11
-                        font.bold: true
-                        text: "Reach (arm)"
                     }
 
                     RowLayout {
@@ -240,61 +176,6 @@ Rectangle {
                             enabled: targetXField.text.length > 0 && targetYField.text.length > 0
                             onClicked: armController.moveToTarget(parseFloat(targetXField.text), parseFloat(targetYField.text))
                         }
-                    }
-
-                    // A precise shortcut for the pick-and-place demo -
-                    // dragging the cyan target dot exactly onto the
-                    // pink payload dot by eye is imprecise at this
-                    // pad's size; this sends the arm to the payload's
-                    // exact stored coordinates instead, guaranteeing
-                    // it lands within pickup range.
-                    Button {
-                        Layout.fillWidth: true
-                        text: "Go to payload"
-                        enabled: !armController.payloadAttached
-                        onClicked: armController.moveToTarget(armController.payloadX, armController.payloadY)
-                    }
-
-                    Label {
-                        color: "#9aa0ab"
-                        font.pixelSize: 11
-                        font.bold: true
-                        text: "Drive (base)"
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-
-                        TextField {
-                            id: driveXField
-                            Layout.fillWidth: true
-                            placeholderText: "x (m)"
-                            validator: DoubleValidator {}
-                        }
-
-                        TextField {
-                            id: driveYField
-                            Layout.fillWidth: true
-                            placeholderText: "y (m)"
-                            validator: DoubleValidator {}
-                        }
-
-                        Button {
-                            text: "Go"
-                            enabled: driveXField.text.length > 0 && driveYField.text.length > 0
-                            onClicked: armController.driveTo(parseFloat(driveXField.text), parseFloat(driveYField.text))
-                        }
-                    }
-
-                    // Parks the base within reach of the payload
-                    // automatically - see ArmController::driveNearPayload()'s
-                    // own doc comment for exactly how close.
-                    Button {
-                        Layout.fillWidth: true
-                        text: "Drive to payload"
-                        enabled: !armController.payloadAttached
-                        onClicked: armController.driveNearPayload()
                     }
                 }
             }
@@ -623,13 +504,13 @@ Rectangle {
                         }
                     }
 
-                    // Phase 6: closing the gripper only picks up the
-                    // payload if the end effector is actually near it
-                    // (placePayload()/the pink dot on the pad above
-                    // decide where "it" is) - this switch alone no
-                    // longer guarantees the torques jump by the
-                    // weight, so the status line below says plainly
-                    // whether anything actually got grabbed.
+                    // The gripper decides whether the staged payload
+                    // above actually counts toward the torque
+                    // calculation - open it and drag the payload
+                    // slider, nothing changes; close it, and the
+                    // torques jump by the weight. A deliberately
+                    // visible cause-and-effect, not just a cosmetic
+                    // toggle.
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 8
@@ -648,21 +529,8 @@ Rectangle {
                         Label {
                             color: "white"
                             opacity: armController.gripperOpen ? 0.5 : 1.0
-                            text: "Closed"
+                            text: "Closed (holding payload)"
                         }
-                    }
-
-                    Label {
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        font.pixelSize: 12
-                        color: armController.payloadAttached ? "#2ecc71" : "#9aa0ab"
-                        font.bold: armController.payloadAttached
-                        text: armController.payloadAttached
-                            ? "Holding the payload"
-                            : (armController.gripperOpen
-                                ? "Gripper open — move to the payload, then close to grab it"
-                                : "Gripper closed on nothing — not near the payload")
                     }
                 }
             }

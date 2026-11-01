@@ -66,7 +66,6 @@ ArmController::ArmController(const std::filesystem::path &config_path, const std
     }
   }
 
-  resetPayloadPosition();
   recompute();
 }
 
@@ -87,65 +86,9 @@ void ArmController::setPayloadKg(double kg) {
   recompute();
 }
 
-double ArmController::payloadX() const {
-  // _jointPositions is the arm's own LOCAL frame (see the member's doc
-  // comment) - the end effector's WORLD position while attached needs
-  // the base offset added, same as jointPositions()/linkMidpoints().
-  if (_payloadAttached && !_jointPositions.empty()) return _jointPositions.back().x() + _baseX;
-  return _payloadX; // already world-space: placePayload() takes world meters directly
-}
-
-double ArmController::payloadY() const {
-  if (_payloadAttached && !_jointPositions.empty()) return _jointPositions.back().y() + _baseY;
-  return _payloadY;
-}
-
-void ArmController::placePayload(double xMeters, double yMeters) {
-  if (_payloadAttached) return; // can't reposition what's currently held - open the gripper first
-  _payloadX = xMeters;
-  _payloadY = yMeters;
-  emit resultsChanged();
-}
-
-void ArmController::resetPayloadPosition() {
-  double total_reach = 0.0;
-  for (const DHParameter &joint : _arm.joints()) total_reach += joint.a;
-  _payloadX = total_reach * 0.45;
-  _payloadY = -0.25;
-  _payloadAttached = false;
-}
-
 void ArmController::setGripperOpen(bool open) {
   if (open == _gripperOpen) return;
   _gripperOpen = open;
-
-  if (open) {
-    // Opening: release the payload exactly where it currently is, if
-    // it was being held - it doesn't snap back to some "home" spot.
-    // _jointPositions is the LOCAL frame, so the drop spot needs the
-    // base offset added to land at the end effector's actual WORLD
-    // position (same reasoning as payloadX()/Y() above).
-    if (_payloadAttached) {
-      if (!_jointPositions.empty()) {
-        _payloadX = _jointPositions.back().x() + _baseX;
-        _payloadY = _jointPositions.back().y() + _baseY;
-      }
-      _payloadAttached = false;
-    }
-  } else if (!_payloadAttached && !_jointPositions.empty()) {
-    // Closing: pick up the payload only if the end effector is
-    // actually within reach of where it currently rests - closing the
-    // gripper somewhere else in the plane just closes an empty hand.
-    // _payloadX/Y are already world-space, so the end effector's
-    // LOCAL position needs the same base offset added before the two
-    // can be compared in the same frame.
-    const double dx = (_jointPositions.back().x() + _baseX) - _payloadX;
-    const double dy = (_jointPositions.back().y() + _baseY) - _payloadY;
-    if (std::sqrt(dx * dx + dy * dy) <= kPickupRadiusMeters) {
-      _payloadAttached = true;
-    }
-  }
-
   recompute();
 }
 
@@ -209,34 +152,9 @@ void ArmController::setJointAngleDegrees(int index, double degrees) {
 }
 
 void ArmController::moveToTarget(double xMeters, double yMeters) {
-  // xMeters/yMeters arrive in WORLD space (QML always deals in world
-  // coordinates - it's what's on screen) but solve_inverse_kinematics()
-  // works in the arm's own LOCAL frame, so the base offset is
-  // subtracted back out here, once, right at this boundary.
-  const Eigen::Vector3d target(xMeters - _baseX, yMeters - _baseY, 0.0);
+  const Eigen::Vector3d target(xMeters, yMeters, 0.0);
   _jointAnglesRadians = solve_inverse_kinematics(_arm, _jointAnglesRadians, target);
   recompute();
-}
-
-void ArmController::driveTo(double worldX, double worldY) {
-  if (worldX == _baseX && worldY == _baseY) return;
-  _baseX = worldX;
-  _baseY = worldY;
-  // No recompute(): the base offset doesn't feed into any torque or
-  // angle calculation (see the header's doc comment) - every accessor
-  // that depends on it (jointPositions(), linkMidpoints(), payloadX()/
-  // Y()'s attached case, canvasCenter()) reads _baseX/_baseY live, so
-  // just announcing the change is enough for QML to re-read them.
-  emit resultsChanged();
-}
-
-void ArmController::driveNearPayload() {
-  if (_payloadAttached) return; // already in hand - nowhere to "drive to"
-  double total_reach = 0.0;
-  for (const DHParameter &joint : _arm.joints()) total_reach += joint.a;
-  // Parks half the arm's reach short of the payload, not directly on
-  // top of it - see the Q_INVOKABLE doc comment for why.
-  driveTo(_payloadX - total_reach * 0.5, _payloadY);
 }
 
 void ArmController::setJointVelocityDegrees(int index, double degreesPerSecond) {
@@ -400,8 +318,7 @@ bool ArmController::loadConfig(const QString &path) {
     _jointVelocitiesRadians.assign(n, 0.0);
     _jointAccelerationsRadians.assign(n, 0.0);
     _payloadKg = 0.0;
-    _gripperOpen = true;
-    resetPayloadPosition();
+    _gripperOpen = false;
     _aiMode = false;
     _dynamicMode = false;
     _trajectoryScrubMode = false;
@@ -572,6 +489,15 @@ void ArmController::recompute() {
   _jointPositions.push_back(Eigen::Vector3d::Zero()); // base origin
   for (const Eigen::Matrix4d &frame : frames) _jointPositions.push_back(frame.block<3, 1>(0, 3));
 
+  // Pivot the camera around the middle of the arm's reach, not the world
+  // origin (0,0,0) - the roadmap's prior-art finding that orbiting around
+  // world-origin is frustrating once the arm extends away from it.
+  // Recomputed here (not just once at construction) so it stays correct
+  // after loadConfig() or setJointLength() changes the arm's geometry.
+  double total_reach = 0.0;
+  for (const DHParameter &joint : _arm.joints()) total_reach += joint.a;
+  _canvasCenter = QVector3D(static_cast<float>(total_reach / 2.0), 0.0f, 0.0f);
+
   // "How much more could this arm safely lift right now" - always via
   // the exact engine (see the Q_PROPERTY doc comment), at the current
   // pose/velocity/acceleration so it's asking about exactly what's on
@@ -635,32 +561,16 @@ QVariantList ArmController::gravityTorques() const { return to_variant_list(_bre
 QVariantList ArmController::inertiaTorques() const { return to_variant_list(_breakdown.inertia); }
 QVariantList ArmController::coriolisTorques() const { return to_variant_list(_breakdown.coriolis); }
 
-// Pivot the camera around the middle of the arm's reach, offset by the
-// base's own world position - not the world origin (0,0,0), per the
-// roadmap's prior-art finding that orbiting around world-origin is
-// frustrating once the arm extends away from it, and not just the
-// arm's own local-frame midpoint either, now that driveTo() can move
-// that frame anywhere. Computed fresh each call (not cached) since it
-// depends on _baseX/_baseY as well as the arm's own geometry, and both
-// can change independently of each other.
-QVector3D ArmController::canvasCenter() const {
-  double total_reach = 0.0;
-  for (const DHParameter &joint : _arm.joints()) total_reach += joint.a;
-  return QVector3D(static_cast<float>(_baseX + total_reach / 2.0), static_cast<float>(_baseY), 0.0f);
-}
-
 QVariantList ArmController::jointPositions() const {
-  const Eigen::Vector3d base_offset(_baseX, _baseY, 0.0);
   QVariantList result;
-  for (const Eigen::Vector3d &position : _jointPositions) result.append(to_qvector3d(position + base_offset));
+  for (const Eigen::Vector3d &position : _jointPositions) result.append(to_qvector3d(position));
   return result;
 }
 
 QVariantList ArmController::linkMidpoints() const {
-  const Eigen::Vector3d base_offset(_baseX, _baseY, 0.0);
   QVariantList result;
   for (size_t i = 0; i + 1 < _jointPositions.size(); i++) {
-    result.append(to_qvector3d((_jointPositions[i] + _jointPositions[i + 1]) / 2.0 + base_offset));
+    result.append(to_qvector3d((_jointPositions[i] + _jointPositions[i + 1]) / 2.0));
   }
   return result;
 }
