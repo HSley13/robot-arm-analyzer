@@ -17,8 +17,14 @@ Item {
     property real markerYMeters: 0
     // Drawn as a faint reference circle - the arm's own total reach,
     // so a target placed near or past the edge visibly explains why
-    // moveToTarget() might not land exactly on it.
+    // moveToTarget() might not land exactly on it. Centered on
+    // reachCenterXMeters/YMeters (defaulting to the pad's own origin)
+    // rather than always the pad's visual center - Phase 6's mobile
+    // base means the arm's own reach is no longer necessarily
+    // centered on world (0,0), so this needs to be able to follow it.
     property real maxReachMeters: -1
+    property real reachCenterXMeters: 0
+    property real reachCenterYMeters: 0
 
     // A second, independently draggable marker - Phase 6's pick-and-
     // place payload placement, sharing this same plane instead of a
@@ -33,8 +39,20 @@ Item {
     property bool showPayloadMarker: false
     property bool payloadLocked: false
 
+    // A third marker - Phase 6's mobile base - sharing this same
+    // plane for the same reason the payload does: driving and reach-
+    // target/payload placement are all just points in the arm's one
+    // shared XY plane, so one pad can place all three instead of a
+    // separate control for "where is the base". No locked state of
+    // its own: unlike the payload, the base is never "held" by
+    // something else that would make dragging it pointless.
+    property real baseXMeters: 0
+    property real baseYMeters: 0
+    property bool showBaseMarker: false
+
     signal targetMoved(real xMeters, real yMeters)
     signal payloadMoved(real xMeters, real yMeters)
+    signal baseMoved(real xMeters, real yMeters)
 
     implicitWidth: 180
     implicitHeight: 180
@@ -52,8 +70,9 @@ Item {
         border.width: 1
     }
 
-    // The base, at the pad's own center - every arm this project
-    // models starts its reach from the origin.
+    // World origin / floor reference - not necessarily where the arm
+    // itself currently is anymore (see the violet base marker below
+    // for that), just a fixed "home" mark on the pad.
     Rectangle {
         anchors.centerIn: parent
         width: 8
@@ -64,13 +83,27 @@ Item {
 
     Rectangle {
         visible: root.maxReachMeters > 0
-        anchors.centerIn: parent
         width: Math.min(root.width, root.height) * Math.min(root.maxReachMeters / root.rangeMeters, 1.0)
         height: width
         radius: width / 2
+        x: root.pxFromMeters(root.reachCenterXMeters) - width / 2
+        y: root.pyFromMeters(root.reachCenterYMeters) - height / 2
         color: "transparent"
         border.color: "#30343f"
         border.width: 1
+    }
+
+    Rectangle {
+        id: baseMarker
+        visible: root.showBaseMarker
+        width: 14
+        height: 14
+        radius: 7
+        color: dragHandler.dragging === "base" ? "#ffffff" : "#9b6bff"
+        border.color: "#0e1021"
+        border.width: 2
+        x: root.pxFromMeters(root.baseXMeters) - width / 2
+        y: root.pyFromMeters(root.baseYMeters) - height / 2
     }
 
     Rectangle {
@@ -79,7 +112,7 @@ Item {
         width: 14
         height: 14
         radius: 7
-        color: dragHandler.draggingPayload ? "#ffffff" : "#e94560"
+        color: dragHandler.dragging === "payload" ? "#ffffff" : "#e94560"
         opacity: root.payloadLocked ? 0.45 : 1.0
         border.color: "#0e1021"
         border.width: 2
@@ -92,7 +125,7 @@ Item {
         width: 16
         height: 16
         radius: 8
-        color: dragHandler.active && !dragHandler.draggingPayload ? "#ffffff" : "#17e0ff"
+        color: dragHandler.dragging === "target" ? "#ffffff" : "#17e0ff"
         border.color: "#0e1021"
         border.width: 2
         x: root.pxFromMeters(root.markerXMeters) - width / 2
@@ -102,13 +135,17 @@ Item {
     // Dragging anywhere on the pad (not just directly on a marker)
     // moves one of them, clamped to the pad's own visible range.
     // Which one is decided once, at the start of each drag: whichever
-    // marker's current on-screen position is closer to where the
-    // press landed - the payload marker never "wins" that choice while
-    // payloadLocked is true, so an attached payload can't be dragged.
+    // VISIBLE, UNLOCKED marker's current on-screen position is
+    // closest to where the press landed - the payload marker never
+    // wins that choice while payloadLocked is true (an attached
+    // payload can't be dragged), and a hidden marker (showPayloadMarker/
+    // showBaseMarker false) never wins it either, since it has no
+    // on-screen position a press could be "close to" in the first
+    // place.
     DragHandler {
         id: dragHandler
         target: null
-        property bool draggingPayload: false
+        property string dragging: "" // "target", "payload", or "base"
 
         onActiveChanged: {
             if (!active) return
@@ -118,7 +155,14 @@ Item {
                 ? Math.hypot(centroid.pressPosition.x - root.pxFromMeters(root.payloadXMeters),
                               centroid.pressPosition.y - root.pyFromMeters(root.payloadYMeters))
                 : Infinity
-            draggingPayload = distToPayload < distToTarget
+            const distToBase = root.showBaseMarker
+                ? Math.hypot(centroid.pressPosition.x - root.pxFromMeters(root.baseXMeters),
+                              centroid.pressPosition.y - root.pyFromMeters(root.baseYMeters))
+                : Infinity
+
+            if (distToBase < distToPayload && distToBase < distToTarget) dragging = "base"
+            else if (distToPayload < distToTarget) dragging = "payload"
+            else dragging = "target"
         }
 
         onCentroidChanged: {
@@ -127,7 +171,8 @@ Item {
             const clampedY = Math.max(0, Math.min(root.height, centroid.position.y))
             const mx = root.metersFromPx(clampedX)
             const my = root.metersFromPy(clampedY)
-            if (draggingPayload) root.payloadMoved(mx, my)
+            if (dragging === "base") root.baseMoved(mx, my)
+            else if (dragging === "payload") root.payloadMoved(mx, my)
             else root.targetMoved(mx, my)
         }
     }
