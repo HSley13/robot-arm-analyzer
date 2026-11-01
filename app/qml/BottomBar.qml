@@ -434,6 +434,114 @@ Rectangle {
                 }
             }
 
+            Rectangle {
+                id: payloadCapacityCard
+                Layout.preferredWidth: 150
+                implicitHeight: jointRepeater.count > 0
+                    ? jointRepeater.itemAt(0).implicitHeight
+                    : payloadCapacityColumn.implicitHeight + 20
+                color: "#171a2b"
+                radius: 14
+                border.color: "#262a40"
+                border.width: 1
+
+                ColumnLayout {
+                    id: payloadCapacityColumn
+                    anchors.fill: parent
+                    anchors.margins: 10
+                    spacing: 5
+
+                    Label {
+                        color: "white"
+                        font.bold: true
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                        text: "Payload capacity"
+                    }
+
+                    Label {
+                        color: "#17e0ff"
+                        font.bold: true
+                        font.pixelSize: 15
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                        text: armController.currentMaxSafePayloadKg.toFixed(1) + " kg safe now"
+                    }
+
+                    Button {
+                        Layout.fillWidth: true
+                        text: "Run scan"
+                        onClicked: armController.runPayloadScan(40)
+                    }
+
+                    Item { Layout.fillHeight: true }
+                }
+            }
+
+            Rectangle {
+                id: scanResultsCard
+                visible: armController.scanSampleCount > 0
+                Layout.preferredWidth: 340
+                implicitHeight: jointRepeater.count > 0
+                    ? jointRepeater.itemAt(0).implicitHeight
+                    : scanResultsColumn.implicitHeight + 20
+                color: "#171a2b"
+                radius: 14
+                border.color: "#262a40"
+                border.width: 1
+
+                ColumnLayout {
+                    id: scanResultsColumn
+                    anchors.fill: parent
+                    anchors.margins: 10
+                    spacing: 5
+
+                    Label {
+                        color: "#9aa0ab"
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                        text: armController.scanAiAvailable
+                            ? "Exact: " + armController.scanExactMilliseconds.toFixed(2) + " ms  ·  AI: "
+                                + armController.scanAiMilliseconds.toFixed(2) + " ms  ("
+                                + (armController.scanAiMilliseconds > 0
+                                    ? (armController.scanExactMilliseconds / armController.scanAiMilliseconds).toFixed(1)
+                                    : "?") + "x faster)"
+                            : "Exact: " + armController.scanExactMilliseconds.toFixed(2)
+                                + " ms  ·  AI unavailable for this arm"
+                    }
+
+                    PayloadScanChart {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        reachMeters: armController.scanReachMeters
+                        exactPayloadKg: armController.scanExactPayloadKg
+                        aiPayloadKg: armController.scanAiPayloadKg
+                        aiAvailable: armController.scanAiAvailable
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 14
+
+                        RowLayout {
+                            spacing: 5
+                            Rectangle { implicitWidth: 10; implicitHeight: 10; radius: 5; color: "#17e0ff" }
+                            Label { color: "#c7cbd6"; font.pixelSize: 11; text: "Exact" }
+                        }
+
+                        RowLayout {
+                            spacing: 5
+                            visible: armController.scanAiAvailable
+                            Rectangle { implicitWidth: 10; implicitHeight: 10; radius: 5; color: "#ff8a3d" }
+                            Label { color: "#c7cbd6"; font.pixelSize: 11; text: "AI" }
+                        }
+
+                        Item { Layout.fillWidth: true }
+                    }
+                }
+            }
+
             Item { Layout.fillWidth: true }
         }
     }
