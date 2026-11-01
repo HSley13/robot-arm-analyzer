@@ -2,34 +2,13 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// Phase 6 follow-up (round 3): every joint's full card (angle/load,
-// torque limit, length, mass, and - in Dynamic mode - velocity/
-// acceleration/torque breakdown) side by side across the bottom of
-// the window, instead of stacked in the sidebar or hidden behind a
-// one-joint-at-a-time chip selector (both tried and both rejected by
-// the user - the first for needing to scroll, the second for needing
-// to switch at all). Laid out horizontally specifically because a
-// ROW of N cards only ever needs the height of ONE card, however many
-// joints there are, where a COLUMN of N cards needs N times that -
-// exactly the dimension this project has plenty of once the window
-// is sized to the actual screen (Main.qml) rather than a fixed guess.
+// Every joint's full card, side by side across the bottom of the
+// window, plus AI/Static-Dynamic/joint-count and payload capacity.
 Rectangle {
     id: root
     color: "#0e1021"
-    // Self-sizes to the row's own natural content height (one
-    // direction only: row -> root, never the reverse), the same
-    // pattern every card elsewhere in this project uses
-    // (implicitHeight: someColumn.implicitHeight + margins) - Main.qml
-    // leaves this item's Layout.preferredHeight unset so Qt Quick
-    // Layouts falls back to its implicitHeight automatically.
     implicitHeight: bottomRow.implicitHeight + 20
 
-    // Wrapped in a horizontal ScrollView, not a bare Row, so adding
-    // joints past whatever fits the window's width degrades into a
-    // scrollbar instead of overflowing or squeezing every card
-    // unreadably thin. Only ever scrolls horizontally - root's own
-    // height already matches the row's natural height exactly, so
-    // there's nothing to scroll vertically.
     ScrollView {
         anchors.fill: parent
         anchors.margins: 10
@@ -40,27 +19,12 @@ Rectangle {
             id: bottomRow
             spacing: 10
 
-            // AI mode, Static/Dynamic mode, and joint count: three
-            // settings that are each small on their own, combined
-            // into ONE card instead of three, stacked vertically so
-            // all three are automatically the same width (one shared
-            // column) - order between them doesn't matter, so
-            // Exact/AI sits on top here simply because it was first
-            // in the sidebar before. The card's OVERALL height is
-            // pinned to match a joint card's height exactly (see
-            // implicitHeight below, and the trailing spacer at the
-            // end of combinedColumn that absorbs the difference),
-            // not just each section individually.
             Rectangle {
                 id: combinedCard
                 Layout.preferredWidth: 190
-                // Matches a joint card's own height exactly, not an
-                // independent guess - jointRepeater.itemAt(0) is
-                // representative of every joint card (same layout,
-                // just different numbers), and this stays correct
-                // automatically as that height changes (e.g. Dynamic
-                // mode adding the velocity/acceleration/breakdown
-                // section to every joint card).
+                // Matches a joint card's own height - any joint card
+                // is representative, so this stays correct as that
+                // height changes (e.g. Dynamic mode).
                 implicitHeight: jointRepeater.count > 0
                     ? jointRepeater.itemAt(0).implicitHeight
                     : combinedColumn.implicitHeight + 20
@@ -75,8 +39,6 @@ Rectangle {
                     anchors.margins: 10
                     spacing: 10
 
-                    // Exact/AI (Phase 1/5): which engine computes
-                    // joint torque.
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 5
@@ -107,11 +69,6 @@ Rectangle {
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#262a40" }
 
-                    // Static/Dynamic (Phase 2): switches each joint
-                    // card's velocity/acceleration/torque-breakdown
-                    // section into inverse_dynamics() (or the dynamic
-                    // AI surrogate) instead of treating the arm as at
-                    // rest.
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 5
@@ -185,13 +142,6 @@ Rectangle {
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#262a40" }
 
-                    // Joint count (Phase 6): add/remove a joint from
-                    // the END of the chain without replacing the whole
-                    // arm via Save/Load. New joints default to
-                    // continuing the taper convention (shorter,
-                    // lighter, lower torque limit than the one before)
-                    // and are fully editable afterward via the
-                    // per-joint cards to the right.
                     ColumnLayout {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
@@ -294,13 +244,6 @@ Rectangle {
                             }
                         }
 
-                        // Editable torque limit (Phase 4): staged
-                        // here, then written out by "Save" in the
-                        // sidebar's config card. Only commits on
-                        // editingFinished (not every keystroke),
-                        // since a half-typed number (e.g. "5." before
-                        // the next digit) would otherwise be rejected
-                        // as non-positive.
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 5
@@ -318,12 +261,6 @@ Rectangle {
                             }
                         }
 
-                        // Editable link length (Phase 6) - a real
-                        // geometry change, not just a pose change, so
-                        // it's a live-dragging Slider (immediate
-                        // visual feedback as the arm's shape changes)
-                        // rather than the torque limit's commit-on-
-                        // enter TextField above.
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 5
@@ -347,11 +284,6 @@ Rectangle {
                             }
                         }
 
-                        // Editable link mass (Phase 6) - the arm's own
-                        // weight, not the payload it carries, so it
-                        // can be scaled to simulate something far
-                        // lighter or heavier than the shipped
-                        // defaults.
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 5
@@ -375,12 +307,6 @@ Rectangle {
                             }
                         }
 
-                        // Velocity/acceleration + torque breakdown -
-                        // only meaningful in Dynamic mode (see the
-                        // sidebar's Static/Dynamic card), so collapsed
-                        // to nothing while Static rather than taking
-                        // up space with controls that don't do
-                        // anything yet.
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 5
@@ -416,10 +342,6 @@ Rectangle {
                                 onMoved: armController.setJointAccelerationDegrees(jointCard.index, value)
                             }
 
-                            // Torque breakdown (Phase 2): gravity/
-                            // inertia/Coriolis, per the roadmap's
-                            // NovaSolver lesson - *why* a joint is
-                            // loaded, not just how much.
                             Label {
                                 color: "#7a8099"
                                 font.pixelSize: 10

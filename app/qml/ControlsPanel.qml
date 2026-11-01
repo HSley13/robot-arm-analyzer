@@ -3,43 +3,14 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 
-// Phase 5: redesigned around direct feedback that the plain-Slider
-// sidebar was "ugly" and "ain't the best way" to set a joint angle,
-// and that the green/amber/red dot "only turns yellow, red" without
-// explaining what that means. Replaces per-joint angle Sliders with
-// AngleDial (a circular drag control, matching the arm's own rotary
-// joints better than a linear bar) and the color dot with RadialGauge
-// (a percentage, a SAFE/CAUTION/OVERLOAD word, and the raw numbers,
-// not color alone) - plus a one-time legend so that word/color pairing
-// only needs explaining once, not per joint. Everything is grouped
-// into labeled cards instead of one long unbroken column, and the
-// color palette matches the 3D view's own (dark navy background, cyan
-// accent) so the sidebar reads as part of the same instrument panel.
-//
-// Phase 6 follow-up (round 3): per-joint controls moved out to
-// BottomBar.qml entirely - every joint's full card now shows side by
-// side there instead of one at a time behind a chip selector here
-// (user feedback: didn't want to switch between joints in a panel at
-// all). No tabs either - everything here is always visible, all at
-// once.
-//
-// Round 4: narrowed further, on request, to only the four things
-// that are explicitly the sidebar's job - reach targeting, payload,
-// the payload-capacity scan, and config file I/O - plus the legend,
-// which round 5 brought back here (at the very top, since it's the
-// first thing the gauges below the 3D view assume you already know).
-// AI toggle and Static/Dynamic mode stayed in BottomBar.qml, combined
-// with joint count into one shared card there.
+// Sidebar: legend, reach targeting, payload, and config file I/O.
+// Per-joint controls, AI toggle, and Static/Dynamic mode live in
+// BottomBar.qml instead.
 Rectangle {
     id: root
     color: "#0e1021"
 
-    // Converts a file:// URL (from FileDialog.selectedFile or a
-    // DropArea's drop.urls) into a plain local path string -
-    // armController.loadConfig()/saveConfig() take a filesystem path,
-    // not a URL, and QML has no built-in url-to-local-path conversion.
-    // Only handles the file:// scheme this app's own file pickers and
-    // OS drag-and-drop actually produce, not arbitrary URLs.
+    // file:// URL -> local path (loadConfig()/saveConfig() take a path).
     function urlToLocalPath(fileUrl) {
         let path = fileUrl.toString()
         if (path.startsWith("file://")) path = path.substring(7)
@@ -64,11 +35,6 @@ Rectangle {
                 Layout.fillWidth: true
             }
 
-            // Legend: explains the load gauge's color zones exactly
-            // once, instead of leaving a viewer to guess what "amber"
-            // means the first time they see it on a specific joint -
-            // at the very top, since every joint card in the bottom
-            // bar assumes it.
             Rectangle {
                 Layout.fillWidth: true
                 color: "#171a2b"
@@ -112,15 +78,6 @@ Rectangle {
                 }
             }
 
-            // Click-to-reach inverse kinematics (Phase 6): drag the
-            // dot on the pad - the two interactions every robot arm
-            // demo/simulator researched for this feature supports are
-            // dragging and direct 3D manipulation (see ArmView3D.qml's
-            // joint-drag rings); a typed x/y entry turned out to be
-            // redundant with both and was removed. The pad is a flat
-            // top-down view of the arm's own XY motion plane, not a 3D
-            // click on the view at right - see ReachPad.qml for why
-            // that's deliberate, not a missing feature.
             Rectangle {
                 Layout.fillWidth: true
                 color: "#171a2b"
@@ -143,29 +100,13 @@ Rectangle {
 
                     ReachPad {
                         Layout.alignment: Qt.AlignHCenter
-                        // Sized to fit the sidebar's own narrowest
-                        // state (Static mode, ~208px wide) minus this
-                        // card's and the column's margins.
                         Layout.preferredWidth: 150
                         Layout.preferredHeight: 150
-                        // The pad's own visible range is deliberately
-                        // WIDER than the reach circle (not equal to
-                        // it) - margin around the circle to drag into
-                        // past the boundary, instead of the circle's
-                        // edge landing exactly on the pad's own edge.
-                        // Dragging right at that edge is exactly where
-                        // the arm is forced fully extended (a genuine
-                        // kinematic singularity - see
-                        // solve_inverse_kinematics()'s own doc comment)
-                        // and feels the least responsive, so giving it
-                        // room on every side makes it easier to stay
-                        // off that exact boundary by accident.
                         readonly property real reachDiameterMeters: armController.canvasCenter.x * 2
-                        // Drawn/draggable range is well past the true
-                        // reach, and the target actually sent is
-                        // clamped just inside it - dragging can never
-                        // ask the solver for the exact full-extension
-                        // singularity that was causing the lag.
+                        // Drag range extends well past true reach; the
+                        // target sent to moveToTarget() below is
+                        // clamped just inside it, so dragging can
+                        // never hit the full-extension singularity.
                         rangeMeters: Math.max(reachDiameterMeters * 1.8, 0.5)
                         maxReachMeters: reachDiameterMeters
                         markerXMeters: armController.jointPositions.length > 0
@@ -206,13 +147,6 @@ Rectangle {
                         text: "Payload"
                     }
 
-                    // The slider's range (0-50kg) is just a convenient
-                    // everyday scale for dragging - it was previously
-                    // capped at 5kg with no way to go higher at all.
-                    // The field next to it takes any value, so this
-                    // arm can carry whatever someone is actually
-                    // designing it to lift, not just what fits a
-                    // slider.
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 5
@@ -238,13 +172,6 @@ Rectangle {
                         }
                     }
 
-                    // The gripper decides whether the staged payload
-                    // above actually counts toward the torque
-                    // calculation - open it and drag the payload
-                    // slider, nothing changes; close it, and the
-                    // torques jump by the weight. A deliberately
-                    // visible cause-and-effect, not just a cosmetic
-                    // toggle.
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 5
@@ -289,16 +216,6 @@ Rectangle {
                         text: "Config file"
                     }
 
-                    // One combined load zone, no typed path at all:
-                    // drop a .json file from the Finder anywhere on
-                    // it, or click the button in its middle to browse
-                    // for one instead - both end up calling
-                    // loadConfig() the same way. The Button and the
-                    // DropArea don't conflict despite overlapping:
-                    // a DropArea only reacts to an external OS drag
-                    // session, never to an ordinary click, so the
-                    // button underneath it still receives clicks
-                    // normally.
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 84

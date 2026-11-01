@@ -1,11 +1,7 @@
 import QtQuick
 
-// A minimal line chart for runPayloadScan()'s results: payload
-// capacity (Y) against reach (X), one line per engine. Deliberately
-// a plain Canvas, not a charting library - two polylines and four
-// corner labels is simple enough to get right without one, and this
-// project has no other 2D-chart need that would justify the
-// dependency.
+// A minimal line chart for runPayloadScan(): payload capacity (Y)
+// against reach (X), one line per engine.
 Item {
     id: root
 
@@ -21,25 +17,16 @@ Item {
         id: canvas
         anchors.fill: parent
 
-        // Local mirrors so onXChanged below fires on changes to the
-        // actual data, not just whenever this Canvas happens to
-        // repaint for an unrelated reason.
         property var reach: root.reachMeters
         property var exact: root.exactPayloadKg
         property var ai: root.aiPayloadKg
         property bool aiOn: root.aiAvailable
 
-        // Qt.callLater(), not a direct requestPaint() call: these
-        // handlers can fire during the initial layout pass (e.g.
-        // onWidthChanged, the moment the ScrollView/ColumnLayout
-        // above first sizes this item), before the window is
-        // necessarily attached to the render thread yet - calling
-        // requestPaint() synchronously at that exact moment is what
-        // produced an intermittent "Updates can only be scheduled
-        // from GUI thread or from QQuickItem::updatePaintNode()"
-        // warning (observed in ~1 of every 6-10 runs). Deferring to
-        // the next event loop iteration lets construction/layout
-        // settle first.
+        // Qt.callLater(), not a direct requestPaint(): these can fire
+        // during the initial layout pass, before the window is
+        // attached to the render thread - calling requestPaint()
+        // synchronously then caused an intermittent "Updates can only
+        // be scheduled from GUI thread" warning.
         onReachChanged: Qt.callLater(requestPaint)
         onExactChanged: Qt.callLater(requestPaint)
         onAiChanged: Qt.callLater(requestPaint)
