@@ -17,8 +17,14 @@ Item {
     property real markerYMeters: 0
     // Drawn as a faint reference circle - the arm's own total reach,
     // so a target placed near or past the edge visibly explains why
-    // moveToTarget() might not land exactly on it.
+    // moveToTarget() might not land exactly on it. Centered on
+    // reachCenterXMeters/YMeters (defaulting to the pad's own origin)
+    // rather than always the pad's visual center - Phase 6's mobile
+    // base means the arm's own reach is no longer necessarily
+    // centered on world (0,0), so this needs to be able to follow it.
     property real maxReachMeters: -1
+    property real reachCenterXMeters: 0
+    property real reachCenterYMeters: 0
 
     // A second, independently draggable marker - Phase 6's pick-and-
     // place payload placement, sharing this same plane instead of a
@@ -64,8 +70,9 @@ Item {
         border.width: 1
     }
 
-    // The base, at the pad's own center - every arm this project
-    // models starts its reach from the origin.
+    // World origin / floor reference - not necessarily where the arm
+    // itself currently is anymore (see the violet base marker below
+    // for that), just a fixed "home" mark on the pad.
     Rectangle {
         anchors.centerIn: parent
         width: 8
@@ -76,10 +83,11 @@ Item {
 
     Rectangle {
         visible: root.maxReachMeters > 0
-        anchors.centerIn: parent
         width: Math.min(root.width, root.height) * Math.min(root.maxReachMeters / root.rangeMeters, 1.0)
         height: width
         radius: width / 2
+        x: root.pxFromMeters(root.reachCenterXMeters) - width / 2
+        y: root.pyFromMeters(root.reachCenterYMeters) - height / 2
         color: "transparent"
         border.color: "#30343f"
         border.width: 1
