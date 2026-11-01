@@ -39,18 +39,25 @@ Window {
             }
 
             ControlsPanel {
-                Layout.preferredWidth: 400
+                // Matches the bottom bar's own height, not a fixed
+                // guess - so the two panels framing the 3D view read
+                // as one consistent border thickness (right side,
+                // bottom side) instead of two arbitrary, unrelated
+                // numbers that happen to both be "wide/tall enough".
+                Layout.preferredWidth: bottomBar.implicitHeight
                 Layout.fillHeight: true
             }
         }
 
         BottomBar {
+            id: bottomBar
             Layout.fillWidth: true
             // No Layout.preferredHeight set - BottomBar sizes itself
             // to its own content (see its implicitHeight binding), so
-            // it grows a little when Dynamic mode adds velocity/
-            // acceleration/breakdown controls to every joint card,
-            // and the 3D view above it gets whatever height remains.
+            // it grows a little when Dynamic mode or trajectory
+            // scrubbing adds more controls, and the sidebar's own
+            // width (bound to this, above) follows it, along with
+            // the 3D view getting whatever height remains.
         }
     }
 }
