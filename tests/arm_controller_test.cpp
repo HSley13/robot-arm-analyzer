@@ -728,17 +728,6 @@ TEST(ArmController, MoveToTargetGetsCloserEvenWhenUnreachable) {
   EXPECT_LT(distance_after, distance_before);
 }
 
-TEST(ArmController, ShowWorkspaceEnvelopeDefaultsToFalseAndIsToggleable) {
-  ArmController controller(config_path(), surrogate_path());
-  EXPECT_FALSE(controller.showWorkspaceEnvelope());
-
-  controller.setShowWorkspaceEnvelope(true);
-  EXPECT_TRUE(controller.showWorkspaceEnvelope());
-
-  controller.setShowWorkspaceEnvelope(false);
-  EXPECT_FALSE(controller.showWorkspaceEnvelope());
-}
-
 TEST(ArmController, AddJointIncreasesJointCountAndExtendsPoseVectors) {
   ArmController controller(config_path(), surrogate_path());
   ASSERT_EQ(controller.jointCount(), 2);

@@ -92,12 +92,6 @@ void ArmController::setGripperOpen(bool open) {
   recompute();
 }
 
-void ArmController::setShowWorkspaceEnvelope(bool show) {
-  if (show == _showWorkspaceEnvelope) return;
-  _showWorkspaceEnvelope = show;
-  emit resultsChanged(); // no physics affected - just the one changed property
-}
-
 void ArmController::setAiMode(bool enabled) {
   if (enabled == _aiMode || (enabled && !aiModeAvailable())) return;
   _aiMode = enabled;
