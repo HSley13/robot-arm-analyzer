@@ -24,12 +24,12 @@ This project removes that barrier: the arm's own geometry, mass, and payload are
 
 ## See it in action
 
-| | |
-|---|---|
-| ![Direct 3D joint manipulation](image/02-joint-drag-handle.png) Direct 3D joint manipulation — drag any joint ring in the 3D view itself. | ![Payload attached](image/03-payload-attached.png) Staging a payload and closing the gripper attaches it instantly; every joint's load gauge updates in real time. |
-| ![Live geometry editing](image/04-live-geometry-edit-caution.png) Dragging a joint's length live — the SAFE/CAUTION/OVERLOAD gauges respond immediately. | ![Overload](image/06-overload.png) Pushed into OVERLOAD — the same safety signal a real motor's torque limit would trip. |
-| ![Static-mode scan: AI faster](image/07-payload-scan-static.png) A workspace scan in static mode: AI surrogate measured 2.8× faster, curves nearly overlapping. | ![Dynamic-mode scan: exact engine faster](image/09-payload-scan-dynamic.png) The same scan in dynamic mode — here the *exact* engine wins. Honest, not cherry-picked. |
-| ![Dynamic mode torque breakdown](image/08-dynamic-mode.png) Dynamic mode: torque broken into gravity, inertia, and Coriolis contributions per joint. | ![Trajectory scrubbing](image/10-trajectory-scrub.png) A recorded multi-waypoint trajectory, scrubbed smoothly with live velocity/acceleration. |
+|                                                                                                                                                                 |                                                                                                                                                                       |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ![Direct 3D joint manipulation](image/02-joint-drag-handle.png) Direct 3D joint manipulation — drag any joint ring in the 3D view itself.                       | ![Payload attached](image/03-payload-attached.png) Staging a payload and closing the gripper attaches it instantly; every joint's load gauge updates in real time.    |
+| ![Live geometry editing](image/04-live-geometry-edit-caution.png) Dragging a joint's length live — the SAFE/CAUTION/OVERLOAD gauges respond immediately.        | ![Overload](image/06-overload.png) Pushed into OVERLOAD — the same safety signal a real motor's torque limit would trip.                                              |
+| ![Static-mode scan: AI faster](image/07-payload-scan-static.png) A workspace scan in static mode: AI surrogate measured 2.8× faster, curves nearly overlapping. | ![Dynamic-mode scan: exact engine faster](image/09-payload-scan-dynamic.png) The same scan in dynamic mode — here the _exact_ engine wins. Honest, not cherry-picked. |
+| ![Dynamic mode torque breakdown](image/08-dynamic-mode.png) Dynamic mode: torque broken into gravity, inertia, and Coriolis contributions per joint.            | ![Trajectory scrubbing](image/10-trajectory-scrub.png) A recorded multi-waypoint trajectory, scrubbed smoothly with live velocity/acceleration.                       |
 
 ## Architecture
 
@@ -50,11 +50,11 @@ flowchart LR
     UI --> OUT(["3D view · gauges · charts"])
 ```
 
-| Layer | Path | Responsibility |
-|---|---|---|
-| Physics engine | [`core/`](core) | C++17 + Eigen. Kinematics, statics, full RNEA dynamics, inverse kinematics, payload capacity search. No UI or ML dependency; unit-tested on its own. |
-| AI surrogate | [`ml/`](ml) | A trained MLP, plus a small hand-written, dependency-free C++ inference class. A drop-in alternative torque evaluator trained on the physics engine's own output. |
-| Interactive frontend | [`app/`](app) | Qt Quick 3D / QML. A thin `ArmController` exposes only plain Qt types to QML — the 3D scene and sidebar never touch an Eigen matrix or a PyTorch tensor directly. |
+| Layer                | Path            | Responsibility                                                                                                                                                    |
+| -------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Physics engine       | [`core/`](core) | C++17 + Eigen. Kinematics, statics, full RNEA dynamics, inverse kinematics, payload capacity search. No UI or ML dependency; unit-tested on its own.              |
+| AI surrogate         | [`ml/`](ml)     | A trained MLP, plus a small hand-written, dependency-free C++ inference class. A drop-in alternative torque evaluator trained on the physics engine's own output. |
+| Interactive frontend | [`app/`](app)   | Qt Quick 3D / QML. A thin `ArmController` exposes only plain Qt types to QML — the 3D scene and sidebar never touch an Eigen matrix or a PyTorch tensor directly. |
 
 ### How the AI surrogate is trained
 
@@ -118,21 +118,6 @@ python/   PyTorch training scripts
 tests/    GoogleTest suite (148 cases / 14 executables)
 config/   example arm configurations (JSON)
 ```
-
-## Engineering notes
-
-A handful of real bugs surfaced during development and are worth mentioning because each reflects a genuine diagnostic process, not a routine fix: a silent sign error in the hand-derived RNEA dynamics that two of three tests missed and only a third, deliberately orthogonal test caught; a unit-convention bug that rendered a payload "many meters wide next to a 1.5 m arm" until traced to one inconsistently-applied scale constant; a kinematic singularity at the arm's reach boundary that first looked like a performance bug; and a rendering crash whose debugger backtrace led into OS-native widget-styling code rather than application logic, not the application itself. The full project report (below) covers these in detail, alongside the verification discipline — GoogleTest, `qmllint`, and real launch checks — that caught them.
-
-## Documentation
-
-- [`Robot_Arm_Load_Analyzer_Report.pdf`](Robot_Arm_Load_Analyzer_Report.pdf) — the full midterm report: architecture, physics derivations, AI methodology, engineering case studies, and results.
-- [`Robot_Arm_Load_Analyzer_Presentation.pptx`](Robot_Arm_Load_Analyzer_Presentation.pptx) — the class presentation deck, walking through every control in the UI.
-
-## Author
-
-**Sley Hortes**
-Student ID: 411221407
-Introduction to AI — Midterm Project
 
 ## License
 
