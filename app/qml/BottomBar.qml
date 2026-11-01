@@ -40,6 +40,213 @@ Rectangle {
             id: bottomRow
             spacing: 10
 
+            // Legend: explains the load gauge's color zones exactly
+            // once, instead of leaving a viewer to guess what "amber"
+            // means the first time they see it on a specific joint.
+            // Moved here from the sidebar (round 4) - the sidebar is
+            // now reserved for just reach targeting, payload, the
+            // payload-capacity scan, and config file I/O.
+            Rectangle {
+                Layout.preferredWidth: 110
+                implicitHeight: legendColumn.implicitHeight + 20
+                color: "#171a2b"
+                radius: 14
+                border.color: "#262a40"
+                border.width: 1
+
+                ColumnLayout {
+                    id: legendColumn
+                    anchors.fill: parent
+                    anchors.margins: 10
+                    spacing: 6
+
+                    Label {
+                        color: "white"
+                        font.bold: true
+                        text: "Legend"
+                    }
+
+                    Repeater {
+                        model: [
+                            { color: "#2ecc71", label: "Safe" },
+                            { color: "#ffbf00", label: "Caution" },
+                            { color: "#ff4d4f", label: "Overload" }
+                        ]
+
+                        RowLayout {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            spacing: 5
+
+                            Rectangle {
+                                implicitWidth: 10
+                                implicitHeight: 10
+                                radius: 5
+                                color: parent.modelData.color
+                            }
+                            Label {
+                                color: "#c7cbd6"
+                                font.pixelSize: 11
+                                text: parent.modelData.label
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Exact/AI (Phase 1/5): which engine computes joint
+            // torque. Moved here from the sidebar (round 4).
+            Rectangle {
+                Layout.preferredWidth: 180
+                implicitHeight: aiColumn.implicitHeight + 20
+                color: "#171a2b"
+                radius: 14
+                border.color: "#262a40"
+                border.width: 1
+
+                ColumnLayout {
+                    id: aiColumn
+                    anchors.fill: parent
+                    anchors.margins: 10
+                    spacing: 5
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 5
+
+                        Label {
+                            color: "white"
+                            opacity: armController.aiMode ? 0.5 : 1.0
+                            text: "Exact"
+                        }
+
+                        Switch {
+                            checked: armController.aiMode
+                            enabled: armController.aiModeAvailable
+                            onToggled: armController.aiMode = checked
+                        }
+
+                        Label {
+                            color: "white"
+                            opacity: armController.aiMode ? 1.0 : 0.5
+                            text: "AI" + (armController.aiModeAvailable ? "" : " (none)")
+                        }
+                    }
+
+                    // What this switch actually does, spelled out
+                    // once - "Exact" and "AI" otherwise read as two
+                    // unexplained words.
+                    Label {
+                        color: "#7a8099"
+                        font.pixelSize: 10
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                        text: "Exact runs the real physics engine. AI asks a small neural "
+                            + "network trained to approximate it instead - usually very "
+                            + "close, and much faster (see Payload capacity in the sidebar)."
+                    }
+                }
+            }
+
+            // Static/Dynamic (Phase 2): switches each joint card's
+            // velocity/acceleration/torque-breakdown section into
+            // inverse_dynamics() (or the dynamic AI surrogate) instead
+            // of treating the arm as at rest. Moved here from the
+            // sidebar (round 4) - grows when Scrub trajectory is on,
+            // which (together with every joint's own card) is exactly
+            // what this bar's self-sizing implicitHeight is for.
+            Rectangle {
+                Layout.preferredWidth: 220
+                implicitHeight: modeColumn.implicitHeight + 20
+                color: "#171a2b"
+                radius: 14
+                border.color: "#262a40"
+                border.width: 1
+
+                ColumnLayout {
+                    id: modeColumn
+                    anchors.fill: parent
+                    anchors.margins: 10
+                    spacing: 5
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 5
+
+                        Label {
+                            color: "white"
+                            opacity: armController.dynamicMode ? 0.5 : 1.0
+                            text: "Static"
+                        }
+
+                        Switch {
+                            checked: armController.dynamicMode
+                            onToggled: armController.dynamicMode = checked
+                        }
+
+                        Label {
+                            color: "white"
+                            opacity: armController.dynamicMode ? 1.0 : 0.5
+                            text: "Dynamic"
+                        }
+                    }
+
+                    Label {
+                        color: "#7a8099"
+                        font.pixelSize: 10
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                        text: "Dynamic adds each joint's velocity/acceleration into the "
+                            + "torque calculation (gravity + inertia + Coriolis), instead "
+                            + "of treating the arm as momentarily at rest."
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 5
+                        visible: armController.dynamicMode
+
+                        Label {
+                            color: "white"
+                            text: "Scrub trajectory"
+                        }
+
+                        Switch {
+                            checked: armController.trajectoryScrubMode
+                            onToggled: armController.trajectoryScrubMode = checked
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 4
+                        visible: armController.trajectoryScrubMode
+
+                        Label {
+                            color: "#9aa0ab"
+                            font.pixelSize: 11
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                            text: armController.trajectoryWaypointCount + " waypoints (drag to scrub)"
+                        }
+
+                        Slider {
+                            Layout.fillWidth: true
+                            from: 0
+                            to: 1
+                            value: armController.trajectoryProgress
+                            onMoved: armController.trajectoryProgress = value
+                        }
+
+                        Button {
+                            Layout.fillWidth: true
+                            text: "Record waypoint"
+                            onClicked: armController.recordWaypoint()
+                        }
+                    }
+                }
+            }
+
             // Joint count (Phase 6): add/remove a joint from the END
             // of the chain without replacing the whole arm via Save/
             // Load. New joints default to continuing the taper
