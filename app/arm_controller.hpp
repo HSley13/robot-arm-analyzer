@@ -36,19 +36,6 @@ class ArmController : public QObject {
   Q_PROPERTY(int jointCount READ jointCount NOTIFY resultsChanged)
   Q_PROPERTY(bool aiModeAvailable READ aiModeAvailable NOTIFY resultsChanged)
   Q_PROPERTY(QVector3D canvasCenter READ canvasCenter NOTIFY resultsChanged)
-
-  // Phase 6: the arm's own joint kinematics/dynamics are entirely
-  // computed in its own local frame, exactly as before - a mobile
-  // base changing where that frame SITS in the world doesn't change
-  // any torque or angle math at all, the same way a real arm's
-  // dynamics don't care where its wheels parked it. baseX/baseY are
-  // that world-space offset, applied only at the handful of
-  // world-facing boundary points that need it (jointPositions(),
-  // linkMidpoints(), payloadX()/Y()'s attached case, canvasCenter(),
-  // and moveToTarget()'s input conversion) - see driveTo()'s own
-  // comment for why it doesn't need to touch recompute() at all.
-  Q_PROPERTY(double baseX READ baseX NOTIFY resultsChanged)
-  Q_PROPERTY(double baseY READ baseY NOTIFY resultsChanged)
   // Feedback for loadConfig()/saveConfig() - success or failure, since
   // both can fail (bad file, bad path) and the UI needs to tell the user
   // why rather than silently doing nothing.
@@ -156,9 +143,7 @@ public:
   QString armName() const;
   int jointCount() const { return static_cast<int>(_arm.num_joints()); }
   bool aiModeAvailable() const;
-  QVector3D canvasCenter() const;
-  double baseX() const { return _baseX; }
-  double baseY() const { return _baseY; }
+  QVector3D canvasCenter() const { return _canvasCenter; }
 
   double payloadKg() const { return _payloadKg; }
   void setPayloadKg(double kg);
@@ -219,25 +204,6 @@ public:
   // exactly like it would for a real arm straining toward something
   // just out of reach.
   Q_INVOKABLE void moveToTarget(double xMeters, double yMeters);
-
-  // Drives the base to a new world position - instant on the backend
-  // (just two numbers), with QML animating the visual motion via a
-  // Behavior the same way the gripper fingers already animate their
-  // open/close. Doesn't touch recompute() or any joint angle: the
-  // arm's own kinematics are defined entirely relative to its base,
-  // so moving the base doesn't change what pose the arm is holding,
-  // only where that pose sits in the world - exactly like a real
-  // mobile manipulator's arm controller not needing to know about the
-  // chassis's navigation stack.
-  Q_INVOKABLE void driveTo(double worldX, double worldY);
-
-  // Convenience for the common two-stage demo motion: parks the base
-  // so the payload ends up half the arm's own reach directly ahead of
-  // it (not exactly on top of the base's own origin, which would
-  // trivially satisfy "in reach" without the arm needing to extend at
-  // all) - close enough that moveToTarget(payloadX, payloadY) or the
-  // "Go to payload" button can then reach the rest of the way.
-  Q_INVOKABLE void driveNearPayload();
 
   // Sets where the payload rests when nothing is holding it. A no-op
   // while payloadAttached() is true - you can't teleport something
@@ -401,8 +367,6 @@ private:
   double _payloadY = 0.0;
   bool _payloadAttached = false;
   bool _gripperOpen = true; // open by default - a ready-to-approach hand, see the Q_PROPERTY doc comment above
-  double _baseX = 0.0; // world-space offset of the arm's own local frame - see driveTo()
-  double _baseY = 0.0;
   bool _showWorkspaceEnvelope = false;
   bool _aiMode = false;
   bool _dynamicMode = false;
@@ -416,8 +380,9 @@ private:
 
   TorqueBreakdown _breakdown;
 
-  std::vector<Eigen::Vector3d> _jointPositions; // base origin + one per joint, LOCAL frame - see canvasCenter()
+  std::vector<Eigen::Vector3d> _jointPositions; // base origin + one per joint
   std::vector<double> _jointTorques;
+  QVector3D _canvasCenter;
   QString _configMessage;
 
   double _currentMaxSafePayloadKg = 0.0;
