@@ -39,12 +39,12 @@ Window {
             }
 
             ControlsPanel {
-                // Matches the bottom bar's own height, not a fixed
-                // guess - so the two panels framing the 3D view read
-                // as one consistent border thickness (right side,
-                // bottom side) instead of two arbitrary, unrelated
-                // numbers that happen to both be "wide/tall enough".
-                Layout.preferredWidth: bottomBar.implicitHeight
+                // Follows the bottom bar's own height (not a fixed
+                // guess) plus a flat margin, on request, to be "a bit
+                // wider" than a literal 1:1 match - so the two panels
+                // framing the 3D view still read as one consistent
+                // border thickness, just not pinned exactly equal.
+                Layout.preferredWidth: bottomBar.implicitHeight + 60
                 Layout.fillHeight: true
             }
         }

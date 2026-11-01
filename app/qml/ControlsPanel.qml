@@ -25,10 +25,11 @@ import QtQuick.Layouts
 //
 // Round 4: narrowed further, on request, to only the four things
 // that are explicitly the sidebar's job - reach targeting, payload,
-// the payload-capacity scan, and config file I/O. The legend, AI
-// toggle, and Static/Dynamic mode moved to BottomBar.qml, which had
-// room to spare once every joint's own card moved there (round 3) -
-// see that file for why a ROW has room a COLUMN doesn't.
+// the payload-capacity scan, and config file I/O - plus the legend,
+// which round 5 brought back here (at the very top, since it's the
+// first thing the gauges below the 3D view assume you already know).
+// AI toggle and Static/Dynamic mode stayed in BottomBar.qml, combined
+// with joint count into one shared card there.
 Rectangle {
     id: root
     color: "#0e1021"
@@ -61,6 +62,54 @@ Rectangle {
                 color: "white"
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
+            }
+
+            // Legend: explains the load gauge's color zones exactly
+            // once, instead of leaving a viewer to guess what "amber"
+            // means the first time they see it on a specific joint -
+            // at the very top, since every joint card in the bottom
+            // bar assumes it.
+            Rectangle {
+                Layout.fillWidth: true
+                color: "#171a2b"
+                radius: 12
+                border.color: "#262a40"
+                border.width: 1
+                implicitHeight: legendRow.implicitHeight + 16
+
+                RowLayout {
+                    id: legendRow
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    spacing: 10
+
+                    Repeater {
+                        model: [
+                            { color: "#2ecc71", label: "Safe" },
+                            { color: "#ffbf00", label: "Caution" },
+                            { color: "#ff4d4f", label: "Overload" }
+                        ]
+
+                        RowLayout {
+                            required property var modelData
+                            spacing: 5
+
+                            Rectangle {
+                                implicitWidth: 10
+                                implicitHeight: 10
+                                radius: 5
+                                color: parent.modelData.color
+                            }
+                            Label {
+                                color: "#c7cbd6"
+                                font.pixelSize: 11
+                                text: parent.modelData.label
+                            }
+                        }
+                    }
+
+                    Item { Layout.fillWidth: true }
+                }
             }
 
             // Click-to-reach inverse kinematics (Phase 6): drag the
