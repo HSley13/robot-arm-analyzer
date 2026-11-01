@@ -42,14 +42,23 @@ class ArmController : public QObject {
   Q_PROPERTY(QString configMessage READ configMessage NOTIFY resultsChanged)
 
   Q_PROPERTY(double payloadKg READ payloadKg WRITE setPayloadKg NOTIFY resultsChanged)
-  // Phase 5: the gripper is closed by default, so every pre-existing
-  // behavior ("payloadKg affects torque") is unchanged unless the user
-  // actually opens it. While open, effectiveState()'s payload is 0
-  // regardless of payloadKg's own value - the slider stages "how heavy
-  // is the thing you're about to pick up"; the gripper decides whether
-  // it's actually being held right now. Purely a presentation/pedagogy
-  // feature: open the gripper, drag the payload slider, nothing moves;
-  // close it, and the torques jump by the weight.
+  // Phase 6: the payload is a real object sitting in the arm's plane,
+  // not something permanently glued to the gripper - placePayload()
+  // sets where it rests; closing the gripper only picks it up if the
+  // end effector is actually there (see setGripperOpen()). payloadX/Y
+  // report wherever it currently IS: its own resting spot while free,
+  // or the end effector's live position while attached - so QML can
+  // bind one pair of numbers for "where's the payload" regardless of
+  // which state it's in.
+  Q_PROPERTY(double payloadX READ payloadX NOTIFY resultsChanged)
+  Q_PROPERTY(double payloadY READ payloadY NOTIFY resultsChanged)
+  Q_PROPERTY(bool payloadAttached READ payloadAttached NOTIFY resultsChanged)
+  // Closed by default (no pre-existing demo behavior depended on
+  // starting open). Closing it only attaches the payload if the end
+  // effector is within pickup range of where the payload currently
+  // rests - closing it elsewhere just closes an empty gripper, the
+  // way a real one would. Opening it while holding the payload drops
+  // it exactly where it is.
   Q_PROPERTY(bool gripperOpen READ gripperOpen WRITE setGripperOpen NOTIFY resultsChanged)
   Q_PROPERTY(bool aiMode READ aiMode WRITE setAiMode NOTIFY resultsChanged)
   // Purely a UI toggle (no physics behind it, unlike every other bool
@@ -138,6 +147,9 @@ public:
 
   double payloadKg() const { return _payloadKg; }
   void setPayloadKg(double kg);
+  double payloadX() const;
+  double payloadY() const;
+  bool payloadAttached() const { return _payloadAttached; }
   bool gripperOpen() const { return _gripperOpen; }
   void setGripperOpen(bool open);
   bool showWorkspaceEnvelope() const { return _showWorkspaceEnvelope; }
@@ -192,6 +204,13 @@ public:
   // exactly like it would for a real arm straining toward something
   // just out of reach.
   Q_INVOKABLE void moveToTarget(double xMeters, double yMeters);
+
+  // Sets where the payload rests when nothing is holding it. A no-op
+  // while payloadAttached() is true - you can't teleport something
+  // you're currently gripping to a different spot; open the gripper
+  // to put it down first. z is always 0 for the same planar reason
+  // moveToTarget()'s target is.
+  Q_INVOKABLE void placePayload(double xMeters, double yMeters);
 
   // Only take effect when trajectoryScrubMode is off - while scrubbing,
   // velocity/acceleration are read off the trajectory instead.
@@ -299,13 +318,19 @@ private:
   // place decides this so recompute() and the *Degrees() accessors can't
   // disagree with each other about what "current" means.
   TrajectoryState effectiveState() const;
-  // payloadKg() with the gripper's state applied: 0 while gripperOpen()
-  // is true, since an open gripper isn't holding anything regardless of
-  // what the payload slider is staged to. Every torque calculation in
-  // recompute() reads this instead of _payloadKg directly - one place
-  // decides this so a future calculation can't forget to check the
-  // gripper and silently apply a payload that isn't actually held.
-  double effectivePayloadKg() const { return _gripperOpen ? 0.0 : _payloadKg; }
+  // payloadKg() with the pickup state applied: 0 unless the payload is
+  // actually attached - closing the gripper somewhere else in the
+  // plane doesn't magically apply its weight. Every torque calculation
+  // in recompute() reads this instead of _payloadKg directly - one
+  // place decides this so a future calculation can't forget to check
+  // and silently apply a payload that isn't actually held.
+  double effectivePayloadKg() const { return _payloadAttached ? _payloadKg : 0.0; }
+
+  // Recomputes the default resting spot for a freshly loaded/constructed
+  // arm: comfortably within reach (45% of total length) and a little
+  // below shoulder height, so it reads as "sitting on the ground" next
+  // to the pedestal rather than floating at the arm's own origin.
+  void resetPayloadPosition();
 
   // Duration of each segment in _recordedTrajectory - between any two
   // consecutive waypoints, however many have been recorded. The whole
@@ -319,6 +344,14 @@ private:
   // demo range.
   static constexpr double kPayloadSearchCeilingKg = 200.0;
 
+  // How close the end effector must be to the payload's resting spot
+  // for closing the gripper to actually pick it up. Generous enough
+  // that solve_inverse_kinematics()'s own convergence tolerance (far
+  // tighter than this) never causes a "just missed it" surprise, tight
+  // enough that closing the gripper somewhere else in the plane
+  // obviously doesn't attach it.
+  static constexpr double kPickupRadiusMeters = 0.15;
+
   ArmConfig _config;
   ArmModel _arm;
   std::vector<LinkMass> _links;
@@ -330,7 +363,10 @@ private:
   std::vector<double> _jointVelocitiesRadians;
   std::vector<double> _jointAccelerationsRadians;
   double _payloadKg = 0.0;
-  bool _gripperOpen = false; // closed by default - see the Q_PROPERTY doc comment above
+  double _payloadX = 0.0; // resting position while NOT attached - see resetPayloadPosition()
+  double _payloadY = 0.0;
+  bool _payloadAttached = false;
+  bool _gripperOpen = true; // open by default - a ready-to-approach hand, see the Q_PROPERTY doc comment above
   bool _showWorkspaceEnvelope = false;
   bool _aiMode = false;
   bool _dynamicMode = false;
