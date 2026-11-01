@@ -103,26 +103,13 @@ Rectangle {
                         Layout.preferredWidth: 150
                         Layout.preferredHeight: 150
                         readonly property real reachDiameterMeters: armController.canvasCenter.x * 2
-                        // Drag range extends well past true reach; the
-                        // target sent to moveToTarget() below is
-                        // clamped just inside it, so dragging can
-                        // never hit the full-extension singularity.
                         rangeMeters: Math.max(reachDiameterMeters * 1.8, 0.5)
                         maxReachMeters: reachDiameterMeters
                         markerXMeters: armController.jointPositions.length > 0
                             ? armController.jointPositions[armController.jointPositions.length - 1].x : 0
                         markerYMeters: armController.jointPositions.length > 0
                             ? armController.jointPositions[armController.jointPositions.length - 1].y : 0
-                        onTargetMoved: (x, y) => {
-                            const safeRadius = (reachDiameterMeters / 2) * 0.97
-                            const dist = Math.hypot(x, y)
-                            if (dist > safeRadius && dist > 0) {
-                                const scale = safeRadius / dist
-                                armController.moveToTarget(x * scale, y * scale)
-                            } else {
-                                armController.moveToTarget(x, y)
-                            }
-                        }
+                        onTargetMoved: (x, y) => armController.moveToTarget(x, y)
                     }
                 }
             }
