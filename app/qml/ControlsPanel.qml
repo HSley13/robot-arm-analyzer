@@ -37,8 +37,8 @@ Rectangle {
 
         ColumnLayout {
             width: parent.width
-            anchors.margins: 16
-            spacing: 14
+            anchors.margins: 12
+            spacing: 10
 
             Label {
                 text: armController.armName
@@ -108,17 +108,17 @@ Rectangle {
                 radius: 14
                 border.color: "#262a40"
                 border.width: 1
-                implicitHeight: moveToTargetColumn.implicitHeight + 28
+                implicitHeight: moveToTargetColumn.implicitHeight + 20
 
                 ColumnLayout {
                     id: moveToTargetColumn
                     anchors.fill: parent
-                    anchors.margins: 14
-                    spacing: 8
+                    anchors.margins: 10
+                    spacing: 6
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 8
+                        spacing: 6
 
                         Label {
                             color: "white"
@@ -142,8 +142,8 @@ Rectangle {
 
                     ReachPad {
                         Layout.alignment: Qt.AlignHCenter
-                        Layout.preferredWidth: 170
-                        Layout.preferredHeight: 170
+                        Layout.preferredWidth: 200
+                        Layout.preferredHeight: 200
                         rangeMeters: Math.max(armController.canvasCenter.x * 2, 0.5)
                         maxReachMeters: armController.canvasCenter.x * 2
                         markerXMeters: armController.jointPositions.length > 0
@@ -155,7 +155,7 @@ Rectangle {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 8
+                        spacing: 6
 
                         TextField {
                             id: targetXField
@@ -192,13 +192,13 @@ Rectangle {
                 radius: 14
                 border.color: "#262a40"
                 border.width: 1
-                implicitHeight: jointCountRow.implicitHeight + 28
+                implicitHeight: jointCountRow.implicitHeight + 20
 
                 RowLayout {
                     id: jointCountRow
                     anchors.fill: parent
-                    anchors.margins: 14
-                    spacing: 8
+                    anchors.margins: 10
+                    spacing: 6
 
                     Label {
                         color: "white"
@@ -232,13 +232,13 @@ Rectangle {
                     radius: 14
                     border.color: "#262a40"
                     border.width: 1
-                    implicitHeight: jointColumn.implicitHeight + 28
+                    implicitHeight: jointColumn.implicitHeight + 20
 
                     ColumnLayout {
                         id: jointColumn
                         anchors.fill: parent
-                        anchors.margins: 14
-                        spacing: 8
+                        anchors.margins: 10
+                        spacing: 6
 
                         Label {
                             color: "white"
@@ -260,18 +260,9 @@ Rectangle {
                                     font.bold: true
                                     text: "ANGLE"
                                 }
-                                // Stays enabled during scrubbing (unlike
-                                // the velocity/acceleration sliders
-                                // below, which the trajectory fully
-                                // determines then): the intended
-                                // workflow is scrub to the end of the
-                                // recording, drag this to stage the
-                                // NEXT waypoint's pose, then "Record
-                                // waypoint" further down.
                                 AngleDial {
-                                    Layout.preferredWidth: 104
-                                    Layout.preferredHeight: 104
-                                    enabled: !armController.trajectoryScrubMode
+                                    Layout.preferredWidth: 92
+                                    Layout.preferredHeight: 92
                                     value: armController.jointAnglesDegrees[jointCard.index]
                                     onMoved: armController.setJointAngleDegrees(jointCard.index, value)
                                 }
@@ -287,55 +278,12 @@ Rectangle {
                                     text: "LOAD"
                                 }
                                 RadialGauge {
-                                    Layout.preferredWidth: 104
-                                    Layout.preferredHeight: 104
+                                    Layout.preferredWidth: 92
+                                    Layout.preferredHeight: 92
                                     value: armController.jointTorques[jointCard.index]
                                     limit: armController.jointTorqueLimits[jointCard.index]
                                 }
                             }
-                        }
-
-                        // Velocity/acceleration input (Phase 2): only
-                        // meaningful in dynamic mode, and only directly
-                        // settable when not scrubbing a trajectory (the
-                        // trajectory supplies both while scrubbing
-                        // instead). Left as sliders, not dials - these
-                        // are secondary controls, and a rate rather
-                        // than a rotation doesn't carry the same
-                        // "this is literally the joint's own angle"
-                        // argument for a circular widget.
-                        Label {
-                            visible: armController.dynamicMode
-                            color: "#9aa0ab"
-                            font.pixelSize: 12
-                            text: "velocity: " + armController.jointVelocitiesDegrees[jointCard.index].toFixed(0) + "°/s"
-                        }
-
-                        Slider {
-                            Layout.fillWidth: true
-                            visible: armController.dynamicMode
-                            enabled: !armController.trajectoryScrubMode
-                            from: -180
-                            to: 180
-                            value: armController.jointVelocitiesDegrees[jointCard.index]
-                            onMoved: armController.setJointVelocityDegrees(jointCard.index, value)
-                        }
-
-                        Label {
-                            visible: armController.dynamicMode
-                            color: "#9aa0ab"
-                            font.pixelSize: 12
-                            text: "acceleration: " + armController.jointAccelerationsDegrees[jointCard.index].toFixed(0) + "°/s²"
-                        }
-
-                        Slider {
-                            Layout.fillWidth: true
-                            visible: armController.dynamicMode
-                            enabled: !armController.trajectoryScrubMode
-                            from: -360
-                            to: 360
-                            value: armController.jointAccelerationsDegrees[jointCard.index]
-                            onMoved: armController.setJointAccelerationDegrees(jointCard.index, value)
                         }
 
                         // Editable torque limit (Phase 4): staged here,
@@ -346,7 +294,7 @@ Rectangle {
                         // would otherwise be rejected as non-positive.
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: 8
+                            spacing: 6
 
                             Label {
                                 color: "#9aa0ab"
@@ -374,7 +322,7 @@ Rectangle {
                         // TextField above.
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: 8
+                            spacing: 6
 
                             Label {
                                 color: "#9aa0ab"
@@ -406,7 +354,7 @@ Rectangle {
                         // someone is actually designing for."
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: 8
+                            spacing: 6
 
                             Label {
                                 color: "#9aa0ab"
@@ -433,21 +381,6 @@ Rectangle {
                                 text: "kg"
                             }
                         }
-
-                        // Torque breakdown (Phase 2): gravity/inertia/
-                        // Coriolis, per the roadmap's NovaSolver lesson
-                        // - *why* a joint is loaded, not just how much.
-                        Label {
-                            visible: armController.dynamicMode
-                            color: "#7a8099"
-                            font.pixelSize: 11
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                            text: "gravity " + armController.gravityTorques[jointCard.index].toFixed(1)
-                                + "  ·  inertia " + armController.inertiaTorques[jointCard.index].toFixed(1)
-                                + "  ·  coriolis " + armController.coriolisTorques[jointCard.index].toFixed(1)
-                                + " N·m"
-                        }
                     }
                 }
             }
@@ -458,13 +391,13 @@ Rectangle {
                 radius: 14
                 border.color: "#262a40"
                 border.width: 1
-                implicitHeight: payloadColumn.implicitHeight + 28
+                implicitHeight: payloadColumn.implicitHeight + 20
 
                 ColumnLayout {
                     id: payloadColumn
                     anchors.fill: parent
-                    anchors.margins: 14
-                    spacing: 8
+                    anchors.margins: 10
+                    spacing: 6
 
                     Label {
                         color: "white"
@@ -481,7 +414,7 @@ Rectangle {
                     // slider.
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 8
+                        spacing: 6
 
                         Slider {
                             Layout.fillWidth: true
@@ -513,7 +446,7 @@ Rectangle {
                     // toggle.
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 8
+                        spacing: 6
 
                         Label {
                             color: "white"
@@ -541,93 +474,13 @@ Rectangle {
                 radius: 14
                 border.color: "#262a40"
                 border.width: 1
-                implicitHeight: modeColumn.implicitHeight + 28
-
-                ColumnLayout {
-                    id: modeColumn
-                    anchors.fill: parent
-                    anchors.margins: 14
-                    spacing: 8
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-
-                        Label {
-                            color: "white"
-                            opacity: armController.dynamicMode ? 0.5 : 1.0
-                            text: "Static"
-                        }
-
-                        Switch {
-                            checked: armController.dynamicMode
-                            onToggled: armController.dynamicMode = checked
-                        }
-
-                        Label {
-                            color: "white"
-                            opacity: armController.dynamicMode ? 1.0 : 0.5
-                            text: "Dynamic"
-                        }
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-                        visible: armController.dynamicMode
-
-                        Label {
-                            color: "white"
-                            text: "Scrub trajectory"
-                        }
-
-                        Switch {
-                            checked: armController.trajectoryScrubMode
-                            onToggled: armController.trajectoryScrubMode = checked
-                        }
-                    }
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 4
-                        visible: armController.trajectoryScrubMode
-
-                        Label {
-                            color: "#9aa0ab"
-                            font.pixelSize: 12
-                            text: "Recording: " + armController.trajectoryWaypointCount + " waypoints (drag to scrub)"
-                        }
-
-                        Slider {
-                            Layout.fillWidth: true
-                            from: 0
-                            to: 1
-                            value: armController.trajectoryProgress
-                            onMoved: armController.trajectoryProgress = value
-                        }
-
-                        Button {
-                            Layout.fillWidth: true
-                            text: "Record waypoint at current angles"
-                            onClicked: armController.recordWaypoint()
-                        }
-                    }
-                }
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                color: "#171a2b"
-                radius: 14
-                border.color: "#262a40"
-                border.width: 1
-                implicitHeight: aiRow.implicitHeight + 28
+                implicitHeight: aiRow.implicitHeight + 20
 
                 RowLayout {
                     id: aiRow
                     anchors.fill: parent
-                    anchors.margins: 14
-                    spacing: 8
+                    anchors.margins: 10
+                    spacing: 6
 
                     Label {
                         color: "white"
@@ -660,13 +513,13 @@ Rectangle {
                 radius: 14
                 border.color: "#262a40"
                 border.width: 1
-                implicitHeight: payloadCapacityColumn.implicitHeight + 28
+                implicitHeight: payloadCapacityColumn.implicitHeight + 20
 
                 ColumnLayout {
                     id: payloadCapacityColumn
                     anchors.fill: parent
-                    anchors.margins: 14
-                    spacing: 8
+                    anchors.margins: 10
+                    spacing: 6
 
                     Label {
                         color: "white"
@@ -754,12 +607,12 @@ Rectangle {
                 radius: 14
                 border.color: "#262a40"
                 border.width: 1
-                implicitHeight: configColumn.implicitHeight + 28
+                implicitHeight: configColumn.implicitHeight + 20
 
                 ColumnLayout {
                     id: configColumn
                     anchors.fill: parent
-                    anchors.margins: 14
+                    anchors.margins: 10
                     spacing: 6
 
                     Label {
@@ -791,7 +644,7 @@ Rectangle {
 
                         ColumnLayout {
                             anchors.centerIn: parent
-                            spacing: 8
+                            spacing: 6
 
                             Label {
                                 Layout.alignment: Qt.AlignHCenter
