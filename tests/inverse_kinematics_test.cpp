@@ -111,6 +111,44 @@ TEST(InverseKinematics, TerminatesAndStaysFiniteOnAnUnreachableTarget) {
   EXPECT_LT(distance_after, distance_before);
 }
 
+TEST(InverseKinematics, StableNearTheReachBoundaryForTwoVeryCloseTargets) {
+  // The entire reach boundary (not just one special pose) is a
+  // singularity for a serial chain - the arm is always fully extended
+  // there. Dragging a UI target along that boundary calls this solver
+  // repeatedly with targets that are only a tiny bit apart; without an
+  // early-exit once the solver's own proposed step stops being
+  // meaningful (see the production code's comment), every one of
+  // those calls burns the full max_iterations budget bouncing around
+  // a residual radial error it can never close, and two calls that
+  // differ only by a fraction of a millimeter can settle on
+  // noticeably different final poses - exactly the "lags, feels
+  // unstable" symptom reported from actually using it. Two targets
+  // 0.1mm apart, from the SAME starting pose (isolating the solver's
+  // own behavior from whatever pose a previous UI frame left behind),
+  // must produce two nearly-identical poses, not a visible jump.
+  const ArmModel arm = two_link_arm();
+  const std::vector<double> start = {0.1, 0.2}; // not already sitting exactly on the boundary
+  const Eigen::Vector3d target_a(1.5, 0.0, 0.0); // exactly at max reach (a=1.0 + a=0.5)
+  const Eigen::Vector3d target_b(1.4999, 0.0001, 0.0); // 0.1mm away along the same boundary
+
+  const std::vector<double> result_a = solve_inverse_kinematics(arm, start, target_a);
+  const std::vector<double> result_b = solve_inverse_kinematics(arm, start, target_b);
+
+  // Exactly AT the boundary (target_a) is a true singularity - a damped
+  // solver trades some precision there for staying finite/bounded at
+  // all (its whole documented purpose), so a sub-degree residual
+  // spread between these two is an inherent, acceptable property of
+  // that tradeoff, not a bug. What this guards against is the much
+  // larger, visually-obvious swing an UN-bounded 200-iteration grind
+  // can produce once it starts oscillating around an irreducible
+  // residual - this tolerance is comfortably above the measured,
+  // damping-inherent spread and comfortably below "visibly jumps".
+  ASSERT_EQ(result_a.size(), result_b.size());
+  for (size_t i = 0; i < result_a.size(); i++) {
+    EXPECT_NEAR(result_a[i], result_b[i], 0.02);
+  }
+}
+
 TEST(InverseKinematics, ResultHasOneEntryPerJoint) {
   const ArmModel arm = two_link_arm();
   const std::vector<double> result = solve_inverse_kinematics(arm, {0.0, 0.0}, Eigen::Vector3d(1.0, 0.2, 0.0));
