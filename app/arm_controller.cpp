@@ -14,12 +14,8 @@ namespace robotarm {
 
 namespace {
 
-// This arm (config/two_link_planar.json) has both joints rotating about Z
-// with no link twist, so it lies entirely in a plane perpendicular to the
-// default vertical gravity (rotating about the gravity axis never changes
-// height). Using an in-plane gravity vector instead - same convention
-// Module 3's tests and Module 5's training data already use - so the UI's
-// torque numbers are actually meaningful, not trivially zero.
+// In-plane gravity: this arm's joints all rotate about Z with no link
+// twist, so a default vertical gravity would make every torque zero.
 const Eigen::Vector3d kGravity(0.0, -9.81, 0.0);
 
 QVector3D to_qvector3d(const Eigen::Vector3d &v) {
@@ -29,7 +25,7 @@ QVector3D to_qvector3d(const Eigen::Vector3d &v) {
 QColor torque_color(double torque, double limit) {
   const double ratio = limit > 0.0 ? std::abs(torque) / limit : 0.0;
   if (ratio < 0.6) return QColor(Qt::green);
-  if (ratio < 0.9) return QColor(255, 191, 0); // amber
+  if (ratio < 0.9) return QColor(255, 191, 0);
   return QColor(Qt::red);
 }
 
@@ -56,7 +52,7 @@ ArmController::ArmController(const std::filesystem::path &config_path, const std
   try {
     _surrogate = std::make_unique<Surrogate>(surrogate_path);
   } catch (const std::exception &) {
-    _surrogate = nullptr; // AI mode simply unavailable for this arm
+    _surrogate = nullptr;
   }
   if (!dynamic_surrogate_path.empty()) {
     try {
@@ -72,10 +68,6 @@ ArmController::ArmController(const std::filesystem::path &config_path, const std
 QString ArmController::armName() const { return QString::fromStdString(_config.name); }
 
 bool ArmController::aiModeAvailable() const {
-  // Also requires the surrogate's own joint count to match the current
-  // arm's - loadConfig() (Phase 4) can swap in an arm with a different
-  // joint count than whatever the surrogate was trained on, in which case
-  // predict()/predict_raw() would be fed the wrong number of inputs.
   const Surrogate *surrogate = _dynamicMode ? _dynamicSurrogate.get() : _surrogate.get();
   return surrogate != nullptr && surrogate->num_joints() == _arm.num_joints();
 }
@@ -101,7 +93,7 @@ void ArmController::setAiMode(bool enabled) {
 void ArmController::setDynamicMode(bool enabled) {
   if (enabled == _dynamicMode) return;
   _dynamicMode = enabled;
-  if (!enabled) _trajectoryScrubMode = false; // scrubbing implies dynamic mode
+  if (!enabled) _trajectoryScrubMode = false;
   if (_aiMode && !aiModeAvailable()) _aiMode = false;
   recompute();
 }
@@ -111,8 +103,6 @@ void ArmController::setTrajectoryScrubMode(bool enabled) {
   _trajectoryScrubMode = enabled;
   if (enabled) {
     _dynamicMode = true;
-    // Discards any previous recording - always starts fresh from
-    // [rest, current pose] when scrubbing is (re-)enabled.
     const std::vector<double> rest(_jointAnglesRadians.size(), 0.0);
     _recordedTrajectory = std::make_unique<RecordedTrajectory>(
         std::vector<std::vector<double>>{rest, _jointAnglesRadians}, kTrajectoryDurationSeconds);
@@ -153,7 +143,7 @@ void ArmController::moveToTarget(double xMeters, double yMeters) {
 
 void ArmController::setJointVelocityDegrees(int index, double degreesPerSecond) {
   if (index < 0 || static_cast<size_t>(index) >= _jointVelocitiesRadians.size()) return;
-  if (_trajectoryScrubMode) return; // the trajectory owns velocity while scrubbing
+  if (_trajectoryScrubMode) return;
   _jointVelocitiesRadians[static_cast<size_t>(index)] = to_radians(degreesPerSecond);
   recompute();
 }
@@ -167,7 +157,7 @@ void ArmController::setJointAccelerationDegrees(int index, double degreesPerSeco
 
 void ArmController::setJointTorqueLimit(int index, double limit) {
   if (index < 0 || static_cast<size_t>(index) >= _config.joints.size()) return;
-  if (limit <= 0.0) return; // matches parse_arm_config()'s own validation
+  if (limit <= 0.0) return;
   _config.joints[static_cast<size_t>(index)].torque_limit = limit;
   emit resultsChanged();
 }
@@ -178,24 +168,13 @@ void ArmController::setJointLength(int index, double meters) {
 
   JointConfig &joint = _config.joints[static_cast<size_t>(index)];
   joint.dh.a = meters;
-  // Re-derive as a uniform rod of the new length - see the Q_INVOKABLE
-  // doc comment in the header for why this always happens, even for a
-  // joint that was loaded with an explicit inertia tensor.
   joint.inertial = LinkInertial::rod(joint.mass, meters);
 
   _arm = to_arm_model(_config);
   _links = to_link_masses(_config);
   _inertialLinks = to_link_inertials(_config);
 
-  // The surrogates were trained on the arm's original geometry and
-  // have no notion of link length as an input - their predictions
-  // would silently stop matching the exact engine the moment this
-  // changes, so AI mode isn't safe to leave on.
   _aiMode = false;
-
-  // Any previous payload scan described the arm's OLD shape - stale
-  // the moment its geometry changes, so clear it rather than leaving a
-  // misleading curve on screen until the next scan overwrites it.
   _scanReachMeters.clear();
   _scanExactPayloadKg.clear();
   _scanAiPayloadKg.clear();
@@ -205,25 +184,16 @@ void ArmController::setJointLength(int index, double meters) {
 
 void ArmController::setJointMass(int index, double kg) {
   if (index < 0 || static_cast<size_t>(index) >= _config.joints.size()) return;
-  if (kg < 0.0) return; // matches parse_arm_config()'s own rule - 0 itself is valid
+  if (kg < 0.0) return;
 
   JointConfig &joint = _config.joints[static_cast<size_t>(index)];
   joint.mass = kg;
   joint.inertial = LinkInertial::rod(kg, joint.dh.a);
 
-  // Geometry is untouched by a mass change - only the mass/inertia
-  // data _links/_inertialLinks carry needs rebuilding, unlike
-  // setJointLength()'s _arm = to_arm_model(_config).
   _links = to_link_masses(_config);
   _inertialLinks = to_link_inertials(_config);
 
-  // Same reasoning as setJointLength(): the surrogate's training
-  // data baked in the ORIGINAL masses, so its predictions would
-  // silently stop matching reality the moment one changes.
   _aiMode = false;
-
-  // Any previous payload scan described the arm's OLD weight - same
-  // staleness reasoning as setJointLength().
   _scanReachMeters.clear();
   _scanExactPayloadKg.clear();
   _scanAiPayloadKg.clear();
@@ -259,10 +229,6 @@ void ArmController::addJoint() {
   _jointVelocitiesRadians.push_back(0.0);
   _jointAccelerationsRadians.push_back(0.0);
 
-  // A joint-count change invalidates everything loadConfig() already
-  // invalidates for the same reason: the surrogate's joint count no
-  // longer matches, any payload scan described the old shape, and a
-  // trajectory recording's waypoints are sized to the OLD joint count.
   _aiMode = false;
   _scanReachMeters.clear();
   _scanExactPayloadKg.clear();
@@ -274,7 +240,7 @@ void ArmController::addJoint() {
 }
 
 void ArmController::removeLastJoint() {
-  if (_config.joints.size() <= 1) return; // an arm needs at least one joint
+  if (_config.joints.size() <= 1) return;
 
   _config.joints.pop_back();
 
@@ -304,9 +270,6 @@ bool ArmController::loadConfig(const QString &path) {
     _links = to_link_masses(_config);
     _inertialLinks = to_link_inertials(_config);
 
-    // None of the current pose/payload/mode state necessarily still makes
-    // sense for a different arm - most obviously, a different joint
-    // count - so reset to defaults rather than trying to carry it over.
     const size_t n = _arm.num_joints();
     _jointAnglesRadians.assign(n, 0.0);
     _jointVelocitiesRadians.assign(n, 0.0);
@@ -319,8 +282,6 @@ bool ArmController::loadConfig(const QString &path) {
     _trajectoryProgress = 0.0;
     _recordedTrajectory.reset();
 
-    // A different arm invalidates any previous payload scan the same
-    // way setJointLength() does - see that function's own comment.
     _scanReachMeters.clear();
     _scanExactPayloadKg.clear();
     _scanAiPayloadKg.clear();
@@ -357,11 +318,6 @@ void ArmController::runPayloadScan(int sampleCount) {
   limits.reserve(_config.joints.size());
   for (const JointConfig &joint : _config.joints) limits.push_back(joint.torque_limit);
 
-  // Sweep from fully extended (t=0) to folded (t=1): the shoulder
-  // stays at whatever angle it's currently at, while every other
-  // joint bends together by up to 110 degrees, continuously shrinking
-  // the end effector's distance from the base - the "reach" axis of
-  // the derating curve this is meant to produce.
   const double shoulder_angle = _jointAnglesRadians[0];
   const double fold_max_radians = to_radians(110.0);
   const std::vector<double> zero_rates(joint_count, 0.0);
@@ -473,29 +429,19 @@ void ArmController::recompute() {
     }
   }
 
-  // Always computed via the exact engine - the AI surrogates predict a
-  // combined torque only, not a decomposition.
   _breakdown = decompose_torque(_arm, positions, velocities, accelerations, _inertialLinks, payload, kGravity);
 
   const std::vector<Eigen::Matrix4d> frames = _arm.forward_kinematics(positions);
   _jointPositions.clear();
   _jointPositions.reserve(frames.size() + 1);
-  _jointPositions.push_back(Eigen::Vector3d::Zero()); // base origin
+  _jointPositions.push_back(Eigen::Vector3d::Zero());
   for (const Eigen::Matrix4d &frame : frames) _jointPositions.push_back(frame.block<3, 1>(0, 3));
 
-  // Pivot the camera around the middle of the arm's reach, not the world
-  // origin (0,0,0) - the roadmap's prior-art finding that orbiting around
-  // world-origin is frustrating once the arm extends away from it.
-  // Recomputed here (not just once at construction) so it stays correct
-  // after loadConfig() or setJointLength() changes the arm's geometry.
+  // Pivot around the reach midpoint, not the world origin.
   double total_reach = 0.0;
   for (const DHParameter &joint : _arm.joints()) total_reach += joint.a;
   _canvasCenter = QVector3D(static_cast<float>(total_reach / 2.0), 0.0f, 0.0f);
 
-  // "How much more could this arm safely lift right now" - always via
-  // the exact engine (see the Q_PROPERTY doc comment), at the current
-  // pose/velocity/acceleration so it's asking about exactly what's on
-  // screen, not some other state.
   std::vector<double> limits;
   limits.reserve(_config.joints.size());
   for (const JointConfig &joint : _config.joints) limits.push_back(joint.torque_limit);
@@ -591,8 +537,6 @@ QVariantList ArmController::linkRotations() const {
       continue;
     }
     const QVector3D direction = to_qvector3d(direction_eigen / length);
-    // Built-in cylinder/cone primitives run along local Y by default - the
-    // shortest-arc rotation from Y to the link's direction orients them.
     result.append(QQuaternion::rotationTo(QVector3D(0.0f, 1.0f, 0.0f), direction));
   }
   return result;

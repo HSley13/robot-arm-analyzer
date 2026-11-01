@@ -19,19 +19,6 @@
 int main(int argc, char *argv[]) {
   QGuiApplication app(argc, argv);
 
-  // Starts with this one hardcoded arm, matched to a trained AI
-  // surrogate - the pairing is what makes the Exact/AI toggle meaningful
-  // on startup. ArmController::loadConfig() (Phase 4) can swap in a
-  // different arm afterward from the UI; AI mode then simply becomes
-  // unavailable unless the new arm happens to have the same joint count
-  // this surrogate was trained on.
-  //
-  // Phase 5: switched the default from the 2-joint, 2-segment arm to a
-  // 3-joint shoulder/elbow/wrist arm - user feedback was that the
-  // original didn't read as a robot arm at all ("a sphere inside a
-  // cube"). config/two_link_planar.json is still exactly what it was
-  // (loadable from the UI, and still what every pre-Phase-5 test targets
-  // directly by path) - only this default changed.
   robotarm::ArmController controller(std::string(PROJECT_ROOT_DIR) + "/config/three_dof_arm.json",
                                      std::string(PROJECT_ROOT_DIR) + "/ml/models/three_dof_arm.surrogate.json",
                                      std::string(PROJECT_ROOT_DIR) +
@@ -43,11 +30,7 @@ int main(int argc, char *argv[]) {
   const QString qmlDirPath(APP_QML_DIR);
   const QUrl mainQmlUrl = QUrl::fromLocalFile(qmlDirPath + "/Main.qml");
 
-  // Hot reload: watch every .qml file on disk and reload the whole tree
-  // on change, so editing in nvim and saving is enough to see the result
-  // without a rebuild+rerun. Loses transient UI state (e.g. a slider's
-  // mid-drag position) on reload, but that's a fine trade for not needing
-  // Qt Creator's Live Preview.
+  // Hot reload: watch every .qml file and reload on change.
   QFileSystemWatcher qmlWatcher;
   const QDir qmlDir(qmlDirPath);
   for (const QString &fileName : qmlDir.entryList(QStringList() << "*.qml", QDir::Files)) {
@@ -55,10 +38,6 @@ int main(int argc, char *argv[]) {
   }
   QObject::connect(&qmlWatcher, &QFileSystemWatcher::fileChanged, &engine,
                    [&engine, &mainQmlUrl, &qmlWatcher](const QString &path) {
-                     // Some editors replace the file (write a new inode)
-                     // rather than write in place, which drops it from
-                     // the watch list - re-add it so the next edit still
-                     // triggers a reload.
                      if (!qmlWatcher.files().contains(path)) qmlWatcher.addPath(path);
                      engine.clearComponentCache();
                      engine.load(mainQmlUrl);

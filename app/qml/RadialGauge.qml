@@ -3,12 +3,7 @@ import QtQuick.Shapes
 import QtQuick.Controls
 
 // A per-joint load gauge: how close `value` is to `limit`, as a 270°
-// arc (matching AngleDial's sweep, so the two read as one visual
-// language - "what you set" / "what it costs") instead of the flat
-// green/amber/red dot the sidebar used before. Replaces a color-only
-// signal with one a non-robotics audience can read at a glance: a
-// percentage, a SAFE/CAUTION/OVERLOAD word, and the raw numbers,
-// not just a color whose meaning has to be explained separately.
+// arc matching AngleDial's sweep.
 Item {
     id: root
 
@@ -27,10 +22,6 @@ Item {
     readonly property real trackWidth: Math.max(6, width * 0.09)
     readonly property real arcRadius: width / 2 - trackWidth / 2 - 2
 
-    // Same sweep as AngleDial (135°..405°, a 270° arc with a 90° gap at
-    // the bottom) - the two controls share this exact geometry so a
-    // joint's "set" dial and "cost" gauge read as paired instruments,
-    // not two unrelated widgets.
     readonly property real startAngle: 135
     readonly property real sweepTotal: 270
 
