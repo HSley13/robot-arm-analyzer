@@ -19,6 +19,16 @@ Rectangle {
     id: root
     color: "#0e1021"
 
+    // Which joint the "Controls" tab's single joint card shows - Phase
+    // 6 follow-up: showing every joint's card stacked at once was the
+    // single biggest contributor to the sidebar needing to scroll, so
+    // only one is shown at a time, picked via the small numbered chips
+    // above it. Clamped through effectiveJointIndex rather than reset
+    // reactively, so removeLastJoint() shrinking the count below the
+    // previously-selected index can't leave this pointing past the end.
+    property int selectedJointIndex: 0
+    readonly property int effectiveJointIndex: Math.min(selectedJointIndex, armController.jointCount - 1)
+
     // Converts a file:// URL (from FileDialog.selectedFile or a
     // DropArea's drop.urls) into a plain local path string -
     // armController.loadConfig()/saveConfig() take a filesystem path,
@@ -36,9 +46,10 @@ Rectangle {
         contentWidth: availableWidth
 
         ColumnLayout {
+            id: sidebarColumn
             width: parent.width
-            anchors.margins: 12
-            spacing: 10
+            anchors.margins: 10
+            spacing: 8
 
             Label {
                 text: armController.armName
@@ -108,17 +119,17 @@ Rectangle {
                 radius: 14
                 border.color: "#262a40"
                 border.width: 1
-                implicitHeight: moveToTargetColumn.implicitHeight + 20
+                implicitHeight: moveToTargetColumn.implicitHeight + 16
 
                 ColumnLayout {
                     id: moveToTargetColumn
                     anchors.fill: parent
-                    anchors.margins: 10
-                    spacing: 6
+                    anchors.margins: 8
+                    spacing: 5
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 6
+                        spacing: 5
 
                         Label {
                             color: "white"
@@ -142,8 +153,8 @@ Rectangle {
 
                     ReachPad {
                         Layout.alignment: Qt.AlignHCenter
-                        Layout.preferredWidth: 200
-                        Layout.preferredHeight: 200
+                        Layout.preferredWidth: 170
+                        Layout.preferredHeight: 170
                         rangeMeters: Math.max(armController.canvasCenter.x * 2, 0.5)
                         maxReachMeters: armController.canvasCenter.x * 2
                         markerXMeters: armController.jointPositions.length > 0
@@ -152,98 +163,127 @@ Rectangle {
                             ? armController.jointPositions[armController.jointPositions.length - 1].y : 0
                         onTargetMoved: (x, y) => armController.moveToTarget(x, y)
                     }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 6
-
-                        TextField {
-                            id: targetXField
-                            Layout.fillWidth: true
-                            placeholderText: "x (m)"
-                            validator: DoubleValidator {}
-                        }
-
-                        TextField {
-                            id: targetYField
-                            Layout.fillWidth: true
-                            placeholderText: "y (m)"
-                            validator: DoubleValidator {}
-                        }
-
-                        Button {
-                            text: "Go"
-                            enabled: targetXField.text.length > 0 && targetYField.text.length > 0
-                            onClicked: armController.moveToTarget(parseFloat(targetXField.text), parseFloat(targetYField.text))
-                        }
-                    }
                 }
             }
 
-            // Dynamic joint count (Phase 6): add/remove a joint from
-            // the END of the chain without replacing the whole arm via
-            // Save/Load. New joints default to continuing the taper
-            // convention (shorter, lighter, lower torque limit than
-            // the one before) and are fully editable afterward via
-            // the same per-joint controls below.
-            Rectangle {
+            // Controls / Advanced split (Phase 6 follow-up): everyday
+            // stuff (joint angle/load, payload, AI toggle) on the tab
+            // shown by default, specialist stuff (Static/Dynamic mode,
+            // per-joint velocity/acceleration/torque-breakdown, the
+            // payload-capacity scan, config file) one click away - the
+            // combination of this split AND only ever showing ONE
+            // joint's card at a time (below) is what actually gets the
+            // default tab to fit without scrolling; neither alone was
+            // enough (a 3-joint arm's stacked cards alone measured
+            // ~1588px of content, far past any real screen).
+            TabBar {
+                id: sectionTabBar
                 Layout.fillWidth: true
-                color: "#171a2b"
-                radius: 14
-                border.color: "#262a40"
-                border.width: 1
-                implicitHeight: jointCountRow.implicitHeight + 20
-
-                RowLayout {
-                    id: jointCountRow
-                    anchors.fill: parent
-                    anchors.margins: 10
-                    spacing: 6
-
-                    Label {
-                        color: "white"
-                        font.bold: true
-                        text: "Joints: " + armController.jointCount
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    Button {
-                        text: "− Remove"
-                        enabled: armController.jointCount > 1
-                        onClicked: armController.removeLastJoint()
-                    }
-
-                    Button {
-                        text: "+ Add joint"
-                        onClicked: armController.addJoint()
-                    }
-                }
+                TabButton { text: "Controls" }
+                TabButton { text: "Advanced" }
             }
 
-            Repeater {
-                model: armController.jointCount
+            ColumnLayout {
+                Layout.fillWidth: true
+                visible: sectionTabBar.currentIndex === 0
+                spacing: 8
 
+                // Dynamic joint count (Phase 6): add/remove a joint
+                // from the END of the chain without replacing the
+                // whole arm via Save/Load. New joints default to
+                // continuing the taper convention (shorter, lighter,
+                // lower torque limit than the one before) and are
+                // fully editable afterward via the card below.
                 Rectangle {
-                    id: jointCard
-                    required property int index
                     Layout.fillWidth: true
                     color: "#171a2b"
                     radius: 14
                     border.color: "#262a40"
                     border.width: 1
-                    implicitHeight: jointColumn.implicitHeight + 20
+                    implicitHeight: jointCountRow.implicitHeight + 16
 
-                    ColumnLayout {
-                        id: jointColumn
+                    RowLayout {
+                        id: jointCountRow
                         anchors.fill: parent
-                        anchors.margins: 10
-                        spacing: 6
+                        anchors.margins: 8
+                        spacing: 5
 
                         Label {
                             color: "white"
                             font.bold: true
-                            text: "Joint " + (jointCard.index + 1)
+                            text: "Joints: " + armController.jointCount
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Button {
+                            text: "− Remove"
+                            enabled: armController.jointCount > 1
+                            onClicked: armController.removeLastJoint()
+                        }
+
+                        Button {
+                            text: "+ Add joint"
+                            onClicked: armController.addJoint()
+                        }
+                    }
+                }
+
+                // Picks which single joint the card below shows -
+                // see root.selectedJointIndex's own doc comment for
+                // why only one at a time.
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 5
+
+                    Repeater {
+                        model: armController.jointCount
+
+                        Rectangle {
+                            id: jointChip
+                            required property int index
+                            readonly property bool isSelected: root.effectiveJointIndex === index
+                            implicitWidth: 34
+                            implicitHeight: 28
+                            radius: 8
+                            color: isSelected ? "#17e0ff" : "#1c2033"
+                            border.color: isSelected ? "#17e0ff" : "#262a40"
+                            border.width: 1
+
+                            Label {
+                                anchors.centerIn: parent
+                                text: jointChip.index + 1
+                                color: jointChip.isSelected ? "#0e1021" : "#c7cbd6"
+                                font.bold: jointChip.isSelected
+                            }
+
+                            TapHandler {
+                                onTapped: root.selectedJointIndex = jointChip.index
+                            }
+                        }
+                    }
+
+                    Item { Layout.fillWidth: true }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    color: "#171a2b"
+                    radius: 14
+                    border.color: "#262a40"
+                    border.width: 1
+                    implicitHeight: jointColumn.implicitHeight + 16
+
+                    ColumnLayout {
+                        id: jointColumn
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 5
+
+                        Label {
+                            color: "white"
+                            font.bold: true
+                            text: "Joint " + (root.effectiveJointIndex + 1)
                         }
 
                         RowLayout {
@@ -261,10 +301,10 @@ Rectangle {
                                     text: "ANGLE"
                                 }
                                 AngleDial {
-                                    Layout.preferredWidth: 92
-                                    Layout.preferredHeight: 92
-                                    value: armController.jointAnglesDegrees[jointCard.index]
-                                    onMoved: armController.setJointAngleDegrees(jointCard.index, value)
+                                    Layout.preferredWidth: 96
+                                    Layout.preferredHeight: 96
+                                    value: armController.jointAnglesDegrees[root.effectiveJointIndex]
+                                    onMoved: armController.setJointAngleDegrees(root.effectiveJointIndex, value)
                                 }
                             }
 
@@ -278,23 +318,24 @@ Rectangle {
                                     text: "LOAD"
                                 }
                                 RadialGauge {
-                                    Layout.preferredWidth: 92
-                                    Layout.preferredHeight: 92
-                                    value: armController.jointTorques[jointCard.index]
-                                    limit: armController.jointTorqueLimits[jointCard.index]
+                                    Layout.preferredWidth: 96
+                                    Layout.preferredHeight: 96
+                                    value: armController.jointTorques[root.effectiveJointIndex]
+                                    limit: armController.jointTorqueLimits[root.effectiveJointIndex]
                                 }
                             }
                         }
 
                         // Editable torque limit (Phase 4): staged here,
-                        // then written out by "Save" in the config
-                        // card below. Only commits on editingFinished
-                        // (not every keystroke), since a half-typed
-                        // number (e.g. "5." before the next digit)
-                        // would otherwise be rejected as non-positive.
+                        // then written out by "Save" in the Advanced
+                        // tab's config card. Only commits on
+                        // editingFinished (not every keystroke), since
+                        // a half-typed number (e.g. "5." before the
+                        // next digit) would otherwise be rejected as
+                        // non-positive.
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: 6
+                            spacing: 5
 
                             Label {
                                 color: "#9aa0ab"
@@ -303,9 +344,9 @@ Rectangle {
 
                             TextField {
                                 Layout.fillWidth: true
-                                text: armController.jointTorqueLimits[jointCard.index].toFixed(1)
+                                text: armController.jointTorqueLimits[root.effectiveJointIndex].toFixed(1)
                                 validator: DoubleValidator { bottom: 0.0001 }
-                                onEditingFinished: armController.setJointTorqueLimit(jointCard.index, parseFloat(text))
+                                onEditingFinished: armController.setJointTorqueLimit(root.effectiveJointIndex, parseFloat(text))
                             }
 
                             Label {
@@ -322,7 +363,7 @@ Rectangle {
                         // TextField above.
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: 6
+                            spacing: 5
 
                             Label {
                                 color: "#9aa0ab"
@@ -333,13 +374,13 @@ Rectangle {
                                 Layout.fillWidth: true
                                 from: 0.1
                                 to: 2.0
-                                value: armController.linkLengths[jointCard.index]
-                                onMoved: armController.setJointLength(jointCard.index, value)
+                                value: armController.linkLengths[root.effectiveJointIndex]
+                                onMoved: armController.setJointLength(root.effectiveJointIndex, value)
                             }
 
                             Label {
                                 color: "#9aa0ab"
-                                text: armController.linkLengths[jointCard.index].toFixed(2) + " m"
+                                text: armController.linkLengths[root.effectiveJointIndex].toFixed(2) + " m"
                             }
                         }
 
@@ -354,7 +395,7 @@ Rectangle {
                         // someone is actually designing for."
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: 6
+                            spacing: 5
 
                             Label {
                                 color: "#9aa0ab"
@@ -365,15 +406,15 @@ Rectangle {
                                 Layout.fillWidth: true
                                 from: 0
                                 to: 100
-                                value: armController.jointMassesKg[jointCard.index]
-                                onMoved: armController.setJointMass(jointCard.index, value)
+                                value: armController.jointMassesKg[root.effectiveJointIndex]
+                                onMoved: armController.setJointMass(root.effectiveJointIndex, value)
                             }
 
                             TextField {
                                 implicitWidth: 60
-                                text: armController.jointMassesKg[jointCard.index].toFixed(1)
+                                text: armController.jointMassesKg[root.effectiveJointIndex].toFixed(1)
                                 validator: DoubleValidator { bottom: 0 }
-                                onEditingFinished: armController.setJointMass(jointCard.index, parseFloat(text))
+                                onEditingFinished: armController.setJointMass(root.effectiveJointIndex, parseFloat(text))
                             }
 
                             Label {
@@ -383,210 +424,190 @@ Rectangle {
                         }
                     }
                 }
-            }
 
-            Rectangle {
-                Layout.fillWidth: true
-                color: "#171a2b"
-                radius: 14
-                border.color: "#262a40"
-                border.width: 1
-                implicitHeight: payloadColumn.implicitHeight + 20
-
-                ColumnLayout {
-                    id: payloadColumn
-                    anchors.fill: parent
-                    anchors.margins: 10
-                    spacing: 6
-
-                    Label {
-                        color: "white"
-                        font.bold: true
-                        text: "Payload"
-                    }
-
-                    // The slider's range (0-50kg) is just a convenient
-                    // everyday scale for dragging - it was previously
-                    // capped at 5kg with no way to go higher at all.
-                    // The field next to it takes any value, so this
-                    // arm can carry whatever someone is actually
-                    // designing it to lift, not just what fits a
-                    // slider.
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 6
-
-                        Slider {
-                            Layout.fillWidth: true
-                            from: 0
-                            to: 50
-                            value: armController.payloadKg
-                            onMoved: armController.payloadKg = value
-                        }
-
-                        TextField {
-                            implicitWidth: 70
-                            text: armController.payloadKg.toFixed(1)
-                            validator: DoubleValidator { bottom: 0 }
-                            onEditingFinished: armController.payloadKg = parseFloat(text)
-                        }
-
-                        Label {
-                            color: "#9aa0ab"
-                            text: "kg"
-                        }
-                    }
-
-                    // The gripper decides whether the staged payload
-                    // above actually counts toward the torque
-                    // calculation - open it and drag the payload
-                    // slider, nothing changes; close it, and the
-                    // torques jump by the weight. A deliberately
-                    // visible cause-and-effect, not just a cosmetic
-                    // toggle.
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 6
-
-                        Label {
-                            color: "white"
-                            opacity: armController.gripperOpen ? 1.0 : 0.5
-                            text: "Open"
-                        }
-
-                        Switch {
-                            checked: !armController.gripperOpen
-                            onToggled: armController.gripperOpen = !checked
-                        }
-
-                        Label {
-                            color: "white"
-                            opacity: armController.gripperOpen ? 0.5 : 1.0
-                            text: "Closed (holding payload)"
-                        }
-                    }
-                }
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                color: "#171a2b"
-                radius: 14
-                border.color: "#262a40"
-                border.width: 1
-                implicitHeight: aiRow.implicitHeight + 20
-
-                RowLayout {
-                    id: aiRow
-                    anchors.fill: parent
-                    anchors.margins: 10
-                    spacing: 6
-
-                    Label {
-                        color: "white"
-                        opacity: armController.aiMode ? 0.5 : 1.0
-                        text: "Exact"
-                    }
-
-                    Switch {
-                        checked: armController.aiMode
-                        enabled: armController.aiModeAvailable
-                        onToggled: armController.aiMode = checked
-                    }
-
-                    Label {
-                        color: "white"
-                        opacity: armController.aiMode ? 1.0 : 0.5
-                        text: "AI" + (armController.aiModeAvailable ? "" : " (no trained model)")
-                    }
-                }
-            }
-
-            // Payload capacity (Phase 6): the live number answers "how
-            // much more could this arm safely lift right now", and the
-            // scan answers the question the Exact/AI toggle above never
-            // could on its own - whether the AI surrogate is actually
-            // worth using, measured, not just "close on one pose".
-            Rectangle {
-                Layout.fillWidth: true
-                color: "#171a2b"
-                radius: 14
-                border.color: "#262a40"
-                border.width: 1
-                implicitHeight: payloadCapacityColumn.implicitHeight + 20
-
-                ColumnLayout {
-                    id: payloadCapacityColumn
-                    anchors.fill: parent
-                    anchors.margins: 10
-                    spacing: 6
-
-                    Label {
-                        color: "white"
-                        font.bold: true
-                        text: "Payload capacity"
-                    }
-
-                    Label {
-                        color: "#17e0ff"
-                        font.bold: true
-                        font.pixelSize: 16
-                        text: "Safe right now: " + armController.currentMaxSafePayloadKg.toFixed(1) + " kg"
-                    }
-
-                    Button {
-                        Layout.fillWidth: true
-                        text: "Run workspace scan"
-                        onClicked: armController.runPayloadScan(40)
-                    }
+                Rectangle {
+                    Layout.fillWidth: true
+                    color: "#171a2b"
+                    radius: 14
+                    border.color: "#262a40"
+                    border.width: 1
+                    implicitHeight: payloadColumn.implicitHeight + 16
 
                     ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 6
-                        visible: armController.scanSampleCount > 0
+                        id: payloadColumn
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 5
 
                         Label {
-                            color: "#9aa0ab"
-                            font.pixelSize: 11
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                            text: armController.scanAiAvailable
-                                ? "Exact: " + armController.scanExactMilliseconds.toFixed(2) + " ms  ·  AI: "
-                                    + armController.scanAiMilliseconds.toFixed(2) + " ms  ("
-                                    + (armController.scanAiMilliseconds > 0
-                                        ? (armController.scanExactMilliseconds / armController.scanAiMilliseconds).toFixed(1)
-                                        : "?") + "x faster)"
-                                : "Exact: " + armController.scanExactMilliseconds.toFixed(2)
-                                    + " ms  ·  AI unavailable for this arm"
+                            color: "white"
+                            font.bold: true
+                            text: "Payload"
                         }
 
-                        PayloadScanChart {
+                        // The slider's range (0-50kg) is just a convenient
+                        // everyday scale for dragging - it was previously
+                        // capped at 5kg with no way to go higher at all.
+                        // The field next to it takes any value, so this
+                        // arm can carry whatever someone is actually
+                        // designing it to lift, not just what fits a
+                        // slider.
+                        RowLayout {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 150
-                            reachMeters: armController.scanReachMeters
-                            exactPayloadKg: armController.scanExactPayloadKg
-                            aiPayloadKg: armController.scanAiPayloadKg
-                            aiAvailable: armController.scanAiAvailable
+                            spacing: 5
+
+                            Slider {
+                                Layout.fillWidth: true
+                                from: 0
+                                to: 50
+                                value: armController.payloadKg
+                                onMoved: armController.payloadKg = value
+                            }
+
+                            TextField {
+                                implicitWidth: 70
+                                text: armController.payloadKg.toFixed(1)
+                                validator: DoubleValidator { bottom: 0 }
+                                onEditingFinished: armController.payloadKg = parseFloat(text)
+                            }
+
+                            Label {
+                                color: "#9aa0ab"
+                                text: "kg"
+                            }
                         }
+
+                        // The gripper decides whether the staged payload
+                        // above actually counts toward the torque
+                        // calculation - open it and drag the payload
+                        // slider, nothing changes; close it, and the
+                        // torques jump by the weight. A deliberately
+                        // visible cause-and-effect, not just a cosmetic
+                        // toggle.
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 5
+
+                            Label {
+                                color: "white"
+                                opacity: armController.gripperOpen ? 1.0 : 0.5
+                                text: "Open"
+                            }
+
+                            Switch {
+                                checked: !armController.gripperOpen
+                                onToggled: armController.gripperOpen = !checked
+                            }
+
+                            Label {
+                                color: "white"
+                                opacity: armController.gripperOpen ? 0.5 : 1.0
+                                text: "Closed (holding payload)"
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    color: "#171a2b"
+                    radius: 14
+                    border.color: "#262a40"
+                    border.width: 1
+                    implicitHeight: aiColumn.implicitHeight + 16
+
+                    ColumnLayout {
+                        id: aiColumn
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 5
 
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: 14
+                            spacing: 5
 
-                            RowLayout {
-                                spacing: 5
-                                Rectangle { implicitWidth: 10; implicitHeight: 10; radius: 5; color: "#17e0ff" }
-                                Label { color: "#c7cbd6"; font.pixelSize: 11; text: "Exact" }
+                            Label {
+                                color: "white"
+                                opacity: armController.aiMode ? 0.5 : 1.0
+                                text: "Exact"
                             }
 
-                            RowLayout {
-                                spacing: 5
-                                visible: armController.scanAiAvailable
-                                Rectangle { implicitWidth: 10; implicitHeight: 10; radius: 5; color: "#ff8a3d" }
-                                Label { color: "#c7cbd6"; font.pixelSize: 11; text: "AI" }
+                            Switch {
+                                checked: armController.aiMode
+                                enabled: armController.aiModeAvailable
+                                onToggled: armController.aiMode = checked
                             }
 
-                            Item { Layout.fillWidth: true }
+                            Label {
+                                color: "white"
+                                opacity: armController.aiMode ? 1.0 : 0.5
+                                text: "AI" + (armController.aiModeAvailable ? "" : " (no trained model)")
+                            }
+                        }
+
+                        // What this switch actually does, spelled out
+                        // once - "Exact" and "AI" otherwise read as two
+                        // unexplained words.
+                        Label {
+                            color: "#7a8099"
+                            font.pixelSize: 10
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                            text: "Exact runs the real physics engine. AI asks a small neural "
+                                + "network trained to approximate it instead - usually very "
+                                + "close, and much faster (see Payload capacity below)."
+                        }
+                    }
+                }
+
+                Item { Layout.fillHeight: true }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                visible: sectionTabBar.currentIndex === 1
+                spacing: 8
+
+                // Static/Dynamic (Phase 2): switches jointVelocitiesDegrees/
+                // jointAccelerationsDegrees below into inverse_dynamics()
+                // (or the dynamic AI surrogate) instead of treating the
+                // arm as at rest. Specialist-only - most demos never
+                // need this - which is exactly why it lives here instead
+                // of the default Controls tab.
+                Rectangle {
+                    Layout.fillWidth: true
+                    color: "#171a2b"
+                    radius: 14
+                    border.color: "#262a40"
+                    border.width: 1
+                    implicitHeight: modeColumn.implicitHeight + 16
+
+                    ColumnLayout {
+                        id: modeColumn
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 5
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 5
+
+                            Label {
+                                color: "white"
+                                opacity: armController.dynamicMode ? 0.5 : 1.0
+                                text: "Static"
+                            }
+
+                            Switch {
+                                checked: armController.dynamicMode
+                                onToggled: armController.dynamicMode = checked
+                            }
+
+                            Label {
+                                color: "white"
+                                opacity: armController.dynamicMode ? 1.0 : 0.5
+                                text: "Dynamic"
+                            }
                         }
 
                         Label {
@@ -594,116 +615,337 @@ Rectangle {
                             font.pixelSize: 10
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
-                            text: "Sweeps from the shoulder's current angle, folding every other "
-                                + "joint together, from fully extended down to folded."
+                            text: "Dynamic adds each joint's velocity/acceleration into the "
+                                + "torque calculation (gravity + inertia + Coriolis), instead "
+                                + "of treating the arm as momentarily at rest."
                         }
-                    }
-                }
-            }
 
-            Rectangle {
-                Layout.fillWidth: true
-                color: "#171a2b"
-                radius: 14
-                border.color: "#262a40"
-                border.width: 1
-                implicitHeight: configColumn.implicitHeight + 20
-
-                ColumnLayout {
-                    id: configColumn
-                    anchors.fill: parent
-                    anchors.margins: 10
-                    spacing: 6
-
-                    Label {
-                        color: "white"
-                        font.bold: true
-                        text: "Config file"
-                    }
-
-                    // One combined load zone, no typed path at all:
-                    // drop a .json file from the Finder anywhere on
-                    // it, or click the button in its middle to browse
-                    // for one instead - both end up calling
-                    // loadConfig() the same way. The Button and the
-                    // DropArea don't conflict despite overlapping:
-                    // a DropArea only reacts to an external OS drag
-                    // session, never to an ordinary click, so the
-                    // button underneath it still receives clicks
-                    // normally.
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 84
-                        radius: 8
-                        color: dropArea.containsDrag ? "#1c2a3a" : "#11131f"
-                        border.color: dropArea.containsDrag ? "#17e0ff" : "#262a40"
-                        border.width: 1
-
-                        Behavior on color { ColorAnimation { duration: 120 } }
-                        Behavior on border.color { ColorAnimation { duration: 120 } }
-
-                        ColumnLayout {
-                            anchors.centerIn: parent
-                            spacing: 6
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 5
+                            visible: armController.dynamicMode
 
                             Label {
-                                Layout.alignment: Qt.AlignHCenter
-                                color: "#7a8099"
-                                font.pixelSize: 11
-                                text: "Drop a config .json file here"
+                                color: "white"
+                                text: "Scrub trajectory"
+                            }
+
+                            Switch {
+                                checked: armController.trajectoryScrubMode
+                                onToggled: armController.trajectoryScrubMode = checked
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+                            visible: armController.trajectoryScrubMode
+
+                            Label {
+                                color: "#9aa0ab"
+                                font.pixelSize: 12
+                                text: "Recording: " + armController.trajectoryWaypointCount + " waypoints (drag to scrub)"
+                            }
+
+                            Slider {
+                                Layout.fillWidth: true
+                                from: 0
+                                to: 1
+                                value: armController.trajectoryProgress
+                                onMoved: armController.trajectoryProgress = value
                             }
 
                             Button {
-                                Layout.alignment: Qt.AlignHCenter
-                                text: "Browse…"
-                                onClicked: loadFileDialog.open()
+                                Layout.fillWidth: true
+                                text: "Record waypoint at current angles"
+                                onClicked: armController.recordWaypoint()
                             }
                         }
-
-                        DropArea {
-                            id: dropArea
-                            anchors.fill: parent
-                            onDropped: (drop) => {
-                                if (!drop.hasUrls || drop.urls.length === 0) return
-                                armController.loadConfig(root.urlToLocalPath(drop.urls[0]))
-                            }
-                        }
-                    }
-
-                    Button {
-                        Layout.fillWidth: true
-                        text: "Save…"
-                        onClicked: saveFileDialog.open()
-                    }
-
-                    FileDialog {
-                        id: loadFileDialog
-                        title: "Choose an arm config file"
-                        fileMode: FileDialog.OpenFile
-                        nameFilters: ["JSON files (*.json)", "All files (*)"]
-                        onAccepted: armController.loadConfig(root.urlToLocalPath(selectedFile))
-                    }
-
-                    FileDialog {
-                        id: saveFileDialog
-                        title: "Save arm config as"
-                        fileMode: FileDialog.SaveFile
-                        nameFilters: ["JSON files (*.json)", "All files (*)"]
-                        onAccepted: armController.saveConfig(root.urlToLocalPath(selectedFile))
-                    }
-
-                    Label {
-                        color: "#9aa0ab"
-                        font.pixelSize: 11
-                        wrapMode: Text.WordWrap
-                        Layout.fillWidth: true
-                        visible: armController.configMessage.length > 0
-                        text: armController.configMessage
                     }
                 }
-            }
 
-            Item { Layout.fillHeight: true }
+                // Per-joint velocity/acceleration + torque breakdown -
+                // only meaningful in Dynamic mode, so collapsed to
+                // nothing (not just hidden content in a visible card)
+                // while Static, rather than showing N empty-looking
+                // cards above the cards that actually have something
+                // in Static mode's default state.
+                Repeater {
+                    model: armController.jointCount
+
+                    Rectangle {
+                        id: dynamicsCard
+                        required property int index
+                        Layout.fillWidth: true
+                        visible: armController.dynamicMode
+                        color: "#171a2b"
+                        radius: 14
+                        border.color: "#262a40"
+                        border.width: 1
+                        implicitHeight: dynamicsColumn.implicitHeight + 16
+
+                        ColumnLayout {
+                            id: dynamicsColumn
+                            anchors.fill: parent
+                            anchors.margins: 8
+                            spacing: 5
+
+                            Label {
+                                color: "white"
+                                font.bold: true
+                                text: "Joint " + (dynamicsCard.index + 1) + " dynamics"
+                            }
+
+                            Label {
+                                color: "#9aa0ab"
+                                font.pixelSize: 12
+                                text: "velocity: " + armController.jointVelocitiesDegrees[dynamicsCard.index].toFixed(0) + "°/s"
+                            }
+
+                            Slider {
+                                Layout.fillWidth: true
+                                enabled: !armController.trajectoryScrubMode
+                                from: -180
+                                to: 180
+                                value: armController.jointVelocitiesDegrees[dynamicsCard.index]
+                                onMoved: armController.setJointVelocityDegrees(dynamicsCard.index, value)
+                            }
+
+                            Label {
+                                color: "#9aa0ab"
+                                font.pixelSize: 12
+                                text: "acceleration: " + armController.jointAccelerationsDegrees[dynamicsCard.index].toFixed(0) + "°/s²"
+                            }
+
+                            Slider {
+                                Layout.fillWidth: true
+                                enabled: !armController.trajectoryScrubMode
+                                from: -360
+                                to: 360
+                                value: armController.jointAccelerationsDegrees[dynamicsCard.index]
+                                onMoved: armController.setJointAccelerationDegrees(dynamicsCard.index, value)
+                            }
+
+                            // Torque breakdown (Phase 2): gravity/inertia/
+                            // Coriolis, per the roadmap's NovaSolver lesson
+                            // - *why* a joint is loaded, not just how much.
+                            Label {
+                                color: "#7a8099"
+                                font.pixelSize: 11
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                                text: "gravity " + armController.gravityTorques[dynamicsCard.index].toFixed(1)
+                                    + "  ·  inertia " + armController.inertiaTorques[dynamicsCard.index].toFixed(1)
+                                    + "  ·  coriolis " + armController.coriolisTorques[dynamicsCard.index].toFixed(1)
+                                    + " N·m"
+                            }
+                        }
+                    }
+                }
+
+                // Payload capacity (Phase 6): the live number answers "how
+                // much more could this arm safely lift right now", and the
+                // scan answers the question the Exact/AI toggle never
+                // could on its own - whether the AI surrogate is actually
+                // worth using, measured, not just "close on one pose".
+                Rectangle {
+                    Layout.fillWidth: true
+                    color: "#171a2b"
+                    radius: 14
+                    border.color: "#262a40"
+                    border.width: 1
+                    implicitHeight: payloadCapacityColumn.implicitHeight + 16
+
+                    ColumnLayout {
+                        id: payloadCapacityColumn
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 5
+
+                        Label {
+                            color: "white"
+                            font.bold: true
+                            text: "Payload capacity"
+                        }
+
+                        Label {
+                            color: "#17e0ff"
+                            font.bold: true
+                            font.pixelSize: 16
+                            text: "Safe right now: " + armController.currentMaxSafePayloadKg.toFixed(1) + " kg"
+                        }
+
+                        Button {
+                            Layout.fillWidth: true
+                            text: "Run workspace scan"
+                            onClicked: armController.runPayloadScan(40)
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 5
+                            visible: armController.scanSampleCount > 0
+
+                            Label {
+                                color: "#9aa0ab"
+                                font.pixelSize: 11
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                                text: armController.scanAiAvailable
+                                    ? "Exact: " + armController.scanExactMilliseconds.toFixed(2) + " ms  ·  AI: "
+                                        + armController.scanAiMilliseconds.toFixed(2) + " ms  ("
+                                        + (armController.scanAiMilliseconds > 0
+                                            ? (armController.scanExactMilliseconds / armController.scanAiMilliseconds).toFixed(1)
+                                            : "?") + "x faster)"
+                                    : "Exact: " + armController.scanExactMilliseconds.toFixed(2)
+                                        + " ms  ·  AI unavailable for this arm"
+                            }
+
+                            PayloadScanChart {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 150
+                                reachMeters: armController.scanReachMeters
+                                exactPayloadKg: armController.scanExactPayloadKg
+                                aiPayloadKg: armController.scanAiPayloadKg
+                                aiAvailable: armController.scanAiAvailable
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 14
+
+                                RowLayout {
+                                    spacing: 5
+                                    Rectangle { implicitWidth: 10; implicitHeight: 10; radius: 5; color: "#17e0ff" }
+                                    Label { color: "#c7cbd6"; font.pixelSize: 11; text: "Exact" }
+                                }
+
+                                RowLayout {
+                                    spacing: 5
+                                    visible: armController.scanAiAvailable
+                                    Rectangle { implicitWidth: 10; implicitHeight: 10; radius: 5; color: "#ff8a3d" }
+                                    Label { color: "#c7cbd6"; font.pixelSize: 11; text: "AI" }
+                                }
+
+                                Item { Layout.fillWidth: true }
+                            }
+
+                            Label {
+                                color: "#7a8099"
+                                font.pixelSize: 10
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                                text: "Sweeps from the shoulder's current angle, folding every other "
+                                    + "joint together, from fully extended down to folded."
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    color: "#171a2b"
+                    radius: 14
+                    border.color: "#262a40"
+                    border.width: 1
+                    implicitHeight: configColumn.implicitHeight + 16
+
+                    ColumnLayout {
+                        id: configColumn
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 5
+
+                        Label {
+                            color: "white"
+                            font.bold: true
+                            text: "Config file"
+                        }
+
+                        // One combined load zone, no typed path at all:
+                        // drop a .json file from the Finder anywhere on
+                        // it, or click the button in its middle to browse
+                        // for one instead - both end up calling
+                        // loadConfig() the same way. The Button and the
+                        // DropArea don't conflict despite overlapping:
+                        // a DropArea only reacts to an external OS drag
+                        // session, never to an ordinary click, so the
+                        // button underneath it still receives clicks
+                        // normally.
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 84
+                            radius: 8
+                            color: dropArea.containsDrag ? "#1c2a3a" : "#11131f"
+                            border.color: dropArea.containsDrag ? "#17e0ff" : "#262a40"
+                            border.width: 1
+
+                            Behavior on color { ColorAnimation { duration: 120 } }
+                            Behavior on border.color { ColorAnimation { duration: 120 } }
+
+                            ColumnLayout {
+                                anchors.centerIn: parent
+                                spacing: 5
+
+                                Label {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    color: "#7a8099"
+                                    font.pixelSize: 11
+                                    text: "Drop a config .json file here"
+                                }
+
+                                Button {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    text: "Browse…"
+                                    onClicked: loadFileDialog.open()
+                                }
+                            }
+
+                            DropArea {
+                                id: dropArea
+                                anchors.fill: parent
+                                onDropped: (drop) => {
+                                    if (!drop.hasUrls || drop.urls.length === 0) return
+                                    armController.loadConfig(root.urlToLocalPath(drop.urls[0]))
+                                }
+                            }
+                        }
+
+                        Button {
+                            Layout.fillWidth: true
+                            text: "Save…"
+                            onClicked: saveFileDialog.open()
+                        }
+
+                        FileDialog {
+                            id: loadFileDialog
+                            title: "Choose an arm config file"
+                            fileMode: FileDialog.OpenFile
+                            nameFilters: ["JSON files (*.json)", "All files (*)"]
+                            onAccepted: armController.loadConfig(root.urlToLocalPath(selectedFile))
+                        }
+
+                        FileDialog {
+                            id: saveFileDialog
+                            title: "Save arm config as"
+                            fileMode: FileDialog.SaveFile
+                            nameFilters: ["JSON files (*.json)", "All files (*)"]
+                            onAccepted: armController.saveConfig(root.urlToLocalPath(selectedFile))
+                        }
+
+                        Label {
+                            color: "#9aa0ab"
+                            font.pixelSize: 11
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                            visible: armController.configMessage.length > 0
+                            text: armController.configMessage
+                        }
+                    }
+                }
+
+                Item { Layout.fillHeight: true }
+            }
         }
     }
 }
