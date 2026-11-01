@@ -334,103 +334,141 @@ TEST(ArmController, SaveConfigReturnsFalseOnAnUnwritablePath) {
   EXPECT_TRUE(controller.configMessage().contains("failed", Qt::CaseInsensitive));
 }
 
-TEST(ArmController, GripperDefaultsToClosedSoPayloadAffectsTorqueWithoutAnyGripperInteraction) {
-  // Every pre-existing payload test in this file never touches the
-  // gripper and still expects payloadKg to affect torque immediately -
-  // that only keeps working if the gripper defaults to closed.
+// Phase 6: the payload is a real object resting somewhere in the
+// plane, not a value permanently glued to the gripper - these replace
+// the old "closed gripper always holds whatever payloadKg is staged"
+// tests, which this redesign makes obsolete (and, worse, would now
+// pass vacuously: both sides of several of the old comparisons reduce
+// to the same trivial zero under the new rule, so re-using them would
+// have kept a near-meaningless test green instead of catching that).
+
+TEST(ArmController, GripperDefaultsToOpenAndNothingIsAttachedAtStartup) {
   ArmController controller(config_path(), surrogate_path());
-  ASSERT_FALSE(controller.gripperOpen());
-
-  controller.setJointAngleDegrees(0, 30.0);
-  const QVariantList torque_no_payload = controller.jointTorques();
-  controller.setPayloadKg(3.0);
-  const QVariantList torque_with_payload = controller.jointTorques();
-
-  bool any_changed = false;
-  for (int i = 0; i < torque_no_payload.size(); i++) {
-    if (torque_no_payload.at(i).toDouble() != torque_with_payload.at(i).toDouble()) any_changed = true;
-  }
-  EXPECT_TRUE(any_changed);
+  EXPECT_TRUE(controller.gripperOpen());
+  EXPECT_FALSE(controller.payloadAttached());
 }
 
-TEST(ArmController, OpeningGripperZeroesThePayloadsEffectOnTorque) {
+TEST(ArmController, ClosingTheGripperFarFromThePayloadDoesNotPickItUp) {
   ArmController controller(config_path(), surrogate_path());
-  controller.setJointAngleDegrees(0, 30.0);
-  controller.setPayloadKg(3.0);
-  const QVariantList torque_closed_with_payload = controller.jointTorques();
-
-  controller.setGripperOpen(true);
-  ASSERT_TRUE(controller.gripperOpen());
-  const QVariantList torque_open = controller.jointTorques();
-
-  // payloadKg() itself is untouched by opening the gripper - only its
-  // effect on torque is.
-  EXPECT_DOUBLE_EQ(controller.payloadKg(), 3.0);
-
-  // Opening the gripper must match torque computed with no payload at
-  // all, not just "be different from the closed-with-payload case".
-  controller.setGripperOpen(false);
-  controller.setPayloadKg(0.0);
-  const QVariantList torque_zero_payload = controller.jointTorques();
-  controller.setGripperOpen(true);
-  controller.setPayloadKg(3.0);
-  const QVariantList torque_open_again = controller.jointTorques();
-
-  ASSERT_EQ(torque_open_again.size(), torque_zero_payload.size());
-  for (int i = 0; i < torque_open_again.size(); i++) {
-    EXPECT_NEAR(torque_open_again.at(i).toDouble(), torque_zero_payload.at(i).toDouble(), 1e-9);
-  }
-
-  bool differs_from_closed = false;
-  for (int i = 0; i < torque_open.size(); i++) {
-    if (torque_open.at(i).toDouble() != torque_closed_with_payload.at(i).toDouble()) differs_from_closed = true;
-  }
-  EXPECT_TRUE(differs_from_closed);
-}
-
-TEST(ArmController, ClosingGripperAfterOpeningRestoresThePayloadsEffect) {
-  ArmController controller(config_path(), surrogate_path());
-  controller.setJointAngleDegrees(0, 30.0);
+  // The default pose (all joints at 0) puts the end effector at
+  // (1.5, 0) for this arm - (0.2, 0.6) is well outside the pickup
+  // radius from there.
+  controller.placePayload(0.2, 0.6);
   controller.setPayloadKg(3.0);
   const QVariantList torque_before = controller.jointTorques();
 
-  controller.setGripperOpen(true);
-  controller.setGripperOpen(false);
-  const QVariantList torque_after = controller.jointTorques();
+  controller.setGripperOpen(false); // close, nowhere near the payload
 
+  EXPECT_FALSE(controller.payloadAttached());
+  const QVariantList torque_after = controller.jointTorques();
   ASSERT_EQ(torque_before.size(), torque_after.size());
   for (int i = 0; i < torque_before.size(); i++) {
     EXPECT_DOUBLE_EQ(torque_before.at(i).toDouble(), torque_after.at(i).toDouble());
   }
 }
 
-TEST(ArmController, GripperOpenAlsoZeroesThePayloadsEffectInDynamicModeAndBreakdown) {
-  ArmController controller(config_path(), surrogate_path(), dynamic_surrogate_path());
-  controller.setDynamicMode(true);
-  controller.setJointAngleDegrees(0, 15.0);
-  controller.setJointVelocityDegrees(0, 90.0);
-  controller.setPayloadKg(2.0);
+TEST(ArmController, MovingToThePayloadAndClosingTheGripperPicksItUp) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.placePayload(1.2, 0.2);
+  controller.setPayloadKg(3.0);
+  const QVariantList torque_before_pickup = controller.jointTorques();
 
-  controller.setGripperOpen(true);
-  const QVariantList gravity_open = controller.gravityTorques();
+  controller.moveToTarget(1.2, 0.2); // walk up to it
+  controller.setGripperOpen(false); // grab it
 
-  controller.setGripperOpen(false);
-  controller.setPayloadKg(0.0);
-  const QVariantList gravity_zero_payload = controller.gravityTorques();
-
-  ASSERT_EQ(gravity_open.size(), gravity_zero_payload.size());
-  for (int i = 0; i < gravity_open.size(); i++) {
-    EXPECT_NEAR(gravity_open.at(i).toDouble(), gravity_zero_payload.at(i).toDouble(), 1e-9);
+  EXPECT_TRUE(controller.payloadAttached());
+  const QVariantList torque_after_pickup = controller.jointTorques();
+  ASSERT_EQ(torque_before_pickup.size(), torque_after_pickup.size());
+  bool any_changed = false;
+  for (int i = 0; i < torque_before_pickup.size(); i++) {
+    if (torque_before_pickup.at(i).toDouble() != torque_after_pickup.at(i).toDouble()) any_changed = true;
   }
+  EXPECT_TRUE(any_changed);
 }
 
-TEST(ArmController, LoadConfigResetsGripperToClosed) {
+TEST(ArmController, PayloadPositionTracksTheEndEffectorWhileAttached) {
   ArmController controller(config_path(), surrogate_path());
-  controller.setGripperOpen(true);
-  ASSERT_TRUE(controller.gripperOpen());
+  controller.placePayload(1.2, 0.2);
+  controller.moveToTarget(1.2, 0.2);
+  controller.setGripperOpen(false);
+  ASSERT_TRUE(controller.payloadAttached());
+
+  controller.moveToTarget(0.8, -0.3); // carry it somewhere else
+  EXPECT_NEAR(controller.payloadX(), 0.8, 1e-2);
+  EXPECT_NEAR(controller.payloadY(), -0.3, 1e-2);
+}
+
+TEST(ArmController, OpeningTheGripperDropsThePayloadAtItsCurrentPositionAndStopsTrackingIt) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.placePayload(1.2, 0.2);
+  controller.moveToTarget(1.2, 0.2);
+  controller.setGripperOpen(false);
+  controller.moveToTarget(0.8, -0.3);
+  ASSERT_TRUE(controller.payloadAttached());
+
+  controller.setGripperOpen(true); // put it down right here
+  EXPECT_FALSE(controller.payloadAttached());
+  EXPECT_NEAR(controller.payloadX(), 0.8, 1e-2);
+  EXPECT_NEAR(controller.payloadY(), -0.3, 1e-2);
+
+  // It must now stay put - moving the (empty) arm elsewhere shouldn't
+  // drag a payload that isn't attached anymore.
+  controller.moveToTarget(0.3, 0.9);
+  EXPECT_NEAR(controller.payloadX(), 0.8, 1e-2);
+  EXPECT_NEAR(controller.payloadY(), -0.3, 1e-2);
+}
+
+TEST(ArmController, PlacePayloadMovesItWhenFree) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.placePayload(0.5, -0.4);
+  EXPECT_NEAR(controller.payloadX(), 0.5, 1e-9);
+  EXPECT_NEAR(controller.payloadY(), -0.4, 1e-9);
+}
+
+TEST(ArmController, PlacePayloadIsIgnoredWhileAttached) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.placePayload(1.2, 0.2);
+  controller.moveToTarget(1.2, 0.2);
+  controller.setGripperOpen(false);
+  ASSERT_TRUE(controller.payloadAttached());
+
+  controller.placePayload(-5.0, -5.0); // attempt to teleport it while held
+  // Still tracking the end effector, not the attempted new spot.
+  EXPECT_NEAR(controller.payloadX(), 1.2, 1e-2);
+  EXPECT_NEAR(controller.payloadY(), 0.2, 1e-2);
+}
+
+TEST(ArmController, PickupInDynamicModeAffectsTheGravityBreakdown) {
+  ArmController controller(config_path(), surrogate_path(), dynamic_surrogate_path());
+  controller.setDynamicMode(true);
+  controller.setJointVelocityDegrees(0, 90.0);
+  controller.placePayload(1.2, 0.2);
+  controller.setPayloadKg(2.0);
+  const QVariantList gravity_before = controller.gravityTorques();
+
+  controller.moveToTarget(1.2, 0.2);
+  controller.setGripperOpen(false);
+  ASSERT_TRUE(controller.payloadAttached());
+  const QVariantList gravity_after = controller.gravityTorques();
+
+  ASSERT_EQ(gravity_before.size(), gravity_after.size());
+  bool any_changed = false;
+  for (int i = 0; i < gravity_before.size(); i++) {
+    if (gravity_before.at(i).toDouble() != gravity_after.at(i).toDouble()) any_changed = true;
+  }
+  EXPECT_TRUE(any_changed);
+}
+
+TEST(ArmController, LoadConfigResetsGripperAndPayloadAttachment) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.placePayload(1.2, 0.2);
+  controller.moveToTarget(1.2, 0.2);
+  controller.setGripperOpen(false);
+  ASSERT_TRUE(controller.payloadAttached());
 
   ASSERT_TRUE(controller.loadConfig(QString::fromStdString(config_path())));
-  EXPECT_FALSE(controller.gripperOpen());
+  EXPECT_TRUE(controller.gripperOpen());
+  EXPECT_FALSE(controller.payloadAttached());
 }
 
 TEST(ArmController, SetJointLengthChangesLinkLengthAndCanvasCenter) {

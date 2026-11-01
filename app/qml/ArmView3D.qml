@@ -332,23 +332,18 @@ Item {
             }
         }
 
-        // Payload marker - a weight hanging on a string, not a crate,
-        // so a sphere reads better than a cube here - sized (loosely)
-        // by mass, hanging below the gripper on a thin string - only
-        // shown while the gripper is closed (nothing is open and still
-        // holding) and there's actually a payload staged. Hangs
-        // straight down (-Y, the same "down" every torque calculation's
-        // gravity vector already uses) rather than along the arm's own
-        // direction, the way a real cable under tension would.
+        // Payload: a real object resting somewhere in the arm's plane
+        // (Phase 6), not a weight permanently glued to the gripper -
+        // armController.payloadX/payloadY already resolve to "wherever
+        // it currently is" on the C++ side (its own resting spot while
+        // free, the end effector's live position while attached), so
+        // this binding alone makes it sit still when placed and follow
+        // the gripper when picked up - no separate "is it held" branch
+        // needed here at all.
         Model {
-            readonly property int lastIndex: armController.jointPositions.length - 1
-            readonly property vector3d tipPosition: lastIndex >= 0 ? armController.jointPositions[lastIndex]
-                                                                    : Qt.vector3d(0, 0, 0)
-            readonly property real hangMeters: 0.12 + armController.payloadKg * 0.01
-
             source: "#Sphere"
-            visible: !armController.gripperOpen && armController.payloadKg > 0 && lastIndex >= 0
-            position: Qt.vector3d(tipPosition.x, tipPosition.y - hangMeters, tipPosition.z)
+            visible: armController.payloadKg > 0
+            position: Qt.vector3d(armController.payloadX, armController.payloadY, 0)
             scale: {
                 const meters = 0.1 + armController.payloadKg * 0.015
                 const s = meters / root.meshUnit
@@ -359,28 +354,6 @@ Item {
                 baseColor: "#e94560"
                 metalness: 0.1
                 roughness: 0.5
-            }
-        }
-
-        // The string itself: a thin vertical cylinder from the gripper
-        // tip down to the payload - always straight down by
-        // construction (both endpoints share x/z), so no rotation math
-        // is needed the way the tilted links need linkRotations.
-        Model {
-            readonly property int lastIndex: armController.jointPositions.length - 1
-            readonly property vector3d tipPosition: lastIndex >= 0 ? armController.jointPositions[lastIndex]
-                                                                    : Qt.vector3d(0, 0, 0)
-            readonly property real hangMeters: 0.12 + armController.payloadKg * 0.01
-
-            source: "#Cylinder"
-            visible: !armController.gripperOpen && armController.payloadKg > 0 && lastIndex >= 0
-            position: Qt.vector3d(tipPosition.x, tipPosition.y - hangMeters / 2, tipPosition.z)
-            scale: Qt.vector3d(0.006 / root.meshUnit, hangMeters / root.meshUnit, 0.006 / root.meshUnit)
-
-            materials: PrincipledMaterial {
-                baseColor: "#9aa0ab"
-                metalness: 0.2
-                roughness: 0.6
             }
         }
     }

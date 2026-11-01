@@ -151,6 +151,35 @@ Rectangle {
                         markerYMeters: armController.jointPositions.length > 0
                             ? armController.jointPositions[armController.jointPositions.length - 1].y : 0
                         onTargetMoved: (x, y) => armController.moveToTarget(x, y)
+
+                        // The payload's own place in this same plane
+                        // (Phase 6) - drag the pink dot to set down
+                        // where it rests; it locks (can't be dragged)
+                        // while the gripper is actually holding it,
+                        // since placePayload() would silently no-op
+                        // then anyway.
+                        showPayloadMarker: true
+                        payloadXMeters: armController.payloadX
+                        payloadYMeters: armController.payloadY
+                        payloadLocked: armController.payloadAttached
+                        onPayloadMoved: (x, y) => armController.placePayload(x, y)
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+
+                        RowLayout {
+                            spacing: 5
+                            Rectangle { implicitWidth: 9; implicitHeight: 9; radius: 4.5; color: "#17e0ff" }
+                            Label { color: "#7a8099"; font.pixelSize: 10; text: "target" }
+                        }
+                        RowLayout {
+                            spacing: 5
+                            Rectangle { implicitWidth: 9; implicitHeight: 9; radius: 4.5; color: "#e94560" }
+                            Label { color: "#7a8099"; font.pixelSize: 10; text: "payload" }
+                        }
+                        Item { Layout.fillWidth: true }
                     }
 
                     RowLayout {
@@ -176,6 +205,19 @@ Rectangle {
                             enabled: targetXField.text.length > 0 && targetYField.text.length > 0
                             onClicked: armController.moveToTarget(parseFloat(targetXField.text), parseFloat(targetYField.text))
                         }
+                    }
+
+                    // A precise shortcut for the pick-and-place demo -
+                    // dragging the cyan target dot exactly onto the
+                    // pink payload dot by eye is imprecise at this
+                    // pad's size; this sends the arm to the payload's
+                    // exact stored coordinates instead, guaranteeing
+                    // it lands within pickup range.
+                    Button {
+                        Layout.fillWidth: true
+                        text: "Go to payload"
+                        enabled: !armController.payloadAttached
+                        onClicked: armController.moveToTarget(armController.payloadX, armController.payloadY)
                     }
                 }
             }
@@ -504,13 +546,13 @@ Rectangle {
                         }
                     }
 
-                    // The gripper decides whether the staged payload
-                    // above actually counts toward the torque
-                    // calculation - open it and drag the payload
-                    // slider, nothing changes; close it, and the
-                    // torques jump by the weight. A deliberately
-                    // visible cause-and-effect, not just a cosmetic
-                    // toggle.
+                    // Phase 6: closing the gripper only picks up the
+                    // payload if the end effector is actually near it
+                    // (placePayload()/the pink dot on the pad above
+                    // decide where "it" is) - this switch alone no
+                    // longer guarantees the torques jump by the
+                    // weight, so the status line below says plainly
+                    // whether anything actually got grabbed.
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 8
@@ -529,8 +571,21 @@ Rectangle {
                         Label {
                             color: "white"
                             opacity: armController.gripperOpen ? 0.5 : 1.0
-                            text: "Closed (holding payload)"
+                            text: "Closed"
                         }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: 12
+                        color: armController.payloadAttached ? "#2ecc71" : "#9aa0ab"
+                        font.bold: armController.payloadAttached
+                        text: armController.payloadAttached
+                            ? "Holding the payload"
+                            : (armController.gripperOpen
+                                ? "Gripper open — move to the payload, then close to grab it"
+                                : "Gripper closed on nothing — not near the payload")
                     }
                 }
             }
