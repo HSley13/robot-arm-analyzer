@@ -24,7 +24,7 @@ Window {
             }
 
             ControlsPanel {
-                Layout.preferredWidth: bottomBar.implicitHeight * 0.7
+                Layout.preferredWidth: bottomBar.implicitHeight * 1.1
                 Layout.fillHeight: true
             }
         }
