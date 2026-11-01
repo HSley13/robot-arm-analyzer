@@ -135,34 +135,22 @@ Rectangle {
                     anchors.margins: 8
                     spacing: 5
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 5
-
-                        Label {
-                            color: "white"
-                            font.bold: true
-                            text: "Move to target"
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        Label {
-                            color: "#9aa0ab"
-                            font.pixelSize: 11
-                            text: "Show reach"
-                        }
-
-                        Switch {
-                            checked: armController.showWorkspaceEnvelope
-                            onToggled: armController.showWorkspaceEnvelope = checked
-                        }
+                    Label {
+                        color: "white"
+                        font.bold: true
+                        text: "Move to target"
                     }
 
                     ReachPad {
                         Layout.alignment: Qt.AlignHCenter
-                        Layout.preferredWidth: 170
-                        Layout.preferredHeight: 170
+                        // Sized to fit the sidebar's own narrowest
+                        // state (Static mode, ~223px wide via
+                        // Main.qml's bottomBar.implicitHeight * 0.75)
+                        // minus this card's and the column's margins
+                        // - bigger than the original 170px, but not
+                        // so big it overflows a narrow sidebar.
+                        Layout.preferredWidth: 180
+                        Layout.preferredHeight: 180
                         // The pad's own visible range is deliberately
                         // WIDER than the reach circle (not equal to
                         // it) - margin around the circle to drag into
