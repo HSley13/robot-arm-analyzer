@@ -66,7 +66,6 @@ ArmController::ArmController(const std::filesystem::path &config_path, const std
     }
   }
 
-  resetPayloadPosition();
   recompute();
 }
 
@@ -87,56 +86,9 @@ void ArmController::setPayloadKg(double kg) {
   recompute();
 }
 
-double ArmController::payloadX() const {
-  if (_payloadAttached && !_jointPositions.empty()) return _jointPositions.back().x();
-  return _payloadX;
-}
-
-double ArmController::payloadY() const {
-  if (_payloadAttached && !_jointPositions.empty()) return _jointPositions.back().y();
-  return _payloadY;
-}
-
-void ArmController::placePayload(double xMeters, double yMeters) {
-  if (_payloadAttached) return; // can't reposition what's currently held - open the gripper first
-  _payloadX = xMeters;
-  _payloadY = yMeters;
-  emit resultsChanged();
-}
-
-void ArmController::resetPayloadPosition() {
-  double total_reach = 0.0;
-  for (const DHParameter &joint : _arm.joints()) total_reach += joint.a;
-  _payloadX = total_reach * 0.45;
-  _payloadY = -0.25;
-  _payloadAttached = false;
-}
-
 void ArmController::setGripperOpen(bool open) {
   if (open == _gripperOpen) return;
   _gripperOpen = open;
-
-  if (open) {
-    // Opening: release the payload exactly where it currently is, if
-    // it was being held - it doesn't snap back to some "home" spot.
-    if (_payloadAttached) {
-      if (!_jointPositions.empty()) {
-        _payloadX = _jointPositions.back().x();
-        _payloadY = _jointPositions.back().y();
-      }
-      _payloadAttached = false;
-    }
-  } else if (!_payloadAttached && !_jointPositions.empty()) {
-    // Closing: pick up the payload only if the end effector is
-    // actually within reach of where it currently rests - closing the
-    // gripper somewhere else in the plane just closes an empty hand.
-    const double dx = _jointPositions.back().x() - _payloadX;
-    const double dy = _jointPositions.back().y() - _payloadY;
-    if (std::sqrt(dx * dx + dy * dy) <= kPickupRadiusMeters) {
-      _payloadAttached = true;
-    }
-  }
-
   recompute();
 }
 
@@ -366,8 +318,7 @@ bool ArmController::loadConfig(const QString &path) {
     _jointVelocitiesRadians.assign(n, 0.0);
     _jointAccelerationsRadians.assign(n, 0.0);
     _payloadKg = 0.0;
-    _gripperOpen = true;
-    resetPayloadPosition();
+    _gripperOpen = false;
     _aiMode = false;
     _dynamicMode = false;
     _trajectoryScrubMode = false;

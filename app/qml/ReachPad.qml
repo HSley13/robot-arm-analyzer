@@ -20,21 +20,7 @@ Item {
     // moveToTarget() might not land exactly on it.
     property real maxReachMeters: -1
 
-    // A second, independently draggable marker - Phase 6's pick-and-
-    // place payload placement, sharing this same plane instead of a
-    // separate pad. showPayloadMarker hides it entirely for callers
-    // that don't need it (keeps this component usable for plain
-    // move-to-target alone); payloadLocked makes it look present but
-    // un-grabbable, for while the payload is attached to the gripper -
-    // placePayload() is a no-op server-side then anyway, so refusing
-    // to even pick it up here avoids a drag that visibly does nothing.
-    property real payloadXMeters: 0
-    property real payloadYMeters: 0
-    property bool showPayloadMarker: false
-    property bool payloadLocked: false
-
     signal targetMoved(real xMeters, real yMeters)
-    signal payloadMoved(real xMeters, real yMeters)
 
     implicitWidth: 180
     implicitHeight: 180
@@ -74,61 +60,28 @@ Item {
     }
 
     Rectangle {
-        id: payloadMarker
-        visible: root.showPayloadMarker
-        width: 14
-        height: 14
-        radius: 7
-        color: dragHandler.draggingPayload ? "#ffffff" : "#e94560"
-        opacity: root.payloadLocked ? 0.45 : 1.0
-        border.color: "#0e1021"
-        border.width: 2
-        x: root.pxFromMeters(root.payloadXMeters) - width / 2
-        y: root.pyFromMeters(root.payloadYMeters) - height / 2
-    }
-
-    Rectangle {
         id: marker
         width: 16
         height: 16
         radius: 8
-        color: dragHandler.active && !dragHandler.draggingPayload ? "#ffffff" : "#17e0ff"
+        color: dragHandler.active ? "#ffffff" : "#17e0ff"
         border.color: "#0e1021"
         border.width: 2
         x: root.pxFromMeters(root.markerXMeters) - width / 2
         y: root.pyFromMeters(root.markerYMeters) - height / 2
     }
 
-    // Dragging anywhere on the pad (not just directly on a marker)
-    // moves one of them, clamped to the pad's own visible range.
-    // Which one is decided once, at the start of each drag: whichever
-    // marker's current on-screen position is closer to where the
-    // press landed - the payload marker never "wins" that choice while
-    // payloadLocked is true, so an attached payload can't be dragged.
+    // Dragging anywhere on the pad (not just the marker) moves the
+    // target, clamped to the pad's own visible range.
     DragHandler {
         id: dragHandler
         target: null
-        property bool draggingPayload: false
-
-        onActiveChanged: {
-            if (!active) return
-            const distToTarget = Math.hypot(centroid.pressPosition.x - root.pxFromMeters(root.markerXMeters),
-                                              centroid.pressPosition.y - root.pyFromMeters(root.markerYMeters))
-            const distToPayload = (root.showPayloadMarker && !root.payloadLocked)
-                ? Math.hypot(centroid.pressPosition.x - root.pxFromMeters(root.payloadXMeters),
-                              centroid.pressPosition.y - root.pyFromMeters(root.payloadYMeters))
-                : Infinity
-            draggingPayload = distToPayload < distToTarget
-        }
 
         onCentroidChanged: {
             if (!active) return
             const clampedX = Math.max(0, Math.min(root.width, centroid.position.x))
             const clampedY = Math.max(0, Math.min(root.height, centroid.position.y))
-            const mx = root.metersFromPx(clampedX)
-            const my = root.metersFromPy(clampedY)
-            if (draggingPayload) root.payloadMoved(mx, my)
-            else root.targetMoved(mx, my)
+            root.targetMoved(root.metersFromPx(clampedX), root.metersFromPy(clampedY))
         }
     }
 }
