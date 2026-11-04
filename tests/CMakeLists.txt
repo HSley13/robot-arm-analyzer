@@ -71,3 +71,9 @@ add_executable(inverse_kinematics_tests inverse_kinematics_test.cpp)
 target_link_libraries(inverse_kinematics_tests PRIVATE robotarm_core gtest_main)
 
 add_test(NAME inverse_kinematics_tests COMMAND inverse_kinematics_tests)
+
+add_executable(sensor_bridge_server_tests sensor_bridge_server_test.cpp)
+target_link_libraries(sensor_bridge_server_tests PRIVATE robotarm_app_core gtest_main)
+target_compile_definitions(sensor_bridge_server_tests PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
+
+add_test(NAME sensor_bridge_server_tests COMMAND sensor_bridge_server_tests)
