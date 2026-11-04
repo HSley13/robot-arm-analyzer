@@ -8,6 +8,7 @@
 #include <QUrl>
 
 #include "arm_controller.hpp"
+#include "sensor_bridge_server.hpp"
 
 #ifndef APP_QML_DIR
 #error "APP_QML_DIR must be defined by the build"
@@ -16,6 +17,11 @@
 #error "PROJECT_ROOT_DIR must be defined by the build"
 #endif
 
+// Fixed, unauthenticated local-network port for experimental sensor input
+// (IMU wand, camera gripper controller, ...) - not meant to be exposed
+// beyond a trusted LAN.
+constexpr quint16 kSensorBridgePort = 8765;
+
 int main(int argc, char *argv[]) {
   QGuiApplication app(argc, argv);
 
@@ -23,6 +29,9 @@ int main(int argc, char *argv[]) {
                                      std::string(PROJECT_ROOT_DIR) + "/ml/models/three_dof_arm.surrogate.json",
                                      std::string(PROJECT_ROOT_DIR) +
                                          "/ml/models/three_dof_arm_dynamic.surrogate.json");
+
+  robotarm::SensorBridgeServer sensorBridge(&controller, kSensorBridgePort);
+  sensorBridge.start();
 
   QQmlApplicationEngine engine;
   engine.rootContext()->setContextProperty("armController", &controller);
