@@ -1,15 +1,18 @@
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Quick3D QuickControls2 QuickDialogs2)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Quick3D QuickControls2 QuickDialogs2 WebSockets)
 
-# Split out from the executable so arm_controller.cpp is testable with
-# plain GTest, without needing a QGuiApplication/QML engine.
+# Split out from the executable so arm_controller.cpp (and the sensor bridge,
+# which only needs ArmController + Qt networking) is testable with plain
+# GTest, without needing a QGuiApplication/QML engine.
 add_library(robotarm_app_core
     arm_controller.cpp
+    sensor_bridge_server.cpp
 )
 set_target_properties(robotarm_app_core PROPERTIES AUTOMOC ON)
 target_include_directories(robotarm_app_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(robotarm_app_core PUBLIC
     Qt6::Core
     Qt6::Gui
+    Qt6::WebSockets
     robotarm_core
     robotarm_ml
 )
