@@ -71,3 +71,9 @@ add_executable(inverse_kinematics_tests inverse_kinematics_test.cpp)
 target_link_libraries(inverse_kinematics_tests PRIVATE robotarm_core gtest_main)
 
 add_test(NAME inverse_kinematics_tests COMMAND inverse_kinematics_tests)
+
+add_executable(hand_config_tests hand_config_test.cpp)
+target_link_libraries(hand_config_tests PRIVATE robotarm_core gtest_main)
+target_compile_definitions(hand_config_tests PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
+
+add_test(NAME hand_config_tests COMMAND hand_config_tests)
