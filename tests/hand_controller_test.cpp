@@ -139,6 +139,40 @@ TEST(HandController, LinkGeometryForUnknownChainIsEmptyNotACrash) {
   EXPECT_TRUE(hand.linkRotationsForChain("not_a_real_chain").isEmpty());
 }
 
+TEST(HandController, RootSegmentConnectsAFingerToTheWristsTip) {
+  HandController hand(hand_config_path());
+  const QVariantList wrist_positions = hand.jointPositionsForChain("wrist");
+  const QVariantList finger_positions = hand.jointPositionsForChain("index");
+  ASSERT_FALSE(wrist_positions.isEmpty());
+  ASSERT_FALSE(finger_positions.isEmpty());
+
+  const QVariantList mid = hand.rootSegmentMidpointForChain("index");
+  const QVariantList len = hand.rootSegmentLengthForChain("index");
+  const QVariantList rot = hand.rootSegmentRotationForChain("index");
+  ASSERT_EQ(mid.size(), 1);
+  ASSERT_EQ(len.size(), 1);
+  ASSERT_EQ(rot.size(), 1);
+
+  const QVector3D wrist_tip = wrist_positions.last().value<QVector3D>();
+  const QVector3D finger_first = finger_positions.first().value<QVector3D>();
+  const QVector3D expected_midpoint = (wrist_tip + finger_first) / 2.0f;
+  EXPECT_NEAR(mid[0].value<QVector3D>().distanceToPoint(expected_midpoint), 0.0, 1e-6);
+  EXPECT_NEAR(len[0].toDouble(), static_cast<double>((finger_first - wrist_tip).length()), 1e-6);
+  EXPECT_GT(len[0].toDouble(), 0.0); // a finger's metacarpal offset is a real, nonzero length
+}
+
+TEST(HandController, RootSegmentIsAbsentForTheRootChainItself) {
+  HandController hand(hand_config_path());
+  EXPECT_TRUE(hand.rootSegmentMidpointForChain("wrist").isEmpty());
+  EXPECT_TRUE(hand.rootSegmentLengthForChain("wrist").isEmpty());
+  EXPECT_TRUE(hand.rootSegmentRotationForChain("wrist").isEmpty());
+}
+
+TEST(HandController, RootSegmentIsAbsentForAnUnknownChain) {
+  HandController hand(hand_config_path());
+  EXPECT_TRUE(hand.rootSegmentMidpointForChain("not_a_real_chain").isEmpty());
+}
+
 TEST(HandController, RevisionIncrementsOnADirectJointEdit) {
   HandController hand(hand_config_path());
   const int before = hand.property("revision").toInt();

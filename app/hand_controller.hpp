@@ -85,6 +85,16 @@ public:
   Q_INVOKABLE QVariantList linkLengthsForChain(const QString &chainName) const;
   Q_INVOKABLE QVariantList linkRotationsForChain(const QString &chainName) const;
 
+  // The ONE segment linkMidpointsForChain()/etc. above can never
+  // represent: the gap from this chain's own parent's current tip to
+  // this chain's own first joint (e.g. a finger's metacarpal offset
+  // from the wrist). Each returns a list of exactly one entry, or an
+  // empty list if this chain has no parent (it's the tree's root) or
+  // has no joints of its own.
+  Q_INVOKABLE QVariantList rootSegmentMidpointForChain(const QString &chainName) const;
+  Q_INVOKABLE QVariantList rootSegmentLengthForChain(const QString &chainName) const;
+  Q_INVOKABLE QVariantList rootSegmentRotationForChain(const QString &chainName) const;
+
   // Starts a smooth animation toward a named gesture ("restPose",
   // "openPalm", "closedFist", "wave"), replacing any animation already
   // in progress. Unknown names are logged and ignored - a typo in a QML
@@ -98,8 +108,16 @@ private slots:
   void advanceAnimation();
 
 private:
+  struct RootSegment {
+    bool present = false;
+    Eigen::Vector3d midpoint = Eigen::Vector3d::Zero();
+    double length = 0.0;
+    QQuaternion rotation;
+  };
+
   void recompute();
   std::vector<Eigen::Vector3d> chainPositions(const std::string &name) const;
+  RootSegment rootSegmentFor(const std::string &name) const;
   std::vector<double> flatten(const std::map<std::string, std::vector<double>> &pose_by_chain) const;
   std::map<std::string, std::vector<double>> unflatten(const std::vector<double> &flat) const;
   // Never throws - every Q_INVOKABLE method must guard external (QML)

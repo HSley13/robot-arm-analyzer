@@ -138,6 +138,49 @@ QVariantList HandController::linkRotationsForChain(const QString &chainName) con
   return result;
 }
 
+HandController::RootSegment HandController::rootSegmentFor(const std::string &name) const {
+  RootSegment seg;
+  const HandChainConfig *chain = findChainConfig(name);
+  if (chain == nullptr || chain->parent_chain.empty() || chain->joints.empty()) return seg;
+
+  const std::vector<Eigen::Vector3d> my_positions = chainPositions(name);
+  if (my_positions.empty()) return seg;
+
+  const std::vector<Eigen::Vector3d> parent_positions = chainPositions(chain->parent_chain);
+  const Eigen::Vector3d parent_tip = parent_positions.empty() ? Eigen::Vector3d::Zero() : parent_positions.back();
+  const Eigen::Vector3d &my_first = my_positions.front();
+
+  seg.present = true;
+  seg.midpoint = (parent_tip + my_first) / 2.0;
+  const Eigen::Vector3d direction_eigen = my_first - parent_tip;
+  seg.length = direction_eigen.norm();
+  if (seg.length < 1e-9) {
+    seg.rotation = QQuaternion();
+  } else {
+    const QVector3D direction = to_qvector3d(direction_eigen / seg.length);
+    seg.rotation = QQuaternion::rotationTo(QVector3D(0.0f, 1.0f, 0.0f), direction);
+  }
+  return seg;
+}
+
+QVariantList HandController::rootSegmentMidpointForChain(const QString &chainName) const {
+  const RootSegment seg = rootSegmentFor(chainName.toStdString());
+  if (!seg.present) return {};
+  return {QVariant::fromValue(to_qvector3d(seg.midpoint))};
+}
+
+QVariantList HandController::rootSegmentLengthForChain(const QString &chainName) const {
+  const RootSegment seg = rootSegmentFor(chainName.toStdString());
+  if (!seg.present) return {};
+  return {QVariant::fromValue(seg.length)};
+}
+
+QVariantList HandController::rootSegmentRotationForChain(const QString &chainName) const {
+  const RootSegment seg = rootSegmentFor(chainName.toStdString());
+  if (!seg.present) return {};
+  return {QVariant::fromValue(seg.rotation)};
+}
+
 void HandController::recompute() {
   _jointPoses = _tree.forward_kinematics(_jointAnglesRadians);
   _revision++;
