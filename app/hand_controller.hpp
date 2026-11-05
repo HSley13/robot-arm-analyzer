@@ -9,6 +9,7 @@
 #include <Eigen/Dense>
 #include <QElapsedTimer>
 #include <QObject>
+#include <QQuaternion>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
@@ -39,6 +40,14 @@ class HandController : public QObject {
   Q_PROPERTY(QStringList chainNames READ chainNames CONSTANT)
   Q_PROPERTY(QString currentGesture READ currentGesture NOTIFY resultsChanged)
   Q_PROPERTY(bool animating READ animating NOTIFY resultsChanged)
+  // Increments on every recompute() - exists purely so a QML binding that
+  // calls a per-chain Q_INVOKABLE getter (jointPositionsForChain() etc.,
+  // which can't be a real Q_PROPERTY since they take an argument) has a
+  // real property to depend on. Without reading *something* with a
+  // NOTIFY tied to resultsChanged, QML has no way to know such a binding
+  // needs to re-run on every animation tick - reading animating alone
+  // would only catch the start/end of a gesture, not the frames between.
+  Q_PROPERTY(int revision READ revision NOTIFY resultsChanged)
 
 public:
   explicit HandController(const std::filesystem::path &hand_config_path, QObject *parent = nullptr);
@@ -47,6 +56,7 @@ public:
   QStringList chainNames() const;
   QString currentGesture() const { return _currentGesture; }
   bool animating() const { return _animation != nullptr; }
+  int revision() const { return _revision; }
 
   Q_INVOKABLE int jointCountForChain(const QString &chainName) const;
   Q_INVOKABLE double jointAngleDegrees(const QString &chainName, int jointIndex) const;
@@ -64,6 +74,17 @@ public:
   // the same way.
   Q_INVOKABLE QVariantList jointPositionsForChain(const QString &chainName) const;
 
+  // Per-link midpoint (meters), length (meters), and orientation for one
+  // chain - the same midpoint/length/rotation convention
+  // ArmController::linkMidpoints()/linkLengths()/linkRotations() use for
+  // the arm's own links, so QML can render a hand segment exactly the
+  // way it already renders an arm link: one oriented, tapered cylinder
+  // per entry. One entry per joint-to-joint gap, so N joints gives N-1
+  // links, same as the arm.
+  Q_INVOKABLE QVariantList linkMidpointsForChain(const QString &chainName) const;
+  Q_INVOKABLE QVariantList linkLengthsForChain(const QString &chainName) const;
+  Q_INVOKABLE QVariantList linkRotationsForChain(const QString &chainName) const;
+
   // Starts a smooth animation toward a named gesture ("restPose",
   // "openPalm", "closedFist", "wave"), replacing any animation already
   // in progress. Unknown names are logged and ignored - a typo in a QML
@@ -78,6 +99,7 @@ private slots:
 
 private:
   void recompute();
+  std::vector<Eigen::Vector3d> chainPositions(const std::string &name) const;
   std::vector<double> flatten(const std::map<std::string, std::vector<double>> &pose_by_chain) const;
   std::map<std::string, std::vector<double>> unflatten(const std::vector<double> &flat) const;
   // Never throws - every Q_INVOKABLE method must guard external (QML)
@@ -101,6 +123,7 @@ private:
   QElapsedTimer _animationClock;
   QTimer _animationTicker;
   QString _currentGesture = QStringLiteral("restPose");
+  int _revision = 0;
 };
 
 } // namespace robotarm

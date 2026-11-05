@@ -91,16 +91,56 @@ void HandController::setJointAngleDegrees(const QString &chainName, int jointInd
   emit resultsChanged();
 }
 
+std::vector<Eigen::Vector3d> HandController::chainPositions(const std::string &name) const {
+  std::vector<Eigen::Vector3d> positions;
+  const auto it = _jointPoses.find(name);
+  if (it == _jointPoses.end()) return positions;
+  positions.reserve(it->second.size());
+  for (const Eigen::Matrix4d &pose : it->second) positions.push_back(pose.block<3, 1>(0, 3));
+  return positions;
+}
+
 QVariantList HandController::jointPositionsForChain(const QString &chainName) const {
   QVariantList result;
-  const auto it = _jointPoses.find(chainName.toStdString());
-  if (it == _jointPoses.end()) return result;
-  for (const Eigen::Matrix4d &pose : it->second) result.append(to_qvector3d(pose.block<3, 1>(0, 3)));
+  for (const Eigen::Vector3d &p : chainPositions(chainName.toStdString())) result.append(to_qvector3d(p));
+  return result;
+}
+
+QVariantList HandController::linkMidpointsForChain(const QString &chainName) const {
+  QVariantList result;
+  const std::vector<Eigen::Vector3d> positions = chainPositions(chainName.toStdString());
+  for (size_t i = 0; i + 1 < positions.size(); i++) {
+    result.append(to_qvector3d((positions[i] + positions[i + 1]) / 2.0));
+  }
+  return result;
+}
+
+QVariantList HandController::linkLengthsForChain(const QString &chainName) const {
+  QVariantList result;
+  const std::vector<Eigen::Vector3d> positions = chainPositions(chainName.toStdString());
+  for (size_t i = 0; i + 1 < positions.size(); i++) result.append((positions[i + 1] - positions[i]).norm());
+  return result;
+}
+
+QVariantList HandController::linkRotationsForChain(const QString &chainName) const {
+  QVariantList result;
+  const std::vector<Eigen::Vector3d> positions = chainPositions(chainName.toStdString());
+  for (size_t i = 0; i + 1 < positions.size(); i++) {
+    const Eigen::Vector3d direction_eigen = positions[i + 1] - positions[i];
+    const double length = direction_eigen.norm();
+    if (length < 1e-9) {
+      result.append(QQuaternion());
+      continue;
+    }
+    const QVector3D direction = to_qvector3d(direction_eigen / length);
+    result.append(QQuaternion::rotationTo(QVector3D(0.0f, 1.0f, 0.0f), direction));
+  }
   return result;
 }
 
 void HandController::recompute() {
   _jointPoses = _tree.forward_kinematics(_jointAnglesRadians);
+  _revision++;
 }
 
 std::vector<double> HandController::flatten(const std::map<std::string, std::vector<double>> &pose_by_chain) const {
