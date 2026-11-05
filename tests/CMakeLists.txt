@@ -77,3 +77,14 @@ target_link_libraries(hand_config_tests PRIVATE robotarm_core gtest_main)
 target_compile_definitions(hand_config_tests PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
 
 add_test(NAME hand_config_tests COMMAND hand_config_tests)
+
+add_executable(hand_gestures_tests hand_gestures_test.cpp)
+target_link_libraries(hand_gestures_tests PRIVATE robotarm_core gtest_main)
+
+add_test(NAME hand_gestures_tests COMMAND hand_gestures_tests)
+
+add_executable(hand_controller_tests hand_controller_test.cpp)
+target_link_libraries(hand_controller_tests PRIVATE robotarm_app_core gtest_main)
+target_compile_definitions(hand_controller_tests PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
+
+add_test(NAME hand_controller_tests COMMAND hand_controller_tests)
