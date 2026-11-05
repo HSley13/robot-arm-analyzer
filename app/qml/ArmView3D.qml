@@ -1,5 +1,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
 import QtQuick3D
 import QtQuick3D.Helpers
 
@@ -271,6 +273,20 @@ Item {
                 roughness: 0.6
             }
         }
+
+        // Experimental humanoid-hand demo: deliberately NOT parented to
+        // the arm's own end-effector node (gripperBase above) - this is
+        // its own standalone piece, shown clear of the arm's reach
+        // envelope rather than replacing the simple two-finger gripper
+        // that the existing payload demo already depends on. Position
+        // and scale are a first guess (offset past the envelope's own
+        // radius, 3x scale so a ~15cm hand reads clearly next to a
+        // multi-meter arm) and have not been visually confirmed - there
+        // is no way to render-check this in the current environment.
+        Hand3D {
+            position: Qt.vector3d(armController.canvasCenter.x * 2 + 0.5, 0.35, 0)
+            scale: Qt.vector3d(3, 3, 3)
+        }
     }
 
     // Forces the overlay below to depend on the camera explicitly -
@@ -358,6 +374,46 @@ Item {
                     const sensitivity = 0.5
                     armController.setJointAngleDegrees(jointHandle.index, baseAngleDegrees + deltaPixels * sensitivity)
                 }
+            }
+        }
+    }
+
+    // Experimental: gesture controls for Hand3D above. A standalone
+    // overlay rather than an addition to ControlsPanel.qml/BottomBar.qml
+    // deliberately - those have been tuned through many rounds of direct
+    // feedback and this unrelated, still-unverified feature has no
+    // business disturbing that layout.
+    Rectangle {
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.margins: 14
+        width: handLabColumn.implicitWidth + 20
+        height: handLabColumn.implicitHeight + 16
+        radius: 10
+        color: "#171a2b"
+        border.color: "#262a40"
+        border.width: 1
+
+        ColumnLayout {
+            id: handLabColumn
+            anchors.fill: parent
+            anchors.margins: 10
+            spacing: 6
+
+            Label {
+                text: "Hand Lab (experimental)"
+                color: "white"
+                font.bold: true
+                font.pixelSize: 12
+            }
+
+            RowLayout {
+                spacing: 6
+
+                Button { text: "Rest"; onClicked: handController.playGesture("restPose") }
+                Button { text: "Open"; onClicked: handController.playGesture("openPalm") }
+                Button { text: "Close"; onClicked: handController.playGesture("closedFist") }
+                Button { text: "Wave"; onClicked: handController.playGesture("wave") }
             }
         }
     }
