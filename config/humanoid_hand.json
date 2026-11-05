@@ -1,0 +1,64 @@
+{
+  "name": "Humanoid Hand (five-finger, Stage 1 - kinematics only)",
+  "chains": [
+    {
+      "name": "wrist",
+      "parent_chain": "",
+      "joints": [
+        { "type": "revolute", "a": 0.0, "alpha_deg": 0.0, "d": 0.0, "theta_offset_deg": 0.0, "min_deg": -80.0, "max_deg": 80.0 },
+        { "type": "revolute", "a": 0.0, "alpha_deg": 90.0, "d": 0.0, "theta_offset_deg": 0.0, "min_deg": -60.0, "max_deg": 60.0 },
+        { "type": "revolute", "a": 0.0, "alpha_deg": -90.0, "d": 0.0, "theta_offset_deg": 0.0, "min_deg": -20.0, "max_deg": 20.0 }
+      ]
+    },
+    {
+      "name": "index",
+      "parent_chain": "wrist",
+      "joints": [
+        { "type": "revolute", "a": 0.044, "alpha_deg": 90.0, "d": 0.0, "theta_offset_deg": 24.0, "min_deg": 0.0, "max_deg": 0.0 },
+        { "type": "revolute", "a": 0.040, "alpha_deg": 0.0, "d": 0.0, "theta_offset_deg": 0.0, "min_deg": -15.0, "max_deg": 90.0 },
+        { "type": "revolute", "a": 0.024, "alpha_deg": 0.0, "d": 0.0, "theta_offset_deg": 0.0, "min_deg": 0.0, "max_deg": 100.0 },
+        { "type": "revolute", "a": 0.018, "alpha_deg": 0.0, "d": 0.0, "theta_offset_deg": 0.0, "min_deg": 0.0, "max_deg": 80.0 }
+      ]
+    },
+    {
+      "name": "middle",
+      "parent_chain": "wrist",
+      "joints": [
+        { "type": "revolute", "a": 0.046, "alpha_deg": 90.0, "d": 0.0, "theta_offset_deg": 8.0, "min_deg": 0.0, "max_deg": 0.0 },
+        { "type": "revolute", "a": 0.045, "alpha_deg": 0.0, "d": 0.0, "theta_offset_deg": 0.0, "min_deg": -15.0, "max_deg": 90.0 },
+        { "type": "revolute", "a": 0.027, "alpha_deg": 0.0, "d": 0.0, "theta_offset_deg": 0.0, "min_deg": 0.0, "max_deg": 100.0 },
+        { "type": "revolute", "a": 0.020, "alpha_deg": 0.0, "d": 0.0, "theta_offset_deg": 0.0, "min_deg": 0.0, "max_deg": 80.0 }
+      ]
+    },
+    {
+      "name": "ring",
+      "parent_chain": "wrist",
+      "joints": [
+        { "type": "revolute", "a": 0.044, "alpha_deg": 90.0, "d": 0.0, "theta_offset_deg": -8.0, "min_deg": 0.0, "max_deg": 0.0 },
+        { "type": "revolute", "a": 0.040, "alpha_deg": 0.0, "d": 0.0, "theta_offset_deg": 0.0, "min_deg": -15.0, "max_deg": 90.0 },
+        { "type": "revolute", "a": 0.025, "alpha_deg": 0.0, "d": 0.0, "theta_offset_deg": 0.0, "min_deg": 0.0, "max_deg": 100.0 },
+        { "type": "revolute", "a": 0.018, "alpha_deg": 0.0, "d": 0.0, "theta_offset_deg": 0.0, "min_deg": 0.0, "max_deg": 80.0 }
+      ]
+    },
+    {
+      "name": "pinky",
+      "parent_chain": "wrist",
+      "joints": [
+        { "type": "revolute", "a": 0.040, "alpha_deg": 90.0, "d": 0.0, "theta_offset_deg": -24.0, "min_deg": 0.0, "max_deg": 0.0 },
+        { "type": "revolute", "a": 0.032, "alpha_deg": 0.0, "d": 0.0, "theta_offset_deg": 0.0, "min_deg": -15.0, "max_deg": 90.0 },
+        { "type": "revolute", "a": 0.018, "alpha_deg": 0.0, "d": 0.0, "theta_offset_deg": 0.0, "min_deg": 0.0, "max_deg": 100.0 },
+        { "type": "revolute", "a": 0.014, "alpha_deg": 0.0, "d": 0.0, "theta_offset_deg": 0.0, "min_deg": 0.0, "max_deg": 80.0 }
+      ]
+    },
+    {
+      "name": "thumb",
+      "parent_chain": "wrist",
+      "joints": [
+        { "type": "revolute", "a": 0.030, "alpha_deg": -90.0, "d": 0.0, "theta_offset_deg": -60.0, "min_deg": 0.0, "max_deg": 0.0 },
+        { "type": "revolute", "a": 0.032, "alpha_deg": 0.0, "d": 0.0, "theta_offset_deg": 0.0, "min_deg": -20.0, "max_deg": 60.0 },
+        { "type": "revolute", "a": 0.030, "alpha_deg": 0.0, "d": 0.0, "theta_offset_deg": 0.0, "min_deg": -10.0, "max_deg": 70.0 },
+        { "type": "revolute", "a": 0.022, "alpha_deg": 0.0, "d": 0.0, "theta_offset_deg": 0.0, "min_deg": 0.0, "max_deg": 80.0 }
+      ]
+    }
+  ]
+}
