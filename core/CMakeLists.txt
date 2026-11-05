@@ -11,6 +11,7 @@ add_library(robotarm_core
     src/recorded_trajectory.cpp
     src/payload_capacity.cpp
     src/inverse_kinematics.cpp
+    src/hand_config.cpp
 )
 
 target_include_directories(robotarm_core PUBLIC
