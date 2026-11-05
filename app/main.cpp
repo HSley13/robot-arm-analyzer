@@ -8,6 +8,7 @@
 #include <QUrl>
 
 #include "arm_controller.hpp"
+#include "hand_controller.hpp"
 
 #ifndef APP_QML_DIR
 #error "APP_QML_DIR must be defined by the build"
@@ -24,8 +25,11 @@ int main(int argc, char *argv[]) {
                                      std::string(PROJECT_ROOT_DIR) +
                                          "/ml/models/three_dof_arm_dynamic.surrogate.json");
 
+  robotarm::HandController handController(std::string(PROJECT_ROOT_DIR) + "/config/humanoid_hand.json");
+
   QQmlApplicationEngine engine;
   engine.rootContext()->setContextProperty("armController", &controller);
+  engine.rootContext()->setContextProperty("handController", &handController);
 
   const QString qmlDirPath(APP_QML_DIR);
   const QUrl mainQmlUrl = QUrl::fromLocalFile(qmlDirPath + "/Main.qml");
