@@ -17,6 +17,7 @@ venv/
 # Generated training data - regenerate via tools/generate_training_data
 # (see python/train_surrogate.py for the exact command); not source.
 python/data/
+archive/industrial_arm/python_data/
 
 # IDE / OS
 .DS_Store

@@ -154,3 +154,18 @@ TEST(InverseKinematics, ResultHasOneEntryPerJoint) {
   const std::vector<double> result = solve_inverse_kinematics(arm, {0.0, 0.0}, Eigen::Vector3d(1.0, 0.2, 0.0));
   EXPECT_EQ(result.size(), arm.num_joints());
 }
+
+TEST(InverseKinematics, RespectsJointLimits) {
+  // An "elbow" that can only flex positively: a target reachable only by
+  // bending it negatively must leave it at (or inside) its limit.
+  const ArmModel arm = two_link_arm();
+  const std::vector<robotarm::JointLimit> limits = {{-3.14159265358979323846, 3.14159265358979323846}, {0.0, 2.5}};
+  const Eigen::Vector3d target(0.9, -0.6, 0.0);
+
+  const std::vector<double> result = solve_inverse_kinematics(arm, {0.3, 0.3}, target, limits);
+  ASSERT_EQ(result.size(), 2u);
+  EXPECT_GE(result[1], 0.0 - 1e-12);
+  EXPECT_LE(result[1], 2.5 + 1e-12);
+  // Still reaches it, using the other elbow solution.
+  EXPECT_LT((tip_position(arm, result) - target).norm(), 1e-3);
+}

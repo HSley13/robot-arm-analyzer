@@ -24,9 +24,15 @@ QVector3D to_qvector3d(const Eigen::Vector3d &v) {
 
 QColor torque_color(double torque, double limit) {
   const double ratio = limit > 0.0 ? std::abs(torque) / limit : 0.0;
-  if (ratio < 0.6) return QColor(Qt::green);
-  if (ratio < 0.9) return QColor(255, 191, 0);
-  return QColor(Qt::red);
+  // Same three colors as the UI legend (Safe / Caution / Overload), so the
+  // actuator status rings in the 3D view match the gauges.
+  if (ratio < 0.6) {
+    return QColor(0x2e, 0xcc, 0x71);
+  }
+  if (ratio < 0.9) {
+    return QColor(0xff, 0xbf, 0x00);
+  }
+  return QColor(0xff, 0x4d, 0x4f);
 }
 
 QVariantList to_variant_list(const std::vector<double> &values) {
@@ -49,6 +55,10 @@ ArmController::ArmController(const std::filesystem::path &config_path, const std
       _links(to_link_masses(_config)), _inertialLinks(to_link_inertials(_config)),
       _jointAnglesRadians(_arm.num_joints(), 0.0), _jointVelocitiesRadians(_arm.num_joints(), 0.0),
       _jointAccelerationsRadians(_arm.num_joints(), 0.0) {
+  for (size_t i = 0; i < _jointAnglesRadians.size(); i++) {
+    _jointAnglesRadians[i] = clampToLimits(i, 0.0);
+  }
+
   try {
     _surrogate = std::make_unique<Surrogate>(surrogate_path);
   } catch (const std::exception &) {
@@ -129,15 +139,36 @@ void ArmController::recordWaypoint() {
   recompute();
 }
 
+double ArmController::clampToLimits(size_t index, double radians) const {
+  if (index >= _config.joints.size()) {
+    return radians;
+  }
+  const JointConfig &joint = _config.joints[index];
+  if (joint.dh.type != JointType::Revolute) {
+    return radians;
+  }
+  return std::clamp(radians, to_radians(joint.min_degrees), to_radians(joint.max_degrees));
+}
+
 void ArmController::setJointAngleDegrees(int index, double degrees) {
   if (index < 0 || static_cast<size_t>(index) >= _jointAnglesRadians.size()) return;
-  _jointAnglesRadians[static_cast<size_t>(index)] = to_radians(degrees);
+  _jointAnglesRadians[static_cast<size_t>(index)] = clampToLimits(static_cast<size_t>(index), to_radians(degrees));
   recompute();
 }
 
 void ArmController::moveToTarget(double xMeters, double yMeters) {
   const Eigen::Vector3d target(xMeters, yMeters, 0.0);
-  _jointAnglesRadians = solve_inverse_kinematics(_arm, _jointAnglesRadians, target);
+  std::vector<JointLimit> limits;
+  limits.reserve(_config.joints.size());
+  for (const JointConfig &joint : _config.joints) {
+    JointLimit limit;
+    if (joint.dh.type == JointType::Revolute) {
+      limit.min = to_radians(joint.min_degrees);
+      limit.max = to_radians(joint.max_degrees);
+    }
+    limits.push_back(limit);
+  }
+  _jointAnglesRadians = solve_inverse_kinematics(_arm, _jointAnglesRadians, target, limits);
   recompute();
 }
 
@@ -203,6 +234,7 @@ void ArmController::setJointMass(int index, double kg) {
 
 void ArmController::addJoint() {
   JointConfig joint;
+  joint.name = "Joint " + std::to_string(_config.joints.size() + 1);
   joint.dh.type = JointType::Revolute;
   joint.dh.alpha = 0.0;
   joint.dh.d = 0.0;
@@ -272,6 +304,9 @@ bool ArmController::loadConfig(const QString &path) {
 
     const size_t n = _arm.num_joints();
     _jointAnglesRadians.assign(n, 0.0);
+    for (size_t i = 0; i < n; i++) {
+      _jointAnglesRadians[i] = clampToLimits(i, 0.0);
+    }
     _jointVelocitiesRadians.assign(n, 0.0);
     _jointAccelerationsRadians.assign(n, 0.0);
     _payloadKg = 0.0;
@@ -329,7 +364,14 @@ void ArmController::runPayloadScan(int sampleCount) {
     const double t = (n > 1) ? static_cast<double>(i) / static_cast<double>(n - 1) : 0.0;
     std::vector<double> pose(joint_count, 0.0);
     pose[0] = shoulder_angle;
-    for (size_t j = 1; j < joint_count; j++) pose[j] = -t * fold_max_radians;
+    for (size_t j = 1; j < joint_count; j++) {
+      // Fold toward whichever side the joint actually has room to bend
+      // (a humanoid elbow only flexes one way); an unlimited joint keeps
+      // the original fold-downward convention.
+      const JointConfig &joint = _config.joints[j];
+      const double fold_sign = joint.max_degrees > -joint.min_degrees ? 1.0 : -1.0;
+      pose[j] = clampToLimits(j, fold_sign * t * fold_max_radians);
+    }
     poses[static_cast<size_t>(i)] = pose;
 
     const std::vector<Eigen::Matrix4d> frames = _arm.forward_kinematics(pose);
@@ -355,6 +397,14 @@ void ArmController::runPayloadScan(int sampleCount) {
   std::vector<double> ai_payload_kg;
   if (_scanAiAvailable) {
     const Surrogate *surrogate = dynamic ? _dynamicSurrogate.get() : _surrogate.get();
+    // The bisection in max_safe_payload() starts by probing the ceiling and
+    // half of it - for a network trained on, say, 0-40 kg, a 200 kg probe
+    // is pure extrapolation and can come back "safe", sending the search
+    // off to a nonsense answer. So the AI search stays inside the payload
+    // range the network was actually trained on.
+    const double ai_ceiling_kg = surrogate->payload_max_kg() > 0.0
+                                     ? std::min(kPayloadSearchCeilingKg, surrogate->payload_max_kg())
+                                     : kPayloadSearchCeilingKg;
     ai_payload_kg.resize(static_cast<size_t>(n));
     const auto ai_start = std::chrono::steady_clock::now();
     for (int i = 0; i < n; i++) {
@@ -371,7 +421,7 @@ void ArmController::runPayloadScan(int sampleCount) {
         for (size_t k = 0; k < result.size(); k++) tau(static_cast<Eigen::Index>(k)) = result[k];
         return tau;
       };
-      ai_payload_kg[static_cast<size_t>(i)] = max_safe_payload(evaluator, limits, kPayloadSearchCeilingKg);
+      ai_payload_kg[static_cast<size_t>(i)] = max_safe_payload(evaluator, limits, ai_ceiling_kg);
     }
     const auto ai_end = std::chrono::steady_clock::now();
     _scanAiMilliseconds = std::chrono::duration<double, std::milli>(ai_end - ai_start).count();
@@ -435,7 +485,13 @@ void ArmController::recompute() {
   _jointPositions.clear();
   _jointPositions.reserve(frames.size() + 1);
   _jointPositions.push_back(Eigen::Vector3d::Zero());
-  for (const Eigen::Matrix4d &frame : frames) _jointPositions.push_back(frame.block<3, 1>(0, 3));
+  _frameRotations.clear();
+  _frameRotations.reserve(frames.size() + 1);
+  _frameRotations.push_back(Eigen::Matrix3d::Identity());
+  for (const Eigen::Matrix4d &frame : frames) {
+    _jointPositions.push_back(frame.block<3, 1>(0, 3));
+    _frameRotations.push_back(frame.block<3, 3>(0, 0));
+  }
 
   // Pivot around the reach midpoint, not the world origin.
   double total_reach = 0.0;
@@ -455,6 +511,31 @@ void ArmController::recompute() {
   _currentMaxSafePayloadKg = max_safe_payload(exact_evaluator, limits, kPayloadSearchCeilingKg);
 
   emit resultsChanged();
+}
+
+QStringList ArmController::jointNames() const {
+  QStringList result;
+  for (size_t i = 0; i < _config.joints.size(); i++) {
+    const std::string &name = _config.joints[i].name;
+    result.append(name.empty() ? QString("Joint %1").arg(i + 1) : QString::fromStdString(name));
+  }
+  return result;
+}
+
+QVariantList ArmController::jointMinDegrees() const {
+  QVariantList result;
+  for (const JointConfig &joint : _config.joints) {
+    result.append(joint.min_degrees);
+  }
+  return result;
+}
+
+QVariantList ArmController::jointMaxDegrees() const {
+  QVariantList result;
+  for (const JointConfig &joint : _config.joints) {
+    result.append(joint.max_degrees);
+  }
+  return result;
 }
 
 QVariantList ArmController::jointAnglesDegrees() const {
@@ -538,6 +619,16 @@ QVariantList ArmController::linkRotations() const {
     }
     const QVector3D direction = to_qvector3d(direction_eigen / length);
     result.append(QQuaternion::rotationTo(QVector3D(0.0f, 1.0f, 0.0f), direction));
+  }
+  return result;
+}
+
+QVariantList ArmController::frameRotations() const {
+  QVariantList result;
+  for (const Eigen::Matrix3d &rotation : _frameRotations) {
+    const Eigen::Quaterniond q(rotation);
+    result.append(QQuaternion(static_cast<float>(q.w()), static_cast<float>(q.x()), static_cast<float>(q.y()),
+                              static_cast<float>(q.z())));
   }
   return result;
 }

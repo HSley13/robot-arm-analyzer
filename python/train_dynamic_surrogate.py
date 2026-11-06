@@ -18,14 +18,14 @@ running with no arguments reproduces that exact invocation.
 
 Regenerate the training data this script expects with (from the
 project root, after `cb`):
-    build/bin/generate_dynamic_training_data config/<arm-name>.json \
-        python/data/<arm-name>_dynamic_train.csv 60000 1 0 -9.81 0
-    build/bin/generate_dynamic_training_data config/<arm-name>.json \
-        python/data/<arm-name>_dynamic_val.csv 6000 2 0 -9.81 0
+    build/bin/generate_dynamic_training_data config/humanoid_arm.json \
+        python/data/humanoid_arm_dynamic_train.csv 90000 1 0 -9.81 0 40
+    build/bin/generate_dynamic_training_data config/humanoid_arm.json \
+        python/data/humanoid_arm_dynamic_val.csv 9000 2 0 -9.81 0 40
 
 Usage (from the project root):
     python/.venv/bin/python python/train_dynamic_surrogate.py
-    python/.venv/bin/python python/train_dynamic_surrogate.py --arm-name three_dof_arm --num-joints 3
+    python/.venv/bin/python python/train_dynamic_surrogate.py --arm-name humanoid_arm --num-joints 3 --hidden-dim 96
 """
 from __future__ import annotations
 
@@ -169,6 +169,10 @@ def main() -> None:
         "input_layout": input_layout,
         "val_mean_abs_error_nm": float(abs_err.mean()),
         "val_max_abs_error_nm": float(abs_err.max()),
+        # Largest payload in the training data. The C++ side never asks the
+        # network about heavier payloads - an MLP's extrapolation outside its
+        # training range is meaningless (see ArmController::runPayloadScan).
+        "payload_max_kg": float(train_x[:, -1].max()),
         "w1": w1.tolist(),
         "b1": b1.tolist(),
         "w2": w2.tolist(),

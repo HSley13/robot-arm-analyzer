@@ -3,7 +3,7 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 
-// Sidebar: legend, reach targeting, payload, and config file I/O.
+// Sidebar: legend, reach targeting, payload + hand, and config file I/O.
 // Per-joint controls, AI toggle, and Static/Dynamic mode live in
 // BottomBar.qml instead.
 Rectangle {
@@ -141,7 +141,7 @@ Rectangle {
                         Slider {
                             Layout.fillWidth: true
                             from: 0
-                            to: 50
+                            to: 30
                             value: armController.payloadKg
                             onMoved: armController.payloadKg = value
                         }
@@ -166,7 +166,7 @@ Rectangle {
                         Label {
                             color: "white"
                             opacity: armController.gripperOpen ? 1.0 : 0.5
-                            text: "Open"
+                            text: "Released"
                         }
 
                         Switch {
@@ -177,7 +177,64 @@ Rectangle {
                         Label {
                             color: "white"
                             opacity: armController.gripperOpen ? 0.5 : 1.0
-                            text: "Closed (holding payload)"
+                            text: "Gripping"
+                        }
+                    }
+                }
+            }
+
+            // Hand gestures. Gripping/releasing the payload above also
+            // drives the hand (power grip / open), these override it.
+            Rectangle {
+                Layout.fillWidth: true
+                color: "#171a2b"
+                radius: 14
+                border.color: "#262a40"
+                border.width: 1
+                implicitHeight: handColumn.implicitHeight + 16
+
+                ColumnLayout {
+                    id: handColumn
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label {
+                            color: "white"
+                            font.bold: true
+                            text: "Hand"
+                        }
+                        Item { Layout.fillWidth: true }
+                        Label {
+                            color: "#7a8099"
+                            font.pixelSize: 11
+                            text: handController.currentGesture
+                        }
+                    }
+
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: 3
+                        columnSpacing: 5
+                        rowSpacing: 5
+
+                        Repeater {
+                            model: [
+                                { label: "Grip", gesture: "powerGrip" },
+                                { label: "Open", gesture: "openPalm" },
+                                { label: "Fist", gesture: "closedFist" },
+                                { label: "Relax", gesture: "restPose" },
+                                { label: "Wave", gesture: "wave" }
+                            ]
+                            Button {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                text: modelData.label
+                                highlighted: handController.currentGesture === modelData.gesture
+                                onClicked: handController.playGesture(modelData.gesture)
+                            }
                         }
                     }
                 }
@@ -250,7 +307,7 @@ Rectangle {
 
                     FileDialog {
                         id: loadFileDialog
-                        title: "Choose an arm config file"
+                        title: "Choose an arm config file (e.g. config/humanoid_arm.json)"
                         fileMode: FileDialog.OpenFile
                         nameFilters: ["JSON files (*.json)", "All files (*)"]
                         onAccepted: armController.loadConfig(root.urlToLocalPath(selectedFile))

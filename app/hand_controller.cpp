@@ -12,6 +12,34 @@ namespace {
 QVector3D to_qvector3d(const Eigen::Vector3d &v) {
   return QVector3D(static_cast<float>(v.x()), static_cast<float>(v.y()), static_cast<float>(v.z()));
 }
+
+QQuaternion to_qquaternion(const Eigen::Matrix3d &rotation) {
+  const Eigen::Quaterniond q(rotation);
+  return QQuaternion(static_cast<float>(q.w()), static_cast<float>(q.x()), static_cast<float>(q.y()),
+                     static_cast<float>(q.z()));
+}
+
+// Rotation whose local +Y lies along `along` and local +X along `hinge`
+// (re-orthogonalized against `along`), with +Z = X x Y. Falls back to an
+// arbitrary perpendicular if the hinge is parallel to the link.
+QQuaternion link_frame(const Eigen::Vector3d &along, const Eigen::Vector3d &hinge) {
+  const double length = along.norm();
+  if (length < 1e-9) {
+    return QQuaternion();
+  }
+  const Eigen::Vector3d y = along / length;
+  Eigen::Vector3d x = hinge - hinge.dot(y) * y;
+  if (x.norm() < 1e-9) {
+    x = y.unitOrthogonal();
+  }
+  x.normalize();
+  const Eigen::Vector3d z = x.cross(y);
+  Eigen::Matrix3d rotation;
+  rotation.col(0) = x;
+  rotation.col(1) = y;
+  rotation.col(2) = z;
+  return to_qquaternion(rotation);
+}
 } // namespace
 
 HandController::HandController(const std::filesystem::path &hand_config_path, QObject *parent)
@@ -146,9 +174,10 @@ HandController::RootSegment HandController::rootSegmentFor(const std::string &na
   const std::vector<Eigen::Vector3d> my_positions = chainPositions(name);
   if (my_positions.empty()) return seg;
 
-  const std::vector<Eigen::Vector3d> parent_positions = chainPositions(chain->parent_chain);
-  const Eigen::Vector3d parent_tip = parent_positions.empty() ? Eigen::Vector3d::Zero() : parent_positions.back();
+  const Eigen::Matrix4d base = _tree.chain_base_frame(name, _jointPoses);
+  const Eigen::Vector3d parent_tip = base.block<3, 1>(0, 3); // the chain's own base, origin included
   const Eigen::Vector3d &my_first = my_positions.front();
+  seg.frame = link_frame(my_first - parent_tip, base.block<3, 1>(0, 2));
 
   seg.present = true;
   seg.midpoint = (parent_tip + my_first) / 2.0;
@@ -179,6 +208,58 @@ QVariantList HandController::rootSegmentRotationForChain(const QString &chainNam
   const RootSegment seg = rootSegmentFor(chainName.toStdString());
   if (!seg.present) return {};
   return {QVariant::fromValue(seg.rotation)};
+}
+
+QVariantList HandController::rootSegmentFrameForChain(const QString &chainName) const {
+  const RootSegment seg = rootSegmentFor(chainName.toStdString());
+  if (!seg.present) {
+    return {};
+  }
+  return {QVariant::fromValue(seg.frame)};
+}
+
+QVariantList HandController::linkFramesForChain(const QString &chainName) const {
+  QVariantList result;
+  const auto it = _jointPoses.find(chainName.toStdString());
+  if (it == _jointPoses.end()) {
+    return result;
+  }
+  const std::vector<Eigen::Matrix4d> &poses = it->second;
+  for (size_t i = 0; i + 1 < poses.size(); i++) {
+    // Link i runs from frame i's origin to frame i+1's origin and is swung
+    // by joint i+1, whose axis is frame i's z.
+    const Eigen::Vector3d along = poses[i + 1].block<3, 1>(0, 3) - poses[i].block<3, 1>(0, 3);
+    result.append(QVariant::fromValue(link_frame(along, poses[i].block<3, 1>(0, 2))));
+  }
+  return result;
+}
+
+QVector3D HandController::chainBasePosition(const QString &chainName) const {
+  const std::string name = chainName.toStdString();
+  if (findChainConfig(name) == nullptr) {
+    return QVector3D();
+  }
+  return to_qvector3d(_tree.chain_base_frame(name, _jointPoses).block<3, 1>(0, 3));
+}
+
+Eigen::Matrix4d HandController::rootTipFrame() const {
+  for (const HandChainConfig &chain : _config.chains) {
+    if (!chain.parent_chain.empty()) {
+      continue;
+    }
+    const auto it = _jointPoses.find(chain.name);
+    if (it != _jointPoses.end() && !it->second.empty()) {
+      return it->second.back();
+    }
+    return _tree.chain_base_frame(chain.name, _jointPoses);
+  }
+  return Eigen::Matrix4d::Identity();
+}
+
+QVector3D HandController::palmPosition() const { return to_qvector3d(rootTipFrame().block<3, 1>(0, 3)); }
+
+QQuaternion HandController::palmRotation() const {
+  return to_qquaternion(rootTipFrame().block<3, 3>(0, 0));
 }
 
 void HandController::recompute() {
@@ -225,6 +306,8 @@ void HandController::playGesture(const QString &name) {
     startAnimationTo({_gestures.openPalm()});
   } else if (name == QStringLiteral("closedFist")) {
     startAnimationTo({_gestures.closedFist()});
+  } else if (name == QStringLiteral("powerGrip")) {
+    startAnimationTo({_gestures.powerGrip()});
   } else if (name == QStringLiteral("wave")) {
     startAnimationTo(_gestures.wave());
   } else {

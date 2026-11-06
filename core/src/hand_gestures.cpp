@@ -52,6 +52,10 @@ std::map<std::string, std::vector<double>> HandGestures::closedFist() const {
   return poseAtFraction(1.0, /*includeRootChain=*/false);
 }
 
+std::map<std::string, std::vector<double>> HandGestures::powerGrip() const {
+  return poseAtFraction(kPowerGripFraction, /*includeRootChain=*/false);
+}
+
 std::vector<std::map<std::string, std::vector<double>>> HandGestures::wave() const {
   const HandChainConfig *root = rootChain();
   const std::map<std::string, std::vector<double>> rest = restPose();

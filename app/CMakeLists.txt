@@ -16,7 +16,16 @@ target_link_libraries(robotarm_app_core PUBLIC
     robotarm_ml
 )
 
-qt_add_executable(robotarm_app main.cpp)
+# Procedural meshes (rounded shells, cables) used by the 3D scene. They
+# need Qt Quick 3D itself, so they live with the executable rather than in
+# robotarm_app_core, which stays Qt-Core/Gui-only for plain GTest.
+qt_add_executable(robotarm_app
+    main.cpp
+    geometry/rounded_box_geometry.cpp
+    geometry/rounded_box_geometry.hpp
+    geometry/tube_geometry.cpp
+    geometry/tube_geometry.hpp
+)
 set_target_properties(robotarm_app PROPERTIES AUTOMOC ON)
 
 target_link_libraries(robotarm_app PRIVATE

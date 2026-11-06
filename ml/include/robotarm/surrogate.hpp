@@ -39,11 +39,16 @@ public:
   size_t input_dim() const { return static_cast<size_t>(_w1.cols()); }
   double val_mean_abs_error() const { return _val_mean_abs_error; }
   double val_max_abs_error() const { return _val_max_abs_error; }
+  // Heaviest payload (kg) the network saw in training (the weights file's
+  // "payload_max_kg"), or 0 if the file predates that field. Outside its
+  // training range an MLP's answer is extrapolation, not physics.
+  double payload_max_kg() const { return _payload_max_kg; }
 
 private:
   size_t _num_joints = 0;
   double _val_mean_abs_error = 0.0;
   double _val_max_abs_error = 0.0;
+  double _payload_max_kg = 0.0;
 
   Eigen::MatrixXd _w1, _w2, _w3;
   Eigen::VectorXd _b1, _b2, _b3;

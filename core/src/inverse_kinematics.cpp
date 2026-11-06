@@ -1,5 +1,8 @@
 #include "robotarm/inverse_kinematics.hpp"
 
+#include <algorithm>
+#include <cmath>
+
 #include "robotarm/statics.hpp"
 #include "robotarm/units.hpp"
 
@@ -8,16 +11,33 @@ namespace robotarm {
 std::vector<double> solve_inverse_kinematics(const ArmModel &arm, const std::vector<double> &initial_joint_values,
                                               const Eigen::Vector3d &target_position, int max_iterations,
                                               double damping, double step_scale) {
+  return solve_inverse_kinematics(arm, initial_joint_values, target_position, {}, max_iterations, damping, step_scale);
+}
+
+std::vector<double> solve_inverse_kinematics(const ArmModel &arm, const std::vector<double> &initial_joint_values,
+                                              const Eigen::Vector3d &target_position,
+                                              const std::vector<JointLimit> &limits, int max_iterations,
+                                              double damping, double step_scale) {
   const size_t n = arm.num_joints();
   std::vector<double> q = initial_joint_values;
+  const bool limited = limits.size() == n;
+
+  double total_reach = 0.0;
+  for (const DHParameter &joint : arm.joints()) {
+    total_reach += std::abs(joint.a) + std::abs(joint.d);
+  }
+  const double max_error_step = std::max(1e-3, 0.25 * total_reach);
 
   for (int iter = 0; iter < max_iterations; iter++) {
     const std::vector<Eigen::Matrix4d> frames = arm.forward_kinematics(q);
     Eigen::Vector3d current_position = Eigen::Vector3d::Zero();
     if (!frames.empty()) current_position = frames.back().block<3, 1>(0, 3);
 
-    const Eigen::Vector3d error = target_position - current_position;
+    Eigen::Vector3d error = target_position - current_position;
     if (error.norm() < 1e-6) break;
+    if (error.norm() > max_error_step) {
+      error *= max_error_step / error.norm();
+    }
 
     const Eigen::MatrixXd jacobian = geometric_jacobian(arm, q, n).topRows(3); // position rows only
 
@@ -48,6 +68,9 @@ std::vector<double> solve_inverse_kinematics(const ArmModel &arm, const std::vec
     for (size_t i = 0; i < n; i++) {
       q[i] += step_scale * dq(static_cast<Eigen::Index>(i));
       if (arm.joints()[i].type == JointType::Revolute) q[i] = normalize_angle(q[i]);
+      if (limited) {
+        q[i] = std::clamp(q[i], limits[i].min, limits[i].max);
+      }
     }
   }
 

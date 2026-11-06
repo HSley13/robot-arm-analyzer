@@ -44,7 +44,7 @@ TEST(HandController, RestsAtZeroOnConstruction) {
 TEST(HandController, SetJointAngleDegreesUpdatesTheAngleAndTheKinematics) {
   HandController hand(hand_config_path());
   // index joint 1 is the MCP (a real, movable joint - see
-  // config/humanoid_hand.json): min_deg -15, max_deg 90.
+  // config/humanoid_hand.json): min_deg -10, max_deg 90.
   const QVariantList before = hand.jointPositionsForChain("index");
 
   hand.setJointAngleDegrees("index", 1, 45.0);
@@ -60,8 +60,8 @@ TEST(HandController, SetJointAngleDegreesClampsToTheConfiguredRange) {
   hand.setJointAngleDegrees("index", 1, 999.0); // way past max_deg (90)
   EXPECT_NEAR(hand.jointAngleDegrees("index", 1), 90.0, 1e-9);
 
-  hand.setJointAngleDegrees("index", 1, -999.0); // way past min_deg (-15)
-  EXPECT_NEAR(hand.jointAngleDegrees("index", 1), -15.0, 1e-9);
+  hand.setJointAngleDegrees("index", 1, -999.0); // way past min_deg (-10)
+  EXPECT_NEAR(hand.jointAngleDegrees("index", 1), -10.0, 1e-9);
 }
 
 TEST(HandController, SetJointAngleDegreesIgnoresAFixedPlacementJoint) {
@@ -139,11 +139,9 @@ TEST(HandController, LinkGeometryForUnknownChainIsEmptyNotACrash) {
   EXPECT_TRUE(hand.linkRotationsForChain("not_a_real_chain").isEmpty());
 }
 
-TEST(HandController, RootSegmentConnectsAFingerToTheWristsTip) {
+TEST(HandController, RootSegmentConnectsAFingerBaseToItsKnuckle) {
   HandController hand(hand_config_path());
-  const QVariantList wrist_positions = hand.jointPositionsForChain("wrist");
   const QVariantList finger_positions = hand.jointPositionsForChain("index");
-  ASSERT_FALSE(wrist_positions.isEmpty());
   ASSERT_FALSE(finger_positions.isEmpty());
 
   const QVariantList mid = hand.rootSegmentMidpointForChain("index");
@@ -153,7 +151,9 @@ TEST(HandController, RootSegmentConnectsAFingerToTheWristsTip) {
   ASSERT_EQ(len.size(), 1);
   ASSERT_EQ(rot.size(), 1);
 
-  const QVector3D wrist_tip = wrist_positions.last().value<QVector3D>();
+  // The metacarpal starts at the chain's own base (its "origin" inside
+  // the palm), not at the wrist center.
+  const QVector3D wrist_tip = hand.chainBasePosition("index");
   const QVector3D finger_first = finger_positions.first().value<QVector3D>();
   const QVector3D expected_midpoint = (wrist_tip + finger_first) / 2.0f;
   EXPECT_NEAR(mid[0].value<QVector3D>().distanceToPoint(expected_midpoint), 0.0, 1e-6);
@@ -179,4 +179,57 @@ TEST(HandController, RevisionIncrementsOnADirectJointEdit) {
   hand.setJointAngleDegrees("index", 1, 30.0);
   const int after = hand.property("revision").toInt();
   EXPECT_GT(after, before);
+}
+
+TEST(HandController, ChainBaseIncludesTheConfiguredOrigin) {
+  HandController hand(hand_config_path());
+  // config/humanoid_hand.json places the index metacarpal's base off to
+  // the thumb side of the wrist center (origin xyz z > 0), so it must not
+  // collapse onto the wrist's own tip.
+  const QVector3D base = hand.chainBasePosition("index");
+  EXPECT_GT(base.z(), 0.01f);
+  EXPECT_NEAR(hand.palmPosition().distanceToPoint(QVector3D(0, 0, 0)), 0.0, 1e-6);
+}
+
+TEST(HandController, PalmFrameAtRestIsTheHandFrame) {
+  // At rest the wrist chain's tip frame is the hand frame itself (+X to
+  // the fingertips, +Y palmar, +Z toward the thumb) - Hand3D.qml builds
+  // the palm shell in exactly those coordinates.
+  HandController hand(hand_config_path());
+  const QQuaternion palm = hand.palmRotation();
+  EXPECT_NEAR((palm.rotatedVector(QVector3D(1, 0, 0)) - QVector3D(1, 0, 0)).length(), 0.0, 1e-5);
+  EXPECT_NEAR((palm.rotatedVector(QVector3D(0, 1, 0)) - QVector3D(0, 1, 0)).length(), 0.0, 1e-5);
+}
+
+TEST(HandController, LinkFramesPointAlongTheLinkWithTheHingeOnX) {
+  HandController hand(hand_config_path());
+  hand.setJointAngleDegrees("index", 1, 40.0);
+  hand.setJointAngleDegrees("index", 2, 30.0);
+
+  const QVariantList positions = hand.jointPositionsForChain("index");
+  const QVariantList frames = hand.linkFramesForChain("index");
+  ASSERT_EQ(frames.size(), positions.size() - 1);
+
+  for (int i = 0; i < frames.size(); i++) {
+    const QQuaternion q = frames[i].value<QQuaternion>();
+    const QVector3D along = (positions[i + 1].value<QVector3D>() - positions[i].value<QVector3D>()).normalized();
+    EXPECT_NEAR((q.rotatedVector(QVector3D(0, 1, 0)) - along).length(), 0.0, 1e-5) << "link " << i;
+    // Every index joint flexes about the hand's lateral (thumb-side) axis.
+    EXPECT_GT(q.rotatedVector(QVector3D(1, 0, 0)).z(), 0.95f) << "link " << i;
+  }
+}
+
+TEST(HandController, FlexingAFingerCurlsItTowardThePalm) {
+  HandController hand(hand_config_path());
+  const QVector3D straight_tip = hand.jointPositionsForChain("middle").last().value<QVector3D>();
+  hand.setJointAngleDegrees("middle", 1, 60.0);
+  const QVector3D bent_tip = hand.jointPositionsForChain("middle").last().value<QVector3D>();
+  EXPECT_GT(bent_tip.y(), straight_tip.y() + 0.03f); // +Y is palmar
+}
+
+TEST(HandController, PowerGripIsAKnownGesture) {
+  HandController hand(hand_config_path());
+  hand.playGesture("powerGrip");
+  EXPECT_TRUE(hand.animating());
+  EXPECT_EQ(hand.currentGesture(), QString("powerGrip"));
 }

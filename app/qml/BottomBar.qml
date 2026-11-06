@@ -9,6 +9,18 @@ Rectangle {
     color: "#0e1021"
     implicitHeight: bottomRow.implicitHeight + 20
 
+    // Movable hand joints (fixed placement joints, min == max, excluded).
+    readonly property int handJointCount: {
+        let count = 0
+        const names = handController.chainNames
+        for (let c = 0; c < names.length; c++) {
+            for (let j = 0; j < handController.jointCountForChain(names[c]); j++) {
+                if (handController.jointMinDegrees(names[c], j) !== handController.jointMaxDegrees(names[c], j)) count++
+            }
+        }
+        return count
+    }
+
     ScrollView {
         anchors.fill: parent
         anchors.margins: 10
@@ -142,35 +154,24 @@ Rectangle {
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#262a40" }
 
+                    // Arm summary (a humanoid arm has a fixed shoulder/elbow/
+                    // wrist layout, so there's no add/remove-joint control).
                     ColumnLayout {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        spacing: 6
+                        spacing: 4
 
                         Label {
                             color: "white"
                             font.bold: true
+                            text: "Reach " + (armController.canvasCenter.x * 2).toFixed(2) + " m"
+                        }
+                        Label {
+                            color: "#9aa0ab"
+                            font.pixelSize: 11
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
-                            text: "Joints: " + armController.jointCount
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 6
-
-                            Button {
-                                Layout.fillWidth: true
-                                text: "− Remove"
-                                enabled: armController.jointCount > 1
-                                onClicked: armController.removeLastJoint()
-                            }
-
-                            Button {
-                                Layout.fillWidth: true
-                                text: "+ Add"
-                                onClicked: armController.addJoint()
-                            }
+                            text: armController.jointCount + " arm joints · " + root.handJointCount + " hand joints"
                         }
 
                         Item { Layout.fillHeight: true }
@@ -201,7 +202,7 @@ Rectangle {
                         Label {
                             color: "white"
                             font.bold: true
-                            text: "Joint " + (jointCard.index + 1)
+                            text: armController.jointNames[jointCard.index]
                         }
 
                         RowLayout {
@@ -221,6 +222,8 @@ Rectangle {
                                 AngleDial {
                                     Layout.preferredWidth: 88
                                     Layout.preferredHeight: 88
+                                    from: armController.jointMinDegrees[jointCard.index]
+                                    to: armController.jointMaxDegrees[jointCard.index]
                                     value: armController.jointAnglesDegrees[jointCard.index]
                                     onMoved: armController.setJointAngleDegrees(jointCard.index, value)
                                 }
@@ -272,8 +275,8 @@ Rectangle {
 
                             Slider {
                                 Layout.fillWidth: true
-                                from: 0.1
-                                to: 2.0
+                                from: 0.05
+                                to: 0.6
                                 value: armController.linkLengths[jointCard.index]
                                 onMoved: armController.setJointLength(jointCard.index, value)
                             }
@@ -296,7 +299,7 @@ Rectangle {
                             Slider {
                                 Layout.fillWidth: true
                                 from: 0
-                                to: 100
+                                to: 10
                                 value: armController.jointMassesKg[jointCard.index]
                                 onMoved: armController.setJointMass(jointCard.index, value)
                             }

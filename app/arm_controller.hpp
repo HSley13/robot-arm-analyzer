@@ -7,6 +7,7 @@
 #include <QObject>
 #include <QQuaternion>
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 #include <QVector3D>
 
@@ -41,6 +42,9 @@ class ArmController : public QObject {
   Q_PROPERTY(double trajectoryProgress READ trajectoryProgress WRITE setTrajectoryProgress NOTIFY resultsChanged)
   Q_PROPERTY(int trajectoryWaypointCount READ trajectoryWaypointCount NOTIFY resultsChanged)
 
+  Q_PROPERTY(QStringList jointNames READ jointNames NOTIFY resultsChanged)
+  Q_PROPERTY(QVariantList jointMinDegrees READ jointMinDegrees NOTIFY resultsChanged)
+  Q_PROPERTY(QVariantList jointMaxDegrees READ jointMaxDegrees NOTIFY resultsChanged)
   Q_PROPERTY(QVariantList jointAnglesDegrees READ jointAnglesDegrees NOTIFY resultsChanged)
   Q_PROPERTY(QVariantList jointVelocitiesDegrees READ jointVelocitiesDegrees NOTIFY resultsChanged)
   Q_PROPERTY(QVariantList jointAccelerationsDegrees READ jointAccelerationsDegrees NOTIFY resultsChanged)
@@ -57,6 +61,11 @@ class ArmController : public QObject {
   Q_PROPERTY(QVariantList linkMidpoints READ linkMidpoints NOTIFY resultsChanged)
   Q_PROPERTY(QVariantList linkLengths READ linkLengths NOTIFY resultsChanged)
   Q_PROPERTY(QVariantList linkRotations READ linkRotations NOTIFY resultsChanged)
+  // Full orientation of every frame in jointPositions (same length: the
+  // base frame first, then one per joint) - unlike linkRotations, which
+  // only aligns +Y with a link and throws away the roll about it. The 3D
+  // view needs the roll to mount the hand and orient each limb shell.
+  Q_PROPERTY(QVariantList frameRotations READ frameRotations NOTIFY resultsChanged)
 
   // Always via the exact engine, regardless of aiMode - the one number
   // meant to be trusted outright.
@@ -94,6 +103,9 @@ public:
   void setTrajectoryProgress(double progress);
   int trajectoryWaypointCount() const;
 
+  QStringList jointNames() const;
+  QVariantList jointMinDegrees() const;
+  QVariantList jointMaxDegrees() const;
   QVariantList jointAnglesDegrees() const;
   QVariantList jointVelocitiesDegrees() const;
   QVariantList jointAccelerationsDegrees() const;
@@ -110,6 +122,7 @@ public:
   QVariantList linkMidpoints() const;
   QVariantList linkLengths() const;
   QVariantList linkRotations() const;
+  QVariantList frameRotations() const;
 
   double currentMaxSafePayloadKg() const { return _currentMaxSafePayloadKg; }
   QVariantList scanReachMeters() const;
@@ -120,6 +133,7 @@ public:
   bool scanAiAvailable() const { return _scanAiAvailable; }
   int scanSampleCount() const { return static_cast<int>(_scanReachMeters.size()); }
 
+  // Clamped into the joint's configured min_deg..max_deg travel.
   Q_INVOKABLE void setJointAngleDegrees(int index, double degrees);
 
   // Solves for joint angles reaching (xMeters, yMeters) in the base
@@ -160,6 +174,8 @@ signals:
 
 private:
   void recompute();
+  // Clamps a joint value (radians) into that joint's configured travel.
+  double clampToLimits(size_t index, double radians) const;
   TrajectoryState effectiveState() const;
   double effectivePayloadKg() const { return _gripperOpen ? 0.0 : _payloadKg; }
 
@@ -188,6 +204,7 @@ private:
   TorqueBreakdown _breakdown;
 
   std::vector<Eigen::Vector3d> _jointPositions;
+  std::vector<Eigen::Matrix3d> _frameRotations;
   std::vector<double> _jointTorques;
   QVector3D _canvasCenter;
   QString _configMessage;

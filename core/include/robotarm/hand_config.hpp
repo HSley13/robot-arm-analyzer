@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include <Eigen/Dense>
 #include <nlohmann/json.hpp>
 
 #include "robotarm/dh.hpp"
@@ -41,10 +42,17 @@ struct HandJointConfig {
 // fingers attach to - as it appears in a hand config file. Mirrors
 // KinematicChain's own shape (name + parent_chain + joints) but with the
 // richer per-joint HandJointConfig instead of a bare DHParameter.
+//
+// `origin_xyz`/`origin_rpy_degrees` are the optional fixed placement of
+// the chain's base relative to its parent's tip (JSON: "origin": {"xyz":
+// [x, y, z], "rpy_deg": [roll, pitch, yaw]}) - see KinematicChain::origin.
+// Both default to zero, i.e. the chain starts exactly at its parent's tip.
 struct HandChainConfig {
   std::string name;
   std::string parent_chain; // empty => this chain's own local root
   std::vector<HandJointConfig> joints;
+  Eigen::Vector3d origin_xyz = Eigen::Vector3d::Zero();
+  Eigen::Vector3d origin_rpy_degrees = Eigen::Vector3d::Zero();
 };
 
 // A full hand definition, loaded from JSON: one wrist/forearm chain plus

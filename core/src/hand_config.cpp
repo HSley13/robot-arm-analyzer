@@ -75,6 +75,27 @@ HandChainConfig parse_chain(const nlohmann::json &chain_json, size_t chain_index
   chain.name = chain_json.at("name").get<std::string>();
   chain.parent_chain = chain_json.value("parent_chain", std::string());
 
+  if (chain_json.contains("origin")) {
+    const nlohmann::json &origin = chain_json.at("origin");
+    if (!origin.is_object()) {
+      throw std::runtime_error("hand config: chain '" + chain.name + "' field 'origin' must be an object");
+    }
+    auto read_vec3 = [&](const char *field) -> Eigen::Vector3d {
+      if (!origin.contains(field)) {
+        return Eigen::Vector3d::Zero();
+      }
+      const nlohmann::json &arr = origin.at(field);
+      if (!arr.is_array() || arr.size() != 3 || !arr.at(0).is_number() || !arr.at(1).is_number() ||
+          !arr.at(2).is_number()) {
+        throw std::runtime_error("hand config: chain '" + chain.name + "' origin." + field +
+                                 " must be an array of 3 numbers");
+      }
+      return Eigen::Vector3d(arr.at(0).get<double>(), arr.at(1).get<double>(), arr.at(2).get<double>());
+    };
+    chain.origin_xyz = read_vec3("xyz");
+    chain.origin_rpy_degrees = read_vec3("rpy_deg");
+  }
+
   // A chain with no joints at all (e.g. a palm that's purely a mounting
   // point) is valid - KinematicChain allows it - so "joints" itself is
   // optional, defaulting to empty, not required.
@@ -132,6 +153,10 @@ KinematicTree to_kinematic_tree(const HandConfig &config) {
     KinematicChain chain;
     chain.name = chain_config.name;
     chain.parent_chain = chain_config.parent_chain;
+    const Eigen::Vector3d rpy_radians(to_radians(chain_config.origin_rpy_degrees.x()),
+                                      to_radians(chain_config.origin_rpy_degrees.y()),
+                                      to_radians(chain_config.origin_rpy_degrees.z()));
+    chain.origin = xyz_rpy_transform(chain_config.origin_xyz, rpy_radians);
     chain.joints.reserve(chain_config.joints.size());
     for (const HandJointConfig &joint : chain_config.joints) chain.joints.push_back(joint.dh);
     chains.push_back(std::move(chain));

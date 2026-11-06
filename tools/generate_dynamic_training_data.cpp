@@ -22,7 +22,7 @@ constexpr double kPi = 3.14159265358979323846;
 // the surrogate will only be accurate for inputs inside whatever range it
 // was trained on.
 constexpr double kPrismaticMaxMeters = 0.3;
-constexpr double kMaxPayloadKg = 5.0;
+constexpr double kDefaultMaxPayloadKg = 5.0; // override with the optional 8th argument
 constexpr double kRevoluteMaxVelocity = 2.0;      // rad/s
 constexpr double kPrismaticMaxVelocity = 0.5;     // m/s
 constexpr double kRevoluteMaxAcceleration = 5.0;  // rad/s^2
@@ -33,7 +33,7 @@ constexpr double kPrismaticMaxAcceleration = 1.0; // m/s^2
 int main(int argc, char **argv) {
   if (argc < 4) {
     std::cerr << "usage: generate_dynamic_training_data <arm_config.json> <output.csv> <num_samples> "
-                 "[seed] [gx gy gz]\n"
+                 "[seed] [gx gy gz] [max_payload_kg]\n"
               << "  gravity defaults to (0, 0, -9.81) - base Z is 'up'. See\n"
               << "  generate_training_data's own usage text for why an arm with no link\n"
               << "  twist needs an in-plane override instead, e.g. 0 -9.81 0.\n";
@@ -47,19 +47,28 @@ int main(int argc, char **argv) {
   const Eigen::Vector3d gravity = argc > 7 ? Eigen::Vector3d(std::stod(argv[5]), std::stod(argv[6]), std::stod(argv[7]))
                                             : Eigen::Vector3d(0.0, 0.0, -9.81);
 
+  const double max_payload_kg = argc > 8 ? std::stod(argv[8]) : kDefaultMaxPayloadKg;
+
   const robotarm::ArmConfig config = robotarm::load_arm_config(config_path);
   const robotarm::ArmModel arm = robotarm::to_arm_model(config);
   const std::vector<robotarm::LinkInertial> links = robotarm::to_link_inertials(config);
   const size_t n = arm.num_joints();
 
   std::mt19937 rng(seed);
-  std::uniform_real_distribution<double> revolute_pos_dist(-kPi, kPi);
+  // Each revolute joint is sampled inside its own configured travel
+  // (min_deg/max_deg, -180..180 when the config gives none) - a humanoid
+  // elbow never bends backwards, so there's no point spending training
+  // samples (and network capacity) on poses the arm can't reach.
+  std::vector<std::uniform_real_distribution<double>> revolute_pos_dist;
+  for (const robotarm::JointConfig &joint : config.joints) {
+    revolute_pos_dist.emplace_back(joint.min_degrees * kPi / 180.0, joint.max_degrees * kPi / 180.0);
+  }
   std::uniform_real_distribution<double> prismatic_pos_dist(0.0, kPrismaticMaxMeters);
   std::uniform_real_distribution<double> revolute_vel_dist(-kRevoluteMaxVelocity, kRevoluteMaxVelocity);
   std::uniform_real_distribution<double> prismatic_vel_dist(-kPrismaticMaxVelocity, kPrismaticMaxVelocity);
   std::uniform_real_distribution<double> revolute_accel_dist(-kRevoluteMaxAcceleration, kRevoluteMaxAcceleration);
   std::uniform_real_distribution<double> prismatic_accel_dist(-kPrismaticMaxAcceleration, kPrismaticMaxAcceleration);
-  std::uniform_real_distribution<double> payload_dist(0.0, kMaxPayloadKg);
+  std::uniform_real_distribution<double> payload_dist(0.0, max_payload_kg);
 
   std::ofstream out(output_path);
   if (!out) {
@@ -77,7 +86,7 @@ int main(int argc, char **argv) {
   for (int sample = 0; sample < num_samples; sample++) {
     for (size_t i = 0; i < n; i++) {
       const bool revolute = arm.joints()[i].type == robotarm::JointType::Revolute;
-      joint_values[i] = revolute ? revolute_pos_dist(rng) : prismatic_pos_dist(rng);
+      joint_values[i] = revolute ? revolute_pos_dist[i](rng) : prismatic_pos_dist(rng);
       joint_velocities[i] = revolute ? revolute_vel_dist(rng) : prismatic_vel_dist(rng);
       joint_accelerations[i] = revolute ? revolute_accel_dist(rng) : prismatic_accel_dist(rng);
     }

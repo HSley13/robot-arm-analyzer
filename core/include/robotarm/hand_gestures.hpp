@@ -39,6 +39,14 @@ public:
   // fist. Same root-chain exclusion as openPalm().
   std::map<std::string, std::vector<double>> closedFist() const;
 
+  // Fingers wrapped around a handle (a dumbbell bar, a bag strap) rather
+  // than clenched shut - every real finger joint at kPowerGripFraction of
+  // the way from its min_degrees to its max_degrees. Same root-chain
+  // exclusion as closedFist(). This is the pose the hand takes while it's
+  // holding the arm's payload.
+  std::map<std::string, std::vector<double>> powerGrip() const;
+  static constexpr double kPowerGripFraction = 0.7;
+
   // A short back-and-forth swing of the root chain's first joint (by
   // convention the one closest to "forearm roll") - "wave hello."
   // Returns the sequence of TARGET waypoints only (not including

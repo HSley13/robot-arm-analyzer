@@ -48,6 +48,12 @@ class HandController : public QObject {
   // needs to re-run on every animation tick - reading animating alone
   // would only catch the start/end of a gesture, not the frames between.
   Q_PROPERTY(int revision READ revision NOTIFY resultsChanged)
+  // Pose of the root chain's tip (the wrist's output frame, which every
+  // finger hangs off) in the hand's local frame. For the shipped config
+  // its axes are: +X toward the fingertips, +Y out of the palm, +Z toward
+  // the thumb - the palm shell is modeled in exactly that frame.
+  Q_PROPERTY(QVector3D palmPosition READ palmPosition NOTIFY resultsChanged)
+  Q_PROPERTY(QQuaternion palmRotation READ palmRotation NOTIFY resultsChanged)
 
 public:
   explicit HandController(const std::filesystem::path &hand_config_path, QObject *parent = nullptr);
@@ -57,6 +63,8 @@ public:
   QString currentGesture() const { return _currentGesture; }
   bool animating() const { return _animation != nullptr; }
   int revision() const { return _revision; }
+  QVector3D palmPosition() const;
+  QQuaternion palmRotation() const;
 
   Q_INVOKABLE int jointCountForChain(const QString &chainName) const;
   Q_INVOKABLE double jointAngleDegrees(const QString &chainName, int jointIndex) const;
@@ -85,18 +93,37 @@ public:
   Q_INVOKABLE QVariantList linkLengthsForChain(const QString &chainName) const;
   Q_INVOKABLE QVariantList linkRotationsForChain(const QString &chainName) const;
 
+  // Full orientation per link, same entries as linkMidpointsForChain():
+  // the returned rotation maps a mesh's local axes onto the link as
+  //   +Y -> along the link (toward the tip)
+  //   +X -> the axis of the joint that swings this link (its hinge pin)
+  //   +Z -> X x Y, the side the link curls toward when that joint flexes
+  //         (the palmar side, for a finger).
+  // linkRotationsForChain() only fixes +Y and leaves the roll arbitrary,
+  // which is fine for a round cylinder but not for a phalanx that has a
+  // flat back and a padded front.
+  Q_INVOKABLE QVariantList linkFramesForChain(const QString &chainName) const;
+
+  // World (hand-local) position of a chain's own base frame - its
+  // parent's tip combined with the chain's fixed "origin" placement. For
+  // a finger that's where its metacarpal starts inside the palm.
+  Q_INVOKABLE QVector3D chainBasePosition(const QString &chainName) const;
+
   // The ONE segment linkMidpointsForChain()/etc. above can never
-  // represent: the gap from this chain's own parent's current tip to
-  // this chain's own first joint (e.g. a finger's metacarpal offset
-  // from the wrist). Each returns a list of exactly one entry, or an
+  // represent: the gap from this chain's own base (chainBasePosition())
+  // to its first joint position (e.g. a finger's metacarpal, from inside
+  // the palm out to the knuckle). Each returns a list of exactly one entry, or an
   // empty list if this chain has no parent (it's the tree's root) or
   // has no joints of its own.
   Q_INVOKABLE QVariantList rootSegmentMidpointForChain(const QString &chainName) const;
   Q_INVOKABLE QVariantList rootSegmentLengthForChain(const QString &chainName) const;
   Q_INVOKABLE QVariantList rootSegmentRotationForChain(const QString &chainName) const;
+  // Same axis convention as linkFramesForChain(); +X is the chain base's
+  // own z axis (the first joint's axis).
+  Q_INVOKABLE QVariantList rootSegmentFrameForChain(const QString &chainName) const;
 
   // Starts a smooth animation toward a named gesture ("restPose",
-  // "openPalm", "closedFist", "wave"), replacing any animation already
+  // "openPalm", "closedFist", "powerGrip", "wave"), replacing any animation already
   // in progress. Unknown names are logged and ignored - a typo in a QML
   // button binding should do nothing, not crash.
   Q_INVOKABLE void playGesture(const QString &name);
@@ -113,11 +140,13 @@ private:
     Eigen::Vector3d midpoint = Eigen::Vector3d::Zero();
     double length = 0.0;
     QQuaternion rotation;
+    QQuaternion frame;
   };
 
   void recompute();
   std::vector<Eigen::Vector3d> chainPositions(const std::string &name) const;
   RootSegment rootSegmentFor(const std::string &name) const;
+  Eigen::Matrix4d rootTipFrame() const;
   std::vector<double> flatten(const std::map<std::string, std::vector<double>> &pose_by_chain) const;
   std::map<std::string, std::vector<double>> unflatten(const std::vector<double> &flat) const;
   // Never throws - every Q_INVOKABLE method must guard external (QML)

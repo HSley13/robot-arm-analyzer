@@ -184,3 +184,56 @@ TEST(HandConfig, LoadsTheShippedExampleConfigAndBuildsAValidTree) {
     ASSERT_EQ(result.at(chain.name).size(), chain.joints.size()) << "chain '" << chain.name << "'";
   }
 }
+
+TEST(HandConfig, ParsesAChainOrigin) {
+  const auto document = nlohmann::json::parse(R"({
+    "chains": [
+      {"name": "wrist", "joints": []},
+      {"name": "thumb", "parent_chain": "wrist",
+       "origin": {"xyz": [0.02, 0.01, 0.03], "rpy_deg": [0, 0, 90]},
+       "joints": [{"type": "revolute", "a": 0.05, "alpha_deg": 0}]}
+    ]
+  })");
+  const HandConfig config = parse_hand_config(document);
+  EXPECT_DOUBLE_EQ(config.chains[1].origin_xyz.z(), 0.03);
+  EXPECT_DOUBLE_EQ(config.chains[1].origin_rpy_degrees.z(), 90.0);
+
+  const KinematicTree tree = to_kinematic_tree(config);
+  const auto poses = tree.forward_kinematics({{"wrist", {}}, {"thumb", {0.0}}});
+  const Eigen::Vector3d tip = poses.at("thumb")[0].block<3, 1>(0, 3);
+  // Yawed 90 degrees, so the 5cm link runs along +y from the origin.
+  EXPECT_NEAR(tip.x(), 0.02, 1e-12);
+  EXPECT_NEAR(tip.y(), 0.06, 1e-12);
+  EXPECT_NEAR(tip.z(), 0.03, 1e-12);
+}
+
+TEST(HandConfig, RejectsAMalformedOrigin) {
+  const auto document = nlohmann::json::parse(R"({
+    "chains": [{"name": "wrist", "origin": {"xyz": [0, 1]}, "joints": []}]
+  })");
+  EXPECT_THROW(parse_hand_config(document), std::runtime_error);
+}
+
+TEST(HandConfig, ShippedHandFingersCurlTowardThePalmAndThumbSitsOnItsOwnSide) {
+  const HandConfig config = load_hand_config(example_config_path());
+  const KinematicTree tree = to_kinematic_tree(config);
+
+  std::map<std::string, std::vector<double>> rest;
+  for (const auto &chain : config.chains) {
+    rest[chain.name] = std::vector<double>(chain.joints.size(), 0.0);
+  }
+  const auto rest_poses = tree.forward_kinematics(rest);
+
+  // Hand frame: +x toward the fingertips, +y palmar, +z thumb side.
+  for (const char *finger : {"index", "middle", "ring", "pinky"}) {
+    const Eigen::Vector3d tip = rest_poses.at(finger).back().block<3, 1>(0, 3);
+    EXPECT_GT(tip.x(), 0.14) << finger << " should extend well past the palm";
+  }
+  EXPECT_GT(rest_poses.at("index").back()(2, 3), rest_poses.at("pinky").back()(2, 3));
+  EXPECT_GT(tree.chain_base_frame("thumb", rest_poses)(2, 3), 0.01);
+
+  auto curled = rest;
+  curled["middle"] = {0.0, to_radians(80.0), to_radians(80.0), to_radians(60.0)};
+  const auto curled_poses = tree.forward_kinematics(curled);
+  EXPECT_GT(curled_poses.at("middle").back()(1, 3), 0.02); // fingertip moved to the palmar side
+}

@@ -25,7 +25,7 @@ namespace {
 #error "PROJECT_ROOT_DIR must be defined by the build"
 #endif
 
-std::string weights_path() { return std::string(PROJECT_ROOT_DIR) + "/ml/models/two_link_planar.surrogate.json"; }
+std::string weights_path() { return std::string(PROJECT_ROOT_DIR) + "/tests/fixtures/two_link_planar.surrogate.json"; }
 
 // The exact arm the surrogate was trained on (config/two_link_planar.json),
 // with the same in-plane gravity override used to generate its training
@@ -34,13 +34,14 @@ ArmModel exact_arm() { return ArmModel({DHParameter(1.0), DHParameter(0.5)}); }
 std::vector<LinkMass> exact_links() { return {LinkMass(2.0), LinkMass(1.0)}; }
 const Eigen::Vector3d kGravityDownY(0.0, -9.81, 0.0);
 
-// config/three_dof_arm.json (P5-M1) - the shoulder/elbow/wrist arm used by
-// the app's default UI from Phase 5 onward.
-std::string three_dof_weights_path() {
-  return std::string(PROJECT_ROOT_DIR) + "/ml/models/three_dof_arm.surrogate.json";
+// config/humanoid_arm.json - the shoulder/elbow/wrist humanoid arm the app
+// loads by default. Trained on poses inside each joint's travel and
+// payloads of 0-40 kg (see python/train_surrogate.py's docstring).
+std::string humanoid_weights_path() {
+  return std::string(PROJECT_ROOT_DIR) + "/ml/models/humanoid_arm.surrogate.json";
 }
-ArmModel three_dof_exact_arm() { return ArmModel({DHParameter(0.9), DHParameter(0.7), DHParameter(0.3)}); }
-std::vector<LinkMass> three_dof_exact_links() { return {LinkMass(3.5), LinkMass(2.0), LinkMass(0.8)}; }
+ArmModel humanoid_exact_arm() { return ArmModel({DHParameter(0.30), DHParameter(0.27), DHParameter(0.095)}); }
+std::vector<LinkMass> humanoid_exact_links() { return {LinkMass(2.4), LinkMass(1.7), LinkMass(0.75)}; }
 
 } // namespace
 
@@ -124,32 +125,34 @@ TEST(Surrogate, PredictRawThrowsOnWrongInputSize) {
   EXPECT_THROW(surrogate.predict_raw({0.0, 0.0, 0.0, 0.0}), std::invalid_argument);
 }
 
-TEST(Surrogate, ThreeDofArmLoadsWeightsAndMetadata) {
-  const Surrogate surrogate(three_dof_weights_path());
+TEST(Surrogate, HumanoidArmLoadsWeightsAndMetadata) {
+  const Surrogate surrogate(humanoid_weights_path());
   EXPECT_EQ(surrogate.num_joints(), 3u);
   EXPECT_GT(surrogate.val_mean_abs_error(), 0.0);
-  EXPECT_LT(surrogate.val_mean_abs_error(), 5.0);
-  EXPECT_LT(surrogate.val_max_abs_error(), 30.0);
+  // Held-out validation: ~1.2 N*m mean, ~20 N*m worst case over 3000
+  // samples whose torques reach several hundred N*m at a 40 kg payload.
+  EXPECT_LT(surrogate.val_mean_abs_error(), 2.0);
+  EXPECT_LT(surrogate.val_max_abs_error(), 25.0);
 }
 
-TEST(Surrogate, ThreeDofArmPredictionsCloseToExactOnSampleQueries) {
-  const Surrogate surrogate(three_dof_weights_path());
-  const ArmModel arm = three_dof_exact_arm();
-  const std::vector<LinkMass> links = three_dof_exact_links();
+TEST(Surrogate, HumanoidArmPredictionsCloseToExactOnSampleQueries) {
+  const Surrogate surrogate(humanoid_weights_path());
+  const ArmModel arm = humanoid_exact_arm();
+  const std::vector<LinkMass> links = humanoid_exact_links();
 
-  // Deterministic sample queries spanning the training ranges (angles in
-  // [-pi, pi], payload in [0, 5] kg) - not random, so a failure is always
-  // reproducible.
+  // Deterministic sample queries inside the training domain (each joint
+  // within its configured travel - shoulder -140..90, elbow 0..145,
+  // wrist -60..60 degrees - and payload in [0, 40] kg), not random, so a
+  // failure is always reproducible.
   const std::vector<std::vector<double>> joint_samples = {
-      {0.0, 0.0, 0.0},    {1.0, -1.0, 0.5},   {-2.0, 2.5, -1.0},
-      {3.0, -3.0, 1.5},   {-1.5, 0.5, -2.5},
+      {0.0, 0.0, 0.0},    {-0.6, 1.4, -0.2},  {-1.57, 0.0, 0.0},
+      {1.2, 0.5, 0.8},    {-2.0, 2.2, -0.9},
   };
-  const std::vector<double> payload_samples = {0.0, 1.0, 2.5, 4.0, 5.0};
+  const std::vector<double> payload_samples = {0.0, 5.0, 10.0, 15.0, 20.0};
 
-  // A generous bound: P5-M1's held-out validation saw ~16.2 N*m max
-  // error on a joint with a 130 N*m limit, so allow margin for a
-  // different sample set.
-  constexpr double kMaxAllowedError = 30.0;
+  // Typical error is ~1 N*m; the bound leaves room for the network's
+  // rarer worst-case poses without hiding a genuinely broken model.
+  constexpr double kMaxAllowedError = 12.0;
 
   for (size_t i = 0; i < joint_samples.size(); i++) {
     const std::vector<double> &joints = joint_samples[i];
@@ -164,4 +167,17 @@ TEST(Surrogate, ThreeDofArmPredictionsCloseToExactOnSampleQueries) {
           << "joint " << j << " at sample " << i;
     }
   }
+}
+
+TEST(Surrogate, HumanoidArmRecordsItsTrainingPayloadRange) {
+  const Surrogate surrogate(humanoid_weights_path());
+  // Trained on 0-40 kg payloads (see python/train_surrogate.py).
+  EXPECT_GT(surrogate.payload_max_kg(), 35.0);
+  EXPECT_LE(surrogate.payload_max_kg(), 40.0);
+}
+
+TEST(Surrogate, OlderWeightsWithoutAPayloadRangeReportZero) {
+  // The two-link fixture predates the "payload_max_kg" field.
+  const Surrogate surrogate(weights_path());
+  EXPECT_DOUBLE_EQ(surrogate.payload_max_kg(), 0.0);
 }
