@@ -128,6 +128,10 @@ public:
   // button binding should do nothing, not crash.
   Q_INVOKABLE void playGesture(const QString &name);
 
+  // Closes the fingers `closure` of the way (0 = open, 1 = fist), animated
+  // like a gesture - used to grasp objects of different sizes.
+  Q_INVOKABLE void playGrasp(double closure);
+
 signals:
   void resultsChanged();
 

@@ -1,8 +1,8 @@
 # Humanoid Arm Load Analyzer
 
-**An interactive physics + AI tool for answering one question instantly: can this humanoid arm hold this weight, in this pose, without overloading a joint?**
+**An interactive physics + AI tool for answering one question instantly: can this humanoid arm hold this weight, in this pose, without overloading a joint — and can the robot actually go pick it up?**
 
-Built from scratch in C++ (kinematics, statics, full rigid-body dynamics), with a PyTorch-trained neural-network surrogate for the same torque computation, and a real-time Qt Quick 3D interface showing a realistic humanoid arm — shoulder, elbow and wrist actuators, an electronics-packed forearm, and a five-finger dexterous hand — where every joint, limb and payload parameter is a live control.
+Built from scratch in C++ (kinematics, statics, full rigid-body dynamics), with a PyTorch-trained neural-network surrogate for the same torque computation, and a real-time Qt Quick 3D interface showing a humanoid on a mobile lift base — waist, lift and hip joints, a shoulder / elbow / wrist arm and a five-finger hand — that picks up the objects you put on the floor or the table, while every joint's load is analyzed live.
 
 ![Full application overview](image/01-overview.png)
 
@@ -17,17 +17,19 @@ This project removes that barrier: the arm's own geometry, mass, and payload are
 ## What makes it interesting
 
 - **A real physics engine, not a wrapper.** Forward/inverse kinematics (Denavit-Hartenberg + joint-limited damped least-squares IK), Jacobian-transpose statics, and a full Recursive Newton-Euler dynamics derivation (gravity/inertia/Coriolis, individually decomposed and verified to sum exactly back to the total) — all written from first principles in C++ with Eigen.
-- **A humanoid, not a crane.** Human proportions (0.30 m upper arm, 0.27 m forearm), human-like joint travel (an elbow that can't bend backwards, enforced everywhere including IK), and an 18-joint, five-finger hand modeled as a kinematic *tree* — every finger hangs off the wrist, the thumb sits on its own opposable base.
+- **A humanoid, not a crane.** Human proportions (0.30 m upper arm, 0.27 m forearm), human-like joint travel (an elbow that can't bend backwards, enforced everywhere including IK), and a 17-joint, five-finger hand modeled as a kinematic *tree* — every finger hangs off the wrist, the thumb sits on its own opposable base.
 - **An AI surrogate that's measured, not just claimed.** A small PyTorch-trained MLP approximates the same torque function and runs through a dependency-free, hand-written C++ forward pass. Every payload scan reports real, measured timing for both paths side by side.
-- **A realistic 3D model generated from the kinematics.** Every phalanx shell, hinge pin and limb housing is placed from forward kinematics — change a finger length in the config and the hand re-renders correctly. The rounded molded shells and the forearm's cables are procedural meshes (`RoundedBoxGeometry`, `TubeGeometry`) written in C++ against `QQuick3DGeometry`.
-- **The hand grips what it carries.** Switch the payload to *Gripping* and the fingers close into a power grip around a dumbbell sized to the weight; release it and the hand opens. Actuator status rings glow green/amber/red with each joint's load.
+- **A detailed 3D model generated from the kinematics.** Every phalanx shell, hinge pin and limb housing is placed from forward kinematics — change a finger length in the config and the hand re-renders correctly. The molded shells, seal bands, rings and objects are procedural meshes (`RoundedBoxGeometry`, `TubeGeometry`) written in C++ against `QQuick3DGeometry`.
+- **Pick and place, planned with the physics.** Drop a bottle, can, box, ball or dumbbell on the floor or the table (click, or type coordinates) and ask the robot to pick it up. A closed-form planner turns the waist toward it, lowers the lift and leans at the hip as needed, solves the arm's inverse kinematics *with the hand's orientation* (upright objects stay upright), and picks the pose that loads the joints least — or refuses with the reason ("too heavy - Shoulder would need 112 N·m (limit 90)"). While it's held, the object's mass is the arm's payload, so the gauges show what the robot is really carrying.
+- **The body moves without breaking the physics.** Turning about the vertical axis and lifting are pure rigid motions that don't change gravity torques; leaning at the hip tilts the arm *within its own plane*, which for a planar arm is exactly a shift of the shoulder angle — so the analyzer just turns gravity in the arm's frame and every number stays exact.
+- **The hand grips what it carries.** Each object size gets its own finger closure; the demo dumbbell in the Payload card gets a power grip. Actuator status rings glow green/amber/red with each joint's load.
 
 ## See it in action
 
 |                                                                                                                                         |                                                                                                                                     |
 | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| ![The hand](image/02-hand.png) The five-finger hand: molded shells, hinge gaps, screw-hole details, exposed control boards in the forearm. | ![Power grip](image/03-grip.png) Holding the payload: a power grip around the dumbbell handle, thumb wrapped over the fingers.       |
-| ![Overload](image/04-overload.png) Arm held straight out with a heavy dumbbell — the shoulder trips into OVERLOAD.                          | ![Payload scan](image/05-payload-scan.png) A payload-capacity scan from fully extended to folded, exact engine vs. AI surrogate.    |
+| ![Pick and place](image/03-pick-and-place.png) Pick and place: crouch and lean to reach a bottle on the floor, carry it, lean over the table, set it down upright. | ![The hand](image/02-hand.png) The five-finger hand carrying the bottle: molded shells, hinge gaps, screw heads, fingertip pads and nail plates. |
+| ![Overload](image/04-overload.png) Arm held straight out with a heavy dumbbell — every joint trips into OVERLOAD.                                                  | ![Payload scan](image/05-payload-scan.png) A payload-capacity scan from fully extended to folded, exact engine vs. AI surrogate.                   |
 
 ## Architecture
 
@@ -37,7 +39,11 @@ The application is split into three independent pieces that only ever share data
 flowchart LR
     U(["User input<br/>sliders · drags · config file"]) --> UI["Qt Quick 3D / QML frontend"]
     UI --> AC["ArmController (C++)<br/>pose, payload, mode state"]
-    UI --> HC["HandController (C++)<br/>18-joint hand, gestures"]
+    UI --> HC["HandController (C++)<br/>17-joint hand, gestures"]
+    UI --> TC["TaskController (C++)<br/>objects, body, pick / put-down"]
+    TC --> PLAN["Pick planner (core/)<br/>waist yaw · lift · hip lean · 3R IK"]
+    TC --> AC
+    TC --> HC
     AC -->|Exact mode| CORE["Physics engine (core/)<br/>kinematics -> statics / RNEA dynamics"]
     AC -->|AI mode| ML["AI surrogate (ml/)<br/>trained MLP forward pass"]
     HC --> TREE["Kinematic tree (core/)<br/>wrist + 5 finger chains"]
@@ -53,9 +59,9 @@ flowchart LR
 
 | Layer                | Path            | Responsibility                                                                                                                                                                         |
 | -------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Physics engine       | [`core/`](core) | C++17 + Eigen. Kinematics (serial arm + branching kinematic tree), statics, full RNEA dynamics, joint-limited IK, payload capacity search, hand gestures. No UI or ML dependency.       |
+| Physics engine       | [`core/`](core) | C++17 + Eigen. Kinematics (serial arm + branching kinematic tree), statics, full RNEA dynamics, joint-limited IK, payload capacity search, hand gestures, grasp planning. No UI or ML dependency. |
 | AI surrogate         | [`ml/`](ml)     | A trained MLP, plus a small hand-written, dependency-free C++ inference class. A drop-in alternative torque evaluator trained on the physics engine's own output.                      |
-| Interactive frontend | [`app/`](app)   | Qt Quick 3D / QML. `ArmController` and `HandController` expose only plain Qt types to QML; `app/geometry/` holds the procedural meshes the humanoid is built from.                    |
+| Interactive frontend | [`app/`](app)   | Qt Quick 3D / QML. `ArmController`, `HandController` and `TaskController` expose only plain Qt types to QML; `app/geometry/` holds the procedural meshes the humanoid is built from.  |
 
 ### The humanoid model
 
@@ -63,10 +69,14 @@ flowchart LR
 | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`config/humanoid_arm.json`](config/humanoid_arm.json)   | Shoulder / elbow / wrist: DH geometry, link masses, actuator torque limits, named joints with travel limits (`min_deg`/`max_deg`).                                         |
 | [`config/humanoid_hand.json`](config/humanoid_hand.json) | A wrist chain (roll + deviation) and five finger chains. Each chain's `origin` (`xyz` + `rpy_deg`, URDF-style) places its base in the palm — something pure DH can't express for an off-axis thumb. |
-| [`app/qml/HumanoidArm3D.qml`](app/qml/HumanoidArm3D.qml) | Actuators, limb shells, forearm chassis with stacked control boards, cable bundles that bend with the wrist, the wrist clevis.                                              |
-| [`app/qml/Hand3D.qml`](app/qml/Hand3D.qml)               | Palm shell, phalanges, hinge pins, fingertip pads, thumb base, and the held dumbbell — all placed from `HandController`'s forward kinematics.                              |
+| [`core/.../pick_planner.hpp`](core/include/robotarm/pick_planner.hpp) | Grasp planning: waist yaw that puts the object beside the palm, closed-form planar 3R IK with hand orientation, a sweep over lift height x hip lean, torque-aware choice. |
+| [`app/task_controller.hpp`](app/task_controller.hpp)     | Objects on the floor/table, the body's own joints, animated pick-up / put-down sequences that drive the arm, the hand and the payload.                                     |
+| [`app/qml/HumanoidBody3D.qml`](app/qml/HumanoidBody3D.qml) | Pelvis and hip joint, segmented abdomen, chest, head, a passive left arm, and the right arm's mount.                                                                     |
+| [`app/qml/HumanoidArm3D.qml`](app/qml/HumanoidArm3D.qml) | Actuators with status rings, deltoid cap, tapered limb shells, seal bands, service panels, the wrist housing.                                                             |
+| [`app/qml/Hand3D.qml`](app/qml/Hand3D.qml)               | Palm shell, phalanges, hinge pins, fingertip pads, thumb base, and whatever the hand is holding — all placed from `HandController`'s forward kinematics.                  |
+| [`app/qml/LiftBase3D.qml`](app/qml/LiftBase3D.qml), [`SceneObject3D.qml`](app/qml/SceneObject3D.qml) | The mobile base with its telescoping column; the pickable objects.                                                                |
 
-The arm moves in a vertical plane (gravity in-plane), so the statics and dynamics stay the well-tested planar formulation; the hand rides on the wrist in a neutral, thumb-up grip, and the grip point is the arm's end effector.
+The arm moves in a vertical plane (gravity in-plane), so the statics and dynamics stay the well-tested planar formulation; the body places that plane in the world (waist yaw, lift height, hip lean), the hand rides on the wrist in a neutral, thumb-up grip, and the grip point is the arm's end effector.
 
 ### How the AI surrogate is trained
 
@@ -104,7 +114,8 @@ Useful flags (all optional — mainly for reproducible screenshots):
 
 ```bash
 ./build/bin/robotarm_app --pose -35,80,-10 --payload 6        # shoulder,elbow,wrist degrees; kg in hand
-./build/bin/robotarm_app --open-hand --camera 0,0,0.45 --focus 0.3,0.3,0
+./build/bin/robotarm_app --camera 40,-12,0.9 --focus 0.3,0.95,0.15
+./build/bin/robotarm_app --pick 1 --put 0.6,-0.62 --at 9        # scripted pick + put-down, stopped 9 s in
 ./build/bin/robotarm_app --scan 40 --screenshot shot.png      # run a payload scan, save a PNG, quit
 ```
 
@@ -114,7 +125,7 @@ Useful flags (all optional — mainly for reproducible screenshots):
 ctest --test-dir build
 ```
 
-GoogleTest suites cover every physics module (kinematics, kinematic trees with chain origins, statics, dynamics, trajectories, joint-limited inverse kinematics, payload capacity, the AI surrogates, config parsing) plus the Qt-facing `ArmController` / `HandController` layer. Generic engine tests run against small fixtures in [`tests/fixtures/`](tests/fixtures).
+GoogleTest suites cover every physics module (kinematics, kinematic trees with chain origins, statics, dynamics, trajectories, joint-limited inverse kinematics, payload capacity, grasp planning, the AI surrogates, config parsing) plus the Qt-facing `ArmController` / `HandController` / `TaskController` layer, including whole pick-and-place sequences stepped in simulated time. Generic engine tests run against small fixtures in [`tests/fixtures/`](tests/fixtures).
 
 ### Retraining the AI surrogate (optional)
 
@@ -131,9 +142,9 @@ python3 python/train_surrogate.py --arm-name humanoid_arm --num-joints 3 --hidde
 ## Project structure
 
 ```
-core/       physics engine - kinematics, kinematic tree, statics, RNEA dynamics, IK, payload capacity, hand gestures
+core/       physics engine - kinematics, kinematic tree, statics, RNEA dynamics, IK, payload capacity, hand gestures, pick planner
 ml/         AI surrogate - C++ inference class + trained humanoid-arm weights
-app/        Qt Quick 3D / QML interface, Arm/HandController bridges, procedural geometry (app/geometry/)
+app/        Qt Quick 3D / QML interface, Arm/Hand/TaskController bridges, procedural geometry (app/geometry/)
 config/     humanoid_arm.json, humanoid_hand.json
 tools/      C++ training-data generators (reuse the exact physics engine), studio lighting generator
 python/     PyTorch training scripts

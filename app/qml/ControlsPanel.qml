@@ -78,6 +78,240 @@ Rectangle {
                 }
             }
 
+            // Objects: place things on the floor/table (click or typed
+            // coordinates), then have the humanoid pick them up and put
+            // them down somewhere else.
+            Rectangle {
+                id: objectsCard
+                Layout.fillWidth: true
+                color: "#171a2b"
+                radius: 14
+                border.color: taskController.clickMode !== "" ? "#17e0ff" : "#262a40"
+                border.width: 1
+                implicitHeight: objectsColumn.implicitHeight + 16
+
+                readonly property var selected: {
+                    const list = taskController.objects
+                    for (let i = 0; i < list.length; i++) {
+                        if (list[i].id === taskController.selectedId) return list[i]
+                    }
+                    return null
+                }
+                readonly property bool holding: taskController.heldId >= 0
+
+                ColumnLayout {
+                    id: objectsColumn
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label {
+                            color: "white"
+                            font.bold: true
+                            text: "Objects"
+                        }
+                        Item { Layout.fillWidth: true }
+                        Button {
+                            visible: taskController.busy
+                            text: "Stop"
+                            onClicked: taskController.stop()
+                        }
+                    }
+
+                    // New object: type + mass, then click to drop or type x/z.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 5
+                        ComboBox {
+                            Layout.fillWidth: true
+                            model: taskController.objectTypes
+                            currentIndex: taskController.objectTypes.indexOf(taskController.placeType)
+                            onActivated: (index) => taskController.placeType = taskController.objectTypes[index]
+                        }
+                        TextField {
+                            implicitWidth: 52
+                            text: taskController.placeMassKg.toFixed(2)
+                            validator: DoubleValidator { bottom: 0.01 }
+                            onEditingFinished: taskController.placeMassKg = parseFloat(text)
+                        }
+                        Label { color: "#9aa0ab"; text: "kg" }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 5
+                        Button {
+                            Layout.fillWidth: true
+                            text: taskController.clickMode === "place" ? "Cancel" : "Click to place"
+                            highlighted: taskController.clickMode === "place"
+                            onClicked: taskController.clickMode = taskController.clickMode === "place" ? "" : "place"
+                        }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 4
+                        Label { color: "#9aa0ab"; text: "x" }
+                        TextField { id: newX; implicitWidth: 50; text: "0.60"; validator: DoubleValidator {} }
+                        Label { color: "#9aa0ab"; text: "z" }
+                        TextField { id: newZ; implicitWidth: 50; text: "-0.30"; validator: DoubleValidator {} }
+                        Button {
+                            Layout.fillWidth: true
+                            text: "Add"
+                            onClicked: taskController.addObject(taskController.placeType, taskController.placeMassKg,
+                                                                parseFloat(newX.text), parseFloat(newZ.text))
+                        }
+                    }
+
+                    Rectangle { Layout.fillWidth: true; height: 1; color: "#262a40" }
+
+                    // The selected object (click one in the 3D view).
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: objectsCard.selected ? "white" : "#7a8099"
+                        font.pixelSize: 12
+                        text: objectsCard.selected
+                              ? objectsCard.selected.label + " · " + objectsCard.selected.mass.toFixed(2) + " kg · ("
+                                + objectsCard.selected.x.toFixed(2) + ", " + objectsCard.selected.z.toFixed(2) + ")"
+                                + (objectsCard.selected.y > 0 ? " on the table" : " on the floor")
+                              : (objectsCard.holding ? "" : "Click an object in the view to select it")
+                    }
+                    RowLayout {
+                        visible: objectsCard.selected !== null && !objectsCard.selected.held
+                        Layout.fillWidth: true
+                        spacing: 5
+                        Button {
+                            Layout.fillWidth: true
+                            text: "Pick up"
+                            enabled: !taskController.busy && !objectsCard.holding
+                            onClicked: taskController.pickUp(taskController.selectedId)
+                        }
+                        Button {
+                            Layout.fillWidth: true
+                            text: "Move"
+                            highlighted: taskController.clickMode === "move"
+                            enabled: !taskController.busy
+                            onClicked: taskController.clickMode = taskController.clickMode === "move" ? "" : "move"
+                        }
+                        Button {
+                            text: "✕"
+                            enabled: !taskController.busy
+                            onClicked: taskController.removeObject(taskController.selectedId)
+                        }
+                    }
+                    RowLayout {
+                        visible: objectsCard.selected !== null
+                        Layout.fillWidth: true
+                        spacing: 5
+                        Label { color: "#9aa0ab"; text: "mass" }
+                        Slider {
+                            Layout.fillWidth: true
+                            from: 0.1
+                            to: 30
+                            value: objectsCard.selected ? objectsCard.selected.mass : 1
+                            onMoved: taskController.setObjectMass(taskController.selectedId, value)
+                        }
+                    }
+
+                    // Putting the held object down.
+                    ColumnLayout {
+                        visible: objectsCard.holding
+                        Layout.fillWidth: true
+                        spacing: 5
+                        Button {
+                            Layout.fillWidth: true
+                            text: taskController.clickMode === "putDown" ? "Cancel" : "Put down (click a spot)"
+                            highlighted: taskController.clickMode === "putDown"
+                            enabled: !taskController.busy
+                            onClicked: taskController.clickMode = taskController.clickMode === "putDown" ? "" : "putDown"
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+                            Label { color: "#9aa0ab"; text: "x" }
+                            TextField { id: putX; implicitWidth: 50; text: "0.60"; validator: DoubleValidator {} }
+                            Label { color: "#9aa0ab"; text: "z" }
+                            TextField { id: putZ; implicitWidth: 50; text: "0.45"; validator: DoubleValidator {} }
+                            Button {
+                                Layout.fillWidth: true
+                                text: "Put at x,z"
+                                enabled: !taskController.busy
+                                onClicked: taskController.putDown(parseFloat(putX.text), parseFloat(putZ.text))
+                            }
+                        }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        visible: taskController.status !== ""
+                        wrapMode: Text.WordWrap
+                        color: taskController.status.indexOf("Can't") === 0 || taskController.status.indexOf("No room") === 0
+                               ? "#ff4d4f" : "#17e0ff"
+                        font.pixelSize: 12
+                        text: taskController.status
+                    }
+                }
+            }
+
+            // The body's own joints: waist turn, lift height, hip bend.
+            Rectangle {
+                Layout.fillWidth: true
+                color: "#171a2b"
+                radius: 14
+                border.color: "#262a40"
+                border.width: 1
+                implicitHeight: bodyColumn.implicitHeight + 16
+
+                ColumnLayout {
+                    id: bodyColumn
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    spacing: 2
+                    enabled: !taskController.busy
+
+                    Label {
+                        color: "white"
+                        font.bold: true
+                        text: "Body"
+                    }
+
+                    Repeater {
+                        model: [
+                            { label: "Waist", unit: "°", from: taskController.body.minYaw, to: taskController.body.maxYaw,
+                              key: "waistYawDegrees", decimals: 0 },
+                            { label: "Lift", unit: " m", from: taskController.body.minHipHeight,
+                              to: taskController.body.maxHipHeight, key: "hipHeight", decimals: 2 },
+                            { label: "Lean", unit: "°", from: 0, to: taskController.body.maxHipBend,
+                              key: "hipBendDegrees", decimals: 0 }
+                        ]
+                        RowLayout {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            spacing: 4
+                            Label {
+                                color: "#9aa0ab"
+                                Layout.preferredWidth: 36
+                                text: modelData.label
+                            }
+                            Slider {
+                                Layout.fillWidth: true
+                                from: modelData.from
+                                to: modelData.to
+                                value: taskController[modelData.key]
+                                onMoved: taskController[modelData.key] = value
+                            }
+                            Label {
+                                color: "white"
+                                Layout.preferredWidth: 46
+                                horizontalAlignment: Text.AlignRight
+                                text: taskController[modelData.key].toFixed(modelData.decimals) + modelData.unit
+                            }
+                        }
+                    }
+                }
+            }
+
             Rectangle {
                 Layout.fillWidth: true
                 color: "#171a2b"
@@ -121,6 +355,10 @@ Rectangle {
                 border.color: "#262a40"
                 border.width: 1
                 implicitHeight: payloadColumn.implicitHeight + 16
+                // The demo payload is the arm's own; while the hand carries a
+                // scene object, that object's mass is the payload instead.
+                enabled: taskController.heldId < 0 && !taskController.busy
+                opacity: enabled ? 1.0 : 0.5
 
                 ColumnLayout {
                     id: payloadColumn
@@ -131,7 +369,7 @@ Rectangle {
                     Label {
                         color: "white"
                         font.bold: true
-                        text: "Payload"
+                        text: "Payload (demo dumbbell)"
                     }
 
                     RowLayout {

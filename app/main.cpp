@@ -20,6 +20,7 @@
 #include "geometry/rounded_box_geometry.hpp"
 #include "geometry/tube_geometry.hpp"
 #include "hand_controller.hpp"
+#include "task_controller.hpp"
 
 #ifndef APP_QML_DIR
 #error "APP_QML_DIR must be defined by the build"
@@ -67,9 +68,13 @@ int main(int argc, char *argv[]) {
                                        "2500");
   const QCommandLineOption scanOption("scan", "Run a payload-capacity scan with this many samples at startup.",
                                       "samples");
+  const QCommandLineOption pickOption("pick", "Pick up object N (1-based, in creation order) at startup.", "N");
+  const QCommandLineOption putOption("put", "After --pick, put the object down at x,z (meters).", "x,z");
+  const QCommandLineOption atOption("at", "Stop the --pick/--put motion this many seconds in (default: run it to the end).",
+                                    "seconds");
   const QCommandLineOption sizeOption("size", "Window size, e.g. 1600x1000.", "WxH");
   parser.addOptions({poseOption, payloadOption, openHandOption, cameraOption, focusOption, screenshotOption,
-                     delayOption, scanOption, sizeOption});
+                     delayOption, scanOption, pickOption, putOption, atOption, sizeOption});
   parser.process(app);
 
   // Lets QML say `Model { geometry: RoundedBoxGeometry { ... } }`.
@@ -82,11 +87,10 @@ int main(int argc, char *argv[]) {
 
   robotarm::HandController handController(std::string(PROJECT_ROOT_DIR) + "/config/humanoid_hand.json");
 
-  // Start in a natural carrying pose (upper arm angled down-forward,
-  // elbow bent, hand slightly up - a dumbbell curl) rather than the arm
-  // stuck straight out; --pose overrides it.
+  // Start in a relaxed ready pose (upper arm down, forearm forward) rather
+  // than the arm stuck straight out; --pose overrides it.
   const QList<double> pose = parser.isSet(poseOption) ? parse_number_list(parser.value(poseOption))
-                                                      : QList<double>{-35.0, 80.0, -10.0};
+                                                      : QList<double>{-70.0, 65.0, 5.0};
   for (int i = 0; i < pose.size(); i++) {
     controller.setJointAngleDegrees(i, pose[i]);
   }
@@ -98,6 +102,37 @@ int main(int argc, char *argv[]) {
   }
   if (parser.isSet(scanOption)) {
     controller.runPayloadScan(parser.value(scanOption).toInt());
+  }
+
+  // The body (waist / lift / hip) and the objects around the robot, plus
+  // a few objects to start with so there's something to pick up.
+  robotarm::TaskController taskController(&controller, &handController);
+  taskController.addObject("bottle", 1.0, 0.62, 0.22);
+  taskController.addObject("dumbbell", 6.0, 0.80, 0.52);
+  taskController.addObject("can", 0.35, 0.40, -0.50);
+  taskController.addObject("ball", 0.45, 0.25, 0.66);
+  taskController.selectObject(-1);
+  // Scripted pick / put-down for screenshots: the motion is stepped
+  // through directly (advance()), not played in real time, so the shot is
+  // the same however fast the machine renders.
+  if (parser.isSet(pickOption)) {
+    const double at = parser.isSet(atOption) ? parser.value(atOption).toDouble() : 1e9;
+    double remaining = at;
+    if (taskController.pickUp(parser.value(pickOption).toInt())) {
+      while (taskController.busy() && remaining > 0.0) {
+        taskController.advance(1.0 / 60.0);
+        remaining -= 1.0 / 60.0;
+      }
+    }
+    if (parser.isSet(putOption) && remaining > 0.0) {
+      const QList<double> spot = parse_number_list(parser.value(putOption));
+      if (spot.size() == 2 && taskController.putDown(spot[0], spot[1])) {
+        while (taskController.busy() && remaining > 0.0) {
+          taskController.advance(1.0 / 60.0);
+          remaining -= 1.0 / 60.0;
+        }
+      }
+    }
   }
 
   QVariantMap launchOptions;
@@ -126,6 +161,7 @@ int main(int argc, char *argv[]) {
   QQmlApplicationEngine engine;
   engine.rootContext()->setContextProperty("armController", &controller);
   engine.rootContext()->setContextProperty("handController", &handController);
+  engine.rootContext()->setContextProperty("taskController", &taskController);
   engine.rootContext()->setContextProperty("launchOptions", launchOptions);
 
   const QString qmlDirPath(APP_QML_DIR);

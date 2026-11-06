@@ -13,6 +13,7 @@ add_library(robotarm_core
     src/inverse_kinematics.cpp
     src/hand_config.cpp
     src/hand_gestures.cpp
+    src/pick_planner.cpp
 )
 
 target_include_directories(robotarm_core PUBLIC

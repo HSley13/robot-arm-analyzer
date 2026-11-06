@@ -319,6 +319,12 @@ void HandController::playGesture(const QString &name) {
   emit resultsChanged();
 }
 
+void HandController::playGrasp(double closure) {
+  startAnimationTo({_gestures.graspAtFraction(closure)});
+  _currentGesture = QStringLiteral("grasp");
+  emit resultsChanged();
+}
+
 void HandController::advanceAnimation() {
   if (!_animation) {
     _animationTicker.stop();

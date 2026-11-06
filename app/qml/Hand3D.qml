@@ -32,6 +32,9 @@ Node {
     // Whether the payload dumbbell is in the hand, and how heavy it is.
     property bool holdingPayload: false
     property real payloadKg: 0
+    // A scene object being carried (TaskController.heldObject), or an
+    // empty map. Drawn at its grip point with its up axis along the thumb.
+    property var heldObject: ({})
 
     // Where the handle of a held object sits: inside the curled fingers
     // of the power-grip pose, along the hand's Z (thumb) axis.
@@ -171,6 +174,18 @@ Node {
                 taper: 0.85
             }
             materials: rubberMaterial
+        }
+
+        // Nail plate on the back of the fingertip.
+        Model {
+            visible: phalanx.distal
+            position: Qt.vector3d(0, phalanx.shellLength * 0.16, -phalanx.thickness * 0.47)
+            geometry: RoundedBoxGeometry {
+                size: Qt.vector3d(phalanx.width * 0.62, phalanx.shellLength * 0.5, phalanx.thickness * 0.12)
+                radius: phalanx.thickness * 0.05
+                taper: 0.82
+            }
+            materials: shellDarkMaterial
         }
 
         // Two screw holes on the back of the segment, like the reference
@@ -382,5 +397,25 @@ Node {
                 }
             }
         }
+    }
+
+    // ---- a scene object carried by TaskController ------------------------
+
+    SceneObject3D {
+        readonly property var held: root.heldObject
+        visible: held.id !== undefined
+        type: held.type !== undefined ? held.type : "bottle"
+        mass: held.mass !== undefined ? held.mass : 1
+        gripRadius: held.gripRadius !== undefined ? held.gripRadius : 0.03
+        footprint: held.footprint !== undefined ? held.footprint : 0.03
+        objectHeight: held.height !== undefined ? held.height : 0.1
+        showSelection: false
+        // Object +Y (up) -> hand +Z (thumb): +90 degrees about X. Then shift
+        // it so its grip point (gripHeight up its axis) sits at the grip
+        // center inside the curled fingers.
+        eulerRotation.x: 90
+        position: held.id !== undefined
+                  ? Qt.vector3d(held.gripForward, held.gripPalmar, -held.gripHeight)
+                  : Qt.vector3d(0, 0, 0)
     }
 }

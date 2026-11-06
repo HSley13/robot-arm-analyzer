@@ -16,7 +16,6 @@ namespace {
 
 // In-plane gravity: this arm's joints all rotate about Z with no link
 // twist, so a default vertical gravity would make every torque zero.
-const Eigen::Vector3d kGravity(0.0, -9.81, 0.0);
 
 QVector3D to_qvector3d(const Eigen::Vector3d &v) {
   return QVector3D(static_cast<float>(v.x()), static_cast<float>(v.y()), static_cast<float>(v.z()));
@@ -136,6 +135,40 @@ int ArmController::trajectoryWaypointCount() const {
 void ArmController::recordWaypoint() {
   if (!_trajectoryScrubMode || !_recordedTrajectory) return;
   _recordedTrajectory->add_waypoint(_jointAnglesRadians);
+  recompute();
+}
+
+Eigen::Vector3d ArmController::gravity() const {
+  // The arm's base leans forward by _baseTiltRadians (a turn of -tilt
+  // about the arm-plane normal), so in the arm's own frame gravity is the
+  // world's (0, -g, 0) turned by +tilt.
+  return Eigen::Vector3d(9.81 * std::sin(_baseTiltRadians), -9.81 * std::cos(_baseTiltRadians), 0.0);
+}
+
+std::vector<double> ArmController::surrogateAngles(std::vector<double> angles) const {
+  // The surrogates were trained with an upright base. For a planar arm a
+  // tilted base is indistinguishable from the shoulder turned by the same
+  // amount, so feed them that equivalent upright pose.
+  if (!angles.empty() && !_config.joints.empty() && _config.joints[0].dh.type == JointType::Revolute) {
+    angles[0] -= _baseTiltRadians;
+  }
+  return angles;
+}
+
+void ArmController::setBaseTiltDegrees(double degrees) {
+  const double radians = to_radians(degrees);
+  if (radians == _baseTiltRadians) {
+    return;
+  }
+  _baseTiltRadians = radians;
+  recompute();
+}
+
+void ArmController::setJointAnglesRadians(const std::vector<double> &radians) {
+  const size_t n = std::min(radians.size(), _jointAnglesRadians.size());
+  for (size_t i = 0; i < n; i++) {
+    _jointAnglesRadians[i] = clampToLimits(i, radians[i]);
+  }
   recompute();
 }
 
@@ -385,8 +418,10 @@ void ArmController::runPayloadScan(int sampleCount) {
   for (int i = 0; i < n; i++) {
     const std::vector<double> &pose = poses[static_cast<size_t>(i)];
     auto evaluator = [&](double candidate_payload) -> Eigen::VectorXd {
-      if (dynamic) return inverse_dynamics(_arm, pose, zero_rates, zero_rates, _inertialLinks, candidate_payload, kGravity);
-      return static_joint_torques(_arm, pose, _links, candidate_payload, kGravity);
+      if (dynamic) {
+        return inverse_dynamics(_arm, pose, zero_rates, zero_rates, _inertialLinks, candidate_payload, gravity());
+      }
+      return static_joint_torques(_arm, pose, _links, candidate_payload, gravity());
     };
     exact_payload_kg[static_cast<size_t>(i)] = max_safe_payload(evaluator, limits, kPayloadSearchCeilingKg);
   }
@@ -410,7 +445,7 @@ void ArmController::runPayloadScan(int sampleCount) {
     for (int i = 0; i < n; i++) {
       const std::vector<double> &pose = poses[static_cast<size_t>(i)];
       auto evaluator = [&](double candidate_payload) -> Eigen::VectorXd {
-        std::vector<double> raw_input = pose;
+        std::vector<double> raw_input = surrogateAngles(pose);
         if (dynamic) {
           raw_input.insert(raw_input.end(), zero_rates.begin(), zero_rates.end());
           raw_input.insert(raw_input.end(), zero_rates.begin(), zero_rates.end());
@@ -458,28 +493,28 @@ void ArmController::recompute() {
 
   if (_dynamicMode) {
     if (_aiMode && _dynamicSurrogate) {
-      std::vector<double> raw_input = positions;
+      std::vector<double> raw_input = surrogateAngles(positions);
       raw_input.insert(raw_input.end(), velocities.begin(), velocities.end());
       raw_input.insert(raw_input.end(), accelerations.begin(), accelerations.end());
       raw_input.push_back(payload);
       _jointTorques = _dynamicSurrogate->predict_raw(raw_input);
     } else {
       const Eigen::VectorXd tau =
-          inverse_dynamics(_arm, positions, velocities, accelerations, _inertialLinks, payload, kGravity);
+          inverse_dynamics(_arm, positions, velocities, accelerations, _inertialLinks, payload, gravity());
       _jointTorques.assign(static_cast<size_t>(tau.size()), 0.0);
       for (Eigen::Index i = 0; i < tau.size(); i++) _jointTorques[static_cast<size_t>(i)] = tau(i);
     }
   } else {
     if (_aiMode && _surrogate) {
-      _jointTorques = _surrogate->predict(positions, payload);
+      _jointTorques = _surrogate->predict(surrogateAngles(positions), payload);
     } else {
-      const Eigen::VectorXd tau = static_joint_torques(_arm, positions, _links, payload, kGravity);
+      const Eigen::VectorXd tau = static_joint_torques(_arm, positions, _links, payload, gravity());
       _jointTorques.assign(static_cast<size_t>(tau.size()), 0.0);
       for (Eigen::Index i = 0; i < tau.size(); i++) _jointTorques[static_cast<size_t>(i)] = tau(i);
     }
   }
 
-  _breakdown = decompose_torque(_arm, positions, velocities, accelerations, _inertialLinks, payload, kGravity);
+  _breakdown = decompose_torque(_arm, positions, velocities, accelerations, _inertialLinks, payload, gravity());
 
   const std::vector<Eigen::Matrix4d> frames = _arm.forward_kinematics(positions);
   _jointPositions.clear();
@@ -504,9 +539,9 @@ void ArmController::recompute() {
   auto exact_evaluator = [&](double candidate_payload) -> Eigen::VectorXd {
     if (_dynamicMode) {
       return inverse_dynamics(_arm, positions, velocities, accelerations, _inertialLinks, candidate_payload,
-                               kGravity);
+                               gravity());
     }
-    return static_joint_torques(_arm, positions, _links, candidate_payload, kGravity);
+    return static_joint_torques(_arm, positions, _links, candidate_payload, gravity());
   };
   _currentMaxSafePayloadKg = max_safe_payload(exact_evaluator, limits, kPayloadSearchCeilingKg);
 

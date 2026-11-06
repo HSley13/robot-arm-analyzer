@@ -1,5 +1,7 @@
 #include "robotarm/hand_gestures.hpp"
 
+#include <algorithm>
+
 #include "robotarm/units.hpp"
 
 namespace robotarm {
@@ -54,6 +56,10 @@ std::map<std::string, std::vector<double>> HandGestures::closedFist() const {
 
 std::map<std::string, std::vector<double>> HandGestures::powerGrip() const {
   return poseAtFraction(kPowerGripFraction, /*includeRootChain=*/false);
+}
+
+std::map<std::string, std::vector<double>> HandGestures::graspAtFraction(double fraction) const {
+  return poseAtFraction(std::clamp(fraction, 0.0, 1.0), /*includeRootChain=*/false);
 }
 
 std::vector<std::map<std::string, std::vector<double>>> HandGestures::wave() const {

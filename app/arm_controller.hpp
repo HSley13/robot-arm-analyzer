@@ -31,6 +31,11 @@ class ArmController : public QObject {
   Q_PROPERTY(bool aiModeAvailable READ aiModeAvailable NOTIFY resultsChanged)
   Q_PROPERTY(QVector3D canvasCenter READ canvasCenter NOTIFY resultsChanged)
   Q_PROPERTY(QString configMessage READ configMessage NOTIFY resultsChanged)
+  // How far the arm's base is leaning forward (degrees) - the humanoid's
+  // hip bend. Every torque, capacity and scan number accounts for it by
+  // turning gravity in the arm's frame; joint positions stay in the
+  // arm's own (torso-attached) frame.
+  Q_PROPERTY(double baseTiltDegrees READ baseTiltDegrees WRITE setBaseTiltDegrees NOTIFY resultsChanged)
 
   Q_PROPERTY(double payloadKg READ payloadKg WRITE setPayloadKg NOTIFY resultsChanged)
   // effectivePayloadKg() is 0 while the gripper is open, regardless of
@@ -87,6 +92,15 @@ public:
   int jointCount() const { return static_cast<int>(_arm.num_joints()); }
   bool aiModeAvailable() const;
   QVector3D canvasCenter() const { return _canvasCenter; }
+  double baseTiltDegrees() const { return _baseTiltRadians * 180.0 / 3.14159265358979323846; }
+  void setBaseTiltDegrees(double degrees);
+
+  // C++-side access for planners (TaskController): the live config (with
+  // any lengths/masses edited in the UI), and a whole-pose update with a
+  // single recompute instead of one per joint.
+  const ArmConfig &config() const { return _config; }
+  std::vector<double> jointAnglesRadians() const { return _jointAnglesRadians; }
+  void setJointAnglesRadians(const std::vector<double> &radians);
 
   double payloadKg() const { return _payloadKg; }
   void setPayloadKg(double kg);
@@ -176,6 +190,8 @@ private:
   void recompute();
   // Clamps a joint value (radians) into that joint's configured travel.
   double clampToLimits(size_t index, double radians) const;
+  Eigen::Vector3d gravity() const;
+  std::vector<double> surrogateAngles(std::vector<double> angles) const;
   TrajectoryState effectiveState() const;
   double effectivePayloadKg() const { return _gripperOpen ? 0.0 : _payloadKg; }
 
@@ -196,6 +212,7 @@ private:
   bool _gripperOpen = false;
   bool _aiMode = false;
   bool _dynamicMode = false;
+  double _baseTiltRadians = 0.0;
 
   bool _trajectoryScrubMode = false;
   double _trajectoryProgress = 0.0;

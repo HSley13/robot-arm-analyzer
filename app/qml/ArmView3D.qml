@@ -6,23 +6,28 @@ import QtQuick3D
 import QtQuick3D.Helpers
 import Humanoid.Geometry
 
-// The 3D scene: the humanoid arm + hand (HumanoidArm3D / Hand3D) mounted
-// on a lab test stand, its reach envelope, and a draggable ring over every
-// arm joint.
+// The 3D scene: the humanoid (HumanoidBody3D, which carries the analyzed
+// right arm and hand) on its mobile lift base, a table, the objects lying
+// around, and a draggable ring over every arm joint.
+//
+// Clicking the floor or the table is handed to taskController.handleClick()
+// - what it does depends on the Objects panel (place a new object, move
+// one, put the held one down, or just select).
 Item {
     id: root
 
     readonly property real meshUnit: 100.0
-    // Height of the shoulder pivot above the floor (the arm hangs from a
-    // stand, like a humanoid's shoulder).
-    readonly property real shoulderHeight: 1.0
-    readonly property real totalReach: armController.canvasCenter.x * 2
+    readonly property var table: taskController.table
 
-    // The hand closes around the payload while holding it and opens when
-    // released - the same switch that decides whether the payload counts
-    // toward the joint torques.
+    // The hand closes around the Payload card's demo dumbbell and opens
+    // when it's released. While a pick/put-down sequence runs, the
+    // TaskController drives the hand itself.
     readonly property bool holding: !armController.gripperOpen
-    onHoldingChanged: handController.playGesture(holding ? "powerGrip" : "openPalm")
+    onHoldingChanged: {
+        if (!taskController.busy && taskController.heldId < 0) {
+            handController.playGesture(holding ? "powerGrip" : "openPalm")
+        }
+    }
     Component.onCompleted: handController.playGesture(holding ? "powerGrip" : "openPalm")
 
     View3D {
@@ -48,19 +53,15 @@ Item {
 
         Node {
             id: cameraOrigin
-            // Orbit around the middle of the arm's reach, a little below the
-            // shoulder so the hand stays in frame when the arm hangs down.
-            position: launchOptions.focus !== undefined ? launchOptions.focus
-                                                        : Qt.vector3d(root.totalReach * 0.52, -0.04, 0)
-            eulerRotation: Qt.vector3d(launchOptions.cameraPitch !== undefined ? launchOptions.cameraPitch : -10,
-                                       launchOptions.cameraYaw !== undefined ? launchOptions.cameraYaw : 26, 0)
+            position: launchOptions.focus !== undefined ? launchOptions.focus : Qt.vector3d(0.30, 0.72, 0.0)
+            eulerRotation: Qt.vector3d(launchOptions.cameraPitch !== undefined ? launchOptions.cameraPitch : -14,
+                                       launchOptions.cameraYaw !== undefined ? launchOptions.cameraYaw : 42, 0)
 
             PerspectiveCamera {
                 id: camera
-                z: launchOptions.cameraDistance !== undefined ? launchOptions.cameraDistance
-                                                               : Math.max(0.6, root.totalReach * 1.32)
+                z: launchOptions.cameraDistance !== undefined ? launchOptions.cameraDistance : 2.9
                 fieldOfView: 40
-                clipNear: 0.01
+                clipNear: 0.02
                 clipFar: 50
             }
         }
@@ -74,13 +75,14 @@ Item {
         // Key light (casts the shadows), cool fill from the other side, and
         // a rim light from behind that picks out the shell edges.
         DirectionalLight {
-            eulerRotation: Qt.vector3d(-50, 35, 0)
+            eulerRotation: Qt.vector3d(-55, 30, 0)
             brightness: 0.9
             color: "#fff6ec"
             castsShadow: true
             shadowMapQuality: Light.ShadowMapQualityHigh
             shadowFactor: 60
             shadowBias: 0.002
+            shadowMapFar: 8
         }
         DirectionalLight {
             eulerRotation: Qt.vector3d(-15, -60, 0)
@@ -93,18 +95,19 @@ Item {
             color: "#d8e6ff"
         }
 
-        // ---- lab floor + test stand ---------------------------------------
+        // ---- floor ----------------------------------------------------------
 
         Model {
+            objectName: "floor"
             source: "#Rectangle"
             eulerRotation.x: -90
-            position: Qt.vector3d(0, -root.shoulderHeight, 0)
             scale: Qt.vector3d(8 / root.meshUnit, 8 / root.meshUnit, 1)
             receivesShadows: true
+            pickable: true
             materials: PrincipledMaterial { baseColor: "#161925"; roughness: 0.9 }
         }
         Model {
-            position: Qt.vector3d(0, -root.shoulderHeight + 0.001, 0)
+            position: Qt.vector3d(0, 0.001, 0)
             scale: Qt.vector3d(0.01, 0.01, 0.01)
             geometry: GridGeometry {
                 horizontalLines: 40
@@ -119,85 +122,105 @@ Item {
             }
         }
 
-        // Aluminum extrusion post behind the shoulder, on a weighted base,
-        // with a bracket out to the shoulder actuator.
+        // ---- table ----------------------------------------------------------
+
         Node {
-            id: stand
-            readonly property real postZ: -0.16
+            id: tableNode
+            readonly property real x0: root.table.x0
+            readonly property real x1: root.table.x1
+            readonly property real z0: root.table.z0
+            readonly property real z1: root.table.z1
+            readonly property real h: root.table.height
 
             Model {
-                position: Qt.vector3d(0, -root.shoulderHeight + 0.012, stand.postZ)
-                source: "#Cylinder"
-                scale: Qt.vector3d(0.42 / root.meshUnit, 0.024 / root.meshUnit, 0.42 / root.meshUnit)
-                materials: PrincipledMaterial { baseColor: "#262a33"; metalness: 0.6; roughness: 0.5 }
-            }
-            Model {
-                position: Qt.vector3d(0, -root.shoulderHeight / 2 + 0.02, stand.postZ)
+                objectName: "table"
+                position: Qt.vector3d((tableNode.x0 + tableNode.x1) / 2, tableNode.h - 0.015, (tableNode.z0 + tableNode.z1) / 2)
                 geometry: RoundedBoxGeometry {
-                    size: Qt.vector3d(0.045, root.shoulderHeight + 0.04, 0.045)
-                    radius: 0.004
+                    size: Qt.vector3d(tableNode.x1 - tableNode.x0, 0.03, tableNode.z1 - tableNode.z0)
+                    radius: 0.006
                 }
-                materials: PrincipledMaterial { baseColor: "#9aa1aa"; metalness: 0.85; roughness: 0.38 }
+                pickable: true
+                materials: PrincipledMaterial { baseColor: "#6b5643"; roughness: 0.6 }
             }
-            // Extrusion slots.
             Repeater3D {
                 model: 4
                 Model {
                     required property int index
-                    readonly property real angle: index * 90
-                    position: Qt.vector3d(0.0226 * Math.cos(angle * Math.PI / 180), -root.shoulderHeight / 2 + 0.02,
-                                          stand.postZ + 0.0226 * Math.sin(angle * Math.PI / 180))
-                    eulerRotation.y: -angle
-                    geometry: RoundedBoxGeometry { size: Qt.vector3d(0.002, root.shoulderHeight + 0.03, 0.008); radius: 0.0008 }
-                    materials: PrincipledMaterial { baseColor: "#2a2d33"; roughness: 0.7 }
+                    readonly property real lx: index % 2 === 0 ? tableNode.x0 + 0.04 : tableNode.x1 - 0.04
+                    readonly property real lz: index < 2 ? tableNode.z0 + 0.04 : tableNode.z1 - 0.04
+                    position: Qt.vector3d(lx, (tableNode.h - 0.03) / 2, lz)
+                    geometry: RoundedBoxGeometry { size: Qt.vector3d(0.04, tableNode.h - 0.03, 0.04); radius: 0.006 }
+                    materials: PrincipledMaterial { baseColor: "#2b2f37"; metalness: 0.6; roughness: 0.45 }
                 }
-            }
-            // Round mounting flange from the post to the back of the shoulder.
-            Model {
-                source: "#Cylinder"
-                eulerRotation.x: 90
-                position: Qt.vector3d(0, 0, (stand.postZ - 0.06) / 2)
-                scale: Qt.vector3d(0.07 / root.meshUnit, (Math.abs(stand.postZ) - 0.06) / root.meshUnit, 0.07 / root.meshUnit)
-                materials: PrincipledMaterial { baseColor: "#9aa1aa"; metalness: 0.85; roughness: 0.38 }
             }
         }
 
-        // ---- the humanoid arm + hand ---------------------------------------
+        // ---- the robot ------------------------------------------------------
 
-        HumanoidArm3D {}
+        LiftBase3D {}
+        HumanoidBody3D { id: body }
 
-        // Reach envelope: a faint ring in the arm's plane at full reach.
-        Model {
-            visible: root.totalReach > 0
-            geometry: TubeGeometry {
-                closed: true
-                radius: 0.0018
-                radialSegments: 6
-                samplesPerSpan: 2
-                points: {
-                    const pts = []
-                    for (let k = 0; k < 72; k++) {
-                        const a = 2 * Math.PI * k / 72
-                        pts.push(Qt.vector3d(root.totalReach * Math.cos(a), root.totalReach * Math.sin(a), 0))
-                    }
-                    return pts
-                }
-            }
-            opacity: 0.14
-            materials: PrincipledMaterial {
-                baseColor: "#17e0ff"
-                emissiveFactor: Qt.vector3d(0.05, 0.6, 0.75)
-                lighting: PrincipledMaterial.NoLighting
+        // ---- objects lying around -------------------------------------------
+
+        Repeater3D {
+            model: taskController.objects
+            SceneObject3D {
+                required property var modelData
+                visible: !modelData.held
+                position: Qt.vector3d(modelData.x, modelData.y, modelData.z)
+                type: modelData.type
+                mass: modelData.mass
+                gripRadius: modelData.gripRadius
+                footprint: modelData.footprint
+                objectHeight: modelData.height
+                selected: modelData.selected
             }
         }
     }
 
-    // Forces the overlay below to depend on the camera explicitly -
-    // view3D.mapFrom3DScene() reads the camera's transform without
-    // QML's binding tracker seeing it, so without this the overlay
-    // wouldn't re-run while orbiting.
+    // A click (not a drag - dragging orbits the camera) on the floor, the
+    // table or an object: find the surface point under the cursor and let
+    // the task controller decide what it means.
+    TapHandler {
+        acceptedButtons: Qt.LeftButton
+        onTapped: (eventPoint) => {
+            const result = view3D.pick(eventPoint.position.x, eventPoint.position.y)
+            if (result.objectHit === null) {
+                return
+            }
+            const p = result.scenePosition
+            taskController.handleClick(p.x, p.z)
+        }
+    }
+
+    // Hint for the armed click mode.
+    Rectangle {
+        visible: taskController.clickMode !== ""
+        anchors.top: parent.top
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.topMargin: 14
+        radius: 8
+        color: "#17e0ff"
+        width: hintText.implicitWidth + 24
+        height: hintText.implicitHeight + 12
+        Text {
+            id: hintText
+            anchors.centerIn: parent
+            color: "#0e1021"
+            font.bold: true
+            text: taskController.clickMode === "place" ? "Click the floor or the table to place a " + taskController.placeType
+                : taskController.clickMode === "move" ? "Click where the selected object should go"
+                : "Click where to put the held object down"
+        }
+    }
+
+    // Forces the overlay below to depend on everything that moves the arm
+    // on screen - mapFrom3DScene() reads transforms without QML's binding
+    // tracker seeing them.
     readonly property vector3d cameraEulerRotation: cameraOrigin.eulerRotation
     readonly property real cameraDistance: camera.z
+    readonly property real bodyDependency: taskController.waistYawDegrees + taskController.hipHeight
+                                           + taskController.hipBendDegrees
     // mapFrom3DScene() also only gives a real answer once the view has
     // been laid out and rendered; re-run the projection a few times after
     // startup and on every resize, or the rings sit at (0, 0) until the
@@ -215,10 +238,9 @@ Item {
         function onHeightChanged() { root.layoutTick++ }
     }
 
-    // Draggable ring per joint, projected onto its screen position via
-    // mapFrom3DScene() - plain 2D Items on top of the View3D, not 3D
-    // ray-picking, so a press on a ring never reaches the orbit
-    // controller underneath.
+    // Draggable ring per arm joint, projected onto its screen position -
+    // plain 2D Items on top of the View3D, so a press on a ring never
+    // reaches the orbit controller underneath.
     Repeater {
         model: armController.jointCount
 
@@ -230,14 +252,16 @@ Item {
                 const _cameraRotationDependency = root.cameraEulerRotation
                 const _cameraDistanceDependency = root.cameraDistance
                 const _layoutDependency = root.layoutTick
-                return view3D.mapFrom3DScene(armController.jointPositions[index])
+                const _bodyDependency = root.bodyDependency
+                const scenePoint = body.armNode.mapPositionToScene(armController.jointPositions[index])
+                return view3D.mapFrom3DScene(scenePoint)
             }
 
-            enabled: !armController.trajectoryScrubMode
+            enabled: !armController.trajectoryScrubMode && !taskController.busy
             x: screenPosition.x - width / 2
             y: screenPosition.y - height / 2
-            width: 34
-            height: 34
+            width: 30
+            height: 30
             opacity: enabled ? 1.0 : 0.3
 
             Rectangle {

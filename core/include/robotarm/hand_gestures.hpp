@@ -47,6 +47,12 @@ public:
   std::map<std::string, std::vector<double>> powerGrip() const;
   static constexpr double kPowerGripFraction = 0.7;
 
+  // Fingers closed `fraction` of the way (0 = open palm, 1 = fist) - how
+  // far depends on what's being held: a thin handle needs ~0.7, a ball
+  // ~0.35. Same root-chain exclusion as the other poses; fraction is
+  // clamped to [0, 1].
+  std::map<std::string, std::vector<double>> graspAtFraction(double fraction) const;
+
   // A short back-and-forth swing of the root chain's first joint (by
   // convention the one closest to "forearm roll") - "wave hello."
   // Returns the sequence of TARGET waypoints only (not including
