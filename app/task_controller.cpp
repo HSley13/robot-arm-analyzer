@@ -18,6 +18,17 @@ constexpr double kStandingHipHeight = 0.80; // m, the lift's normal standing hei
 constexpr double kGripperReach = 0.075;     // m, gripper finger center past the arm's flange
 constexpr double kGripperOpen = 0.11;       // m, gripper fingers wide open
 
+// Following a reachTo() goal: every degree of freedom closes the gap
+// exponentially (fast for small moves, so dragging feels direct), and no
+// faster than its top speed - all slowed together, so a big move is one
+// coordinated motion whose parts finish at the same time.
+constexpr double kFollowRate = 10.0;       // 1/s
+constexpr double kMaxYawSpeed = 1.8;       // rad/s (~100 deg/s)
+constexpr double kMaxLiftSpeed = 0.45;     // m/s
+constexpr double kMaxBendSpeed = 1.2;      // rad/s (~70 deg/s)
+constexpr double kMaxJointSpeed = 2.6;     // rad/s (~150 deg/s)
+constexpr double kArrived = 1e-3;          // rad or m left to go
+
 double wrap(double angle) {
   while (angle > kPi) {
     angle -= 2.0 * kPi;
@@ -302,6 +313,7 @@ void TaskController::setWaistYawDegrees(double degrees) {
   if (busy()) {
     return;
   }
+  cancelReach(); // a hand on the body overrides the hand goal
   BodyPose pose = currentPose();
   pose.yaw = to_radians(std::clamp(degrees, _geometry.min_yaw_degrees, _geometry.max_yaw_degrees));
   applyPose(pose);
@@ -311,6 +323,7 @@ void TaskController::setHipHeight(double meters) {
   if (busy()) {
     return;
   }
+  cancelReach(); // a hand on the body overrides the hand goal
   BodyPose pose = currentPose();
   pose.hip_height = std::clamp(meters, _geometry.min_hip_height, _geometry.max_hip_height);
   applyPose(pose);
@@ -320,6 +333,7 @@ void TaskController::setHipBendDegrees(double degrees) {
   if (busy()) {
     return;
   }
+  cancelReach(); // a hand on the body overrides the hand goal
   BodyPose pose = currentPose();
   pose.hip_bend = to_radians(std::clamp(degrees, 0.0, _geometry.max_hip_bend_degrees));
   applyPose(pose);
@@ -470,11 +484,77 @@ bool TaskController::reachTo(double x, double y, double z) {
   if (busy()) {
     return false;
   }
-  const PickPlan plan = plan_reach(_arm->config(), _geometry, Eigen::Vector3d(x, y, z), currentPose());
+  // Plan from the previous goal, not from where the body happens to be
+  // mid-motion, so successive goals of one drag stay consistent.
+  const BodyPose from = _following ? _goal : currentPose();
+  const PickPlan plan = plan_reach(_arm->config(), _geometry, Eigen::Vector3d(x, y, z), from);
   if (plan.pose.arm.size() == _arm->config().joints.size()) {
-    applyPose(plan.pose);
+    _goal = plan.pose;
+    if (!_following) {
+      _following = true;
+      emit stateChanged();
+    }
+    startTicker();
   }
   return plan.ok;
+}
+
+void TaskController::cancelReach() {
+  if (!_following) {
+    return;
+  }
+  _following = false;
+  if (_steps.empty()) {
+    _ticker.stop();
+  }
+  emit stateChanged();
+}
+
+void TaskController::followGoal(double seconds) {
+  const BodyPose now = currentPose();
+  if (now.arm.size() != _goal.arm.size()) {
+    cancelReach(); // the arm changed under the goal (a joint added...)
+    return;
+  }
+
+  // The gap per degree of freedom, and each one's speed limit.
+  std::vector<double> gap = {wrap(_goal.yaw - now.yaw), _goal.hip_height - now.hip_height,
+                             _goal.hip_bend - now.hip_bend};
+  std::vector<double> top = {kMaxYawSpeed, kMaxLiftSpeed, kMaxBendSpeed};
+  for (size_t i = 0; i < now.arm.size(); i++) {
+    gap.push_back(_goal.arm[i] - now.arm[i]);
+    top.push_back(kMaxJointSpeed);
+  }
+
+  const double fraction = 1.0 - std::exp(-kFollowRate * seconds);
+  double slow_down = 1.0;
+  double remaining = 0.0;
+  for (size_t i = 0; i < gap.size(); i++) {
+    slow_down = std::max(slow_down, std::abs(gap[i] * fraction) / (top[i] * seconds));
+    remaining = std::max(remaining, std::abs(gap[i]));
+  }
+  if (remaining < kArrived) {
+    applyPose(_goal);
+    cancelReach();
+    return;
+  }
+
+  const double k = fraction / slow_down;
+  BodyPose next = now;
+  next.yaw = now.yaw + k * gap[0];
+  next.hip_height = now.hip_height + k * gap[1];
+  next.hip_bend = now.hip_bend + k * gap[2];
+  for (size_t i = 0; i < now.arm.size(); i++) {
+    next.arm[i] = now.arm[i] + k * gap[3 + i];
+  }
+  applyPose(next);
+}
+
+void TaskController::startTicker() {
+  if (!_ticker.isActive()) {
+    _tickClock.start();
+    _ticker.start();
+  }
 }
 
 bool TaskController::useIndustrialArm() {
@@ -482,6 +562,7 @@ bool TaskController::useIndustrialArm() {
     setStatus(QStringLiteral("Put the object down before changing the arm"));
     return false;
   }
+  cancelReach();
   _arm->convertToIndustrial();
   _gripperWidth = kGripperOpen;
   setStatus(QStringLiteral("Warehouse arm with a gripper - add joints in the Arm card"));
@@ -493,6 +574,7 @@ bool TaskController::useHumanoidArm() {
     setStatus(QStringLiteral("Put the object down before changing the arm"));
     return false;
   }
+  cancelReach();
   if (!_arm->reloadInitialConfig()) {
     return false;
   }
@@ -525,10 +607,7 @@ double TaskController::stepDuration(const BodyPose &from, const BodyPose &to) co
 
 void TaskController::queue(const BodyPose &target, double duration, std::function<void()> on_arrive) {
   _steps.push_back({target, duration, std::move(on_arrive)});
-  if (!_ticker.isActive()) {
-    _tickClock.start();
-    _ticker.start();
-  }
+  startTicker();
   emit stateChanged();
 }
 
@@ -545,6 +624,7 @@ bool TaskController::pickUp(int id) {
   if (object == nullptr) {
     return false;
   }
+  cancelReach();
 
   // First grasp option that works.
   GraspOption option;
@@ -653,6 +733,7 @@ bool TaskController::putDown(double x, double z) {
     above = place;
   }
 
+  cancelReach();
   const BodyPose start = currentPose();
   const BodyPose retreat = approachPose(option, place, kApproachClearance);
   const int id = object->id;
@@ -687,6 +768,7 @@ bool TaskController::putDown(double x, double z) {
 }
 
 void TaskController::stop() {
+  cancelReach();
   if (_steps.empty()) {
     return;
   }
@@ -698,6 +780,12 @@ void TaskController::stop() {
 }
 
 void TaskController::advance(double seconds) {
+  if (_steps.empty()) {
+    if (_following && seconds > 0.0) {
+      followGoal(seconds);
+    }
+    return;
+  }
   while (seconds > 0.0 && !_steps.empty()) {
     if (!_stepStarted) {
       _stepStart = currentPose();

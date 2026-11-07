@@ -324,6 +324,7 @@ Item {
             if (grab.kind === "hand") {
                 handPlanePoint = root.armToScene(armController.jointPositions[armController.jointCount])
             } else if (grab.kind === "joint") {
+                taskController.cancelReach() // the joint is yours now, not the hand goal's
                 const c = root.jointScreen(grab.index)
                 lastScreenAngle = Math.atan2(event.y - c.y, event.x - c.x)
                 // Positive joint angles turn counter-clockwise about the arm
@@ -349,6 +350,7 @@ Item {
                 const target = root.rayOnCameraPlane(event.x, event.y, handPlanePoint)
                 taskController.reachTo(target.x, target.y, target.z)
             } else if (grab.kind === "joint") {
+                taskController.cancelReach() // the joint is yours now, not the hand goal's
                 const c = root.jointScreen(grab.index)
                 const angle = Math.atan2(event.y - c.y, event.x - c.x)
                 let delta = angle - lastScreenAngle

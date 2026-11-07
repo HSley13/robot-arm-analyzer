@@ -44,6 +44,8 @@ class TaskController : public QObject {
   Q_PROPERTY(QVariantMap heldObject READ heldObject NOTIFY objectsChanged)
 
   Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
+  // True while the body is still moving toward the last reachTo() goal.
+  Q_PROPERTY(bool reaching READ reaching NOTIFY stateChanged)
   Q_PROPERTY(QString status READ status NOTIFY stateChanged)
   // What the next click in the 3D view does: "" (select an object),
   // "place" (drop a new placeType/placeMassKg object there), "move" (move
@@ -74,6 +76,7 @@ public:
   QVariantMap heldObject() const;
 
   bool busy() const { return !_steps.empty(); }
+  bool reaching() const { return _following; }
   QString status() const { return _status; }
   QString clickMode() const { return _clickMode; }
   void setClickMode(const QString &mode);
@@ -92,13 +95,16 @@ public:
   QVariantMap table() const;
   double gripperWidth() const { return _gripperWidth; }
 
-  // Moves the body and arm so the arm's end-effector point is at the world
-  // point (x, y, z), changing the pose as little as possible (plan_reach).
-  // Instant, no animation - it's what dragging the hand calls on every
-  // mouse move. Returns false if the point is out of reach (the hand then
-  // stops at the closest point it can get to). Ignored while a pick /
-  // put-down sequence is running.
+  // Sets the goal for the arm's end-effector point to the world point
+  // (x, y, z): plan_reach finds the pose (changing as little as possible
+  // from the previous goal), and the body then moves there at the speeds
+  // its joints can manage - every turn, crouch and lean is visible, no
+  // jumps. It's what dragging the hand calls on every mouse move. Returns
+  // false if the point is out of reach (the hand then goes to the closest
+  // point it can get to). Ignored while a pick / put-down sequence runs.
   Q_INVOKABLE bool reachTo(double x, double y, double z);
+  // Stops moving toward the reachTo() goal, wherever the body is now.
+  Q_INVOKABLE void cancelReach();
 
   // Switches the arm between the humanoid (shoulder / elbow / wrist +
   // hand) and an industrial warehouse arm (+ parallel gripper). Not while
@@ -213,6 +219,9 @@ private:
   BodyPose sideOffPose(BodyPose pose, const Eigen::Vector3d &grip_point, double palmar_offset, double clearance) const;
   double stepDuration(const BodyPose &from, const BodyPose &to) const;
   void applyPose(const BodyPose &pose);
+  // One time step of moving toward _goal (see reachTo).
+  void followGoal(double seconds);
+  void startTicker();
   void setStatus(const QString &status);
   void queue(const BodyPose &target, double duration, std::function<void()> on_arrive = {});
 
@@ -230,6 +239,9 @@ private:
   BodyPose _stepStart;
   double _stepElapsed = 0.0;
   bool _stepStarted = false;
+  // reachTo()'s goal, while the body is still on its way there.
+  BodyPose _goal;
+  bool _following = false;
   QTimer _ticker;
   QElapsedTimer _tickClock;
 

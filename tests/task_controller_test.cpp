@@ -23,7 +23,7 @@ struct Rig {
   // Runs the queued sequence to the end in fixed 1/60 s steps, like the
   // app's timer would.
   void runToEnd() {
-    for (int i = 0; i < 60 * 30 && task.busy(); i++) {
+    for (int i = 0; i < 60 * 30 && (task.busy() || task.reaching()); i++) {
       task.advance(1.0 / 60.0);
     }
   }
@@ -184,7 +184,9 @@ TEST(TaskController, DraggingTheHandMovesTheWholeBodyThere) {
   Rig rig;
   // Low and off to the side: the waist has to turn and the hip bend.
   ASSERT_TRUE(rig.task.reachTo(0.35, 0.30, 0.55));
-  EXPECT_FALSE(rig.task.busy()); // instant, no queued motion
+  EXPECT_TRUE(rig.task.reaching());
+  rig.runToEnd();
+  EXPECT_FALSE(rig.task.reaching());
   const QVector3D tip = tipInWorld(rig.arm, rig.task);
   EXPECT_NEAR(tip.x(), 0.35, 2e-3);
   EXPECT_NEAR(tip.y(), 0.30, 2e-3);
@@ -193,7 +195,38 @@ TEST(TaskController, DraggingTheHandMovesTheWholeBodyThere) {
 
   // Out of reach: says so, but still leans as far as it can toward it.
   EXPECT_FALSE(rig.task.reachTo(3.0, 1.0, 0.0));
+  rig.runToEnd();
   EXPECT_GT(tipInWorld(rig.arm, rig.task).x(), 0.5);
+}
+
+TEST(TaskController, AFarReachIsAVisibleMotionNotAJump) {
+  Rig rig;
+  const double start_height = rig.task.hipHeight();
+  ASSERT_TRUE(rig.task.reachTo(0.35, 0.30, 0.55)); // needs a big turn + crouch + lean
+
+  // One frame later the body has only started to move, within its speeds.
+  rig.task.advance(1.0 / 60.0);
+  EXPECT_LT(std::abs(rig.task.waistYawDegrees()), 100.0 / 60.0 + 1e-6);
+  EXPECT_LT(std::abs(rig.task.hipHeight() - start_height), 0.45 / 60.0 + 1e-6);
+  EXPECT_LT(rig.task.hipBendDegrees(), 70.0 / 60.0 + 1e-6);
+
+  // And it gets there over a fraction of a second or more, not instantly.
+  int frames = 1;
+  while (rig.task.reaching() && frames < 600) {
+    rig.task.advance(1.0 / 60.0);
+    frames++;
+  }
+  EXPECT_FALSE(rig.task.reaching());
+  EXPECT_GT(frames, 20);
+}
+
+TEST(TaskController, TouchingTheBodyCancelsTheReach) {
+  Rig rig;
+  ASSERT_TRUE(rig.task.reachTo(0.35, 0.30, 0.55));
+  rig.task.advance(0.1);
+  rig.task.setHipHeight(0.9);
+  EXPECT_FALSE(rig.task.reaching());
+  EXPECT_DOUBLE_EQ(rig.task.hipHeight(), 0.9);
 }
 
 TEST(TaskController, IgnoresDragsWhileAMoveIsPlaying) {
