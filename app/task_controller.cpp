@@ -71,8 +71,10 @@ TaskController::TaskController(ArmController *arm, HandController *hand, QObject
 // ---- object catalogue ------------------------------------------------------
 
 QStringList TaskController::objectTypes() const {
-  return {QStringLiteral("bottle"), QStringLiteral("can"), QStringLiteral("box"), QStringLiteral("ball"),
-          QStringLiteral("dumbbell")};
+  return {QStringLiteral("bottle"), QStringLiteral("can"),   QStringLiteral("mug"),
+          QStringLiteral("box"),    QStringLiteral("book"),  QStringLiteral("ball"),
+          QStringLiteral("cone"),   QStringLiteral("plant"), QStringLiteral("dumbbell"),
+          QStringLiteral("kettlebell")};
 }
 
 double TaskController::defaultMass(const QString &type) {
@@ -85,8 +87,20 @@ double TaskController::defaultMass(const QString &type) {
   if (type == QStringLiteral("ball")) {
     return 0.45;
   }
-  if (type == QStringLiteral("dumbbell")) {
+  if (type == QStringLiteral("dumbbell") || type == QStringLiteral("kettlebell")) {
     return 8.0;
+  }
+  if (type == QStringLiteral("mug")) {
+    return 0.35;
+  }
+  if (type == QStringLiteral("book")) {
+    return 0.6;
+  }
+  if (type == QStringLiteral("cone")) {
+    return 0.7;
+  }
+  if (type == QStringLiteral("plant")) {
+    return 2.0;
   }
   return 1.0; // bottle
 }
@@ -107,6 +121,24 @@ TaskController::Shape TaskController::shapeOf(const QString &type, double mass) 
     const double plate_thickness = std::min(0.07, 0.010 + 0.003 * mass);
     const double plate_radius = std::min(0.10, 0.030 + 0.0095 * std::sqrt(std::max(0.0, mass)));
     shape = {0.0125, plate_radius, 2.0 * plate_thickness + 0.132, plate_thickness + 0.066, true};
+  } else if (type == QStringLiteral("mug")) {
+    // 8 cm across; the handle sticks out to 5 cm from the center.
+    shape = {0.040, 0.050, 0.10, 0.05, true};
+  } else if (type == QStringLiteral("book")) {
+    // Standing on its bottom edge, 3.5 cm thick, 15 cm wide, 22 cm tall -
+    // gripped across its thickness, two thirds of the way up.
+    shape = {0.0175, 0.08, 0.22, 0.15, true};
+  } else if (type == QStringLiteral("cone")) {
+    // A traffic cone on an 18 cm square base, held around its upper part.
+    shape = {0.028, 0.09, 0.32, 0.22, true};
+  } else if (type == QStringLiteral("plant")) {
+    // A potted plant, held around the pot; the leaves reach 38 cm.
+    shape = {0.065, 0.075, 0.38, 0.08, true};
+  } else if (type == QStringLiteral("kettlebell")) {
+    // Iron ball sized by mass (cast iron, ~7 g/cm^3) with a handle on top,
+    // held by the handle.
+    const double radius = std::clamp(std::cbrt(3.0 * mass / (4.0 * kPi * 7000.0)) * 1.15, 0.045, 0.13);
+    shape = {0.016, radius, 2.0 * radius + 0.075, 2.0 * radius + 0.055, true};
   } else {
     shape = {0.033, 0.034, 0.23, 0.10, true}; // bottle
   }
@@ -573,8 +605,8 @@ std::vector<TaskController::GraspOption> TaskController::graspOptions(const Scen
   }
   // From above first (the warehouse way), gripping an upright object near
   // its top so the gripper's palm clears it - except a standing dumbbell,
-  // whose top plate is in the way.
-  if (object.type != QStringLiteral("dumbbell")) {
+  // whose top plate is in the way, and a plant (all leaves up there).
+  if (object.type != QStringLiteral("dumbbell") && object.type != QStringLiteral("plant")) {
     const double top_height = shape.upright ? std::max(shape.grip_height, shape.height - 0.035) : shape.grip_height;
     options.push_back(graspOption(object, base, QStringLiteral("top"), top_height));
   }

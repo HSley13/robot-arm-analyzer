@@ -320,3 +320,35 @@ TEST(TaskController, PutsThingsDownOnAnAddedCounter) {
   rig.runToEnd();
   EXPECT_NEAR(objectById(rig.task, id)["y"].toDouble(), 0.92, 1e-12);
 }
+
+TEST(TaskController, EveryObjectTypeCanBePickedUpAndPutDown) {
+  for (const QString &type : Rig().task.objectTypes()) {
+    Rig rig;
+    const int id = rig.task.addObject(type, 0.0, 0.62, 0.30);
+    ASSERT_NE(id, -1) << type.toStdString();
+    ASSERT_TRUE(rig.task.pickUp(id)) << type.toStdString() << ": " << rig.task.status().toStdString();
+    rig.runToEnd();
+    EXPECT_EQ(rig.task.heldId(), id) << type.toStdString();
+    ASSERT_TRUE(rig.task.putDown(0.45, -0.55)) << type.toStdString() << ": " << rig.task.status().toStdString();
+    rig.runToEnd();
+    EXPECT_EQ(rig.task.heldId(), -1) << type.toStdString();
+  }
+}
+
+TEST(TaskController, TheWarehouseGripperHandlesEveryObjectType) {
+  for (const QString &type : Rig().task.objectTypes()) {
+    Rig rig;
+    ASSERT_TRUE(rig.task.useIndustrialArm());
+    rig.arm.addJoint();
+    // 1 kg each: the shapes are what's tested here; the added joint's
+    // small motor can't hold an 8 kg dumbbell out at the gripper.
+    const int id = rig.task.addObject(type, 1.0, 0.55, 0.35);
+    ASSERT_NE(id, -1) << type.toStdString();
+    ASSERT_TRUE(rig.task.pickUp(id)) << type.toStdString() << ": " << rig.task.status().toStdString();
+    rig.runToEnd();
+    EXPECT_EQ(rig.task.heldId(), id) << type.toStdString();
+    ASSERT_TRUE(rig.task.putDown(0.45, -0.55)) << type.toStdString() << ": " << rig.task.status().toStdString();
+    rig.runToEnd();
+    EXPECT_EQ(rig.task.heldId(), -1) << type.toStdString();
+  }
+}
