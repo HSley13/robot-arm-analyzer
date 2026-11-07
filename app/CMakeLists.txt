@@ -22,6 +22,8 @@ target_link_libraries(robotarm_app_core PUBLIC
 # robotarm_app_core, which stays Qt-Core/Gui-only for plain GTest.
 qt_add_executable(robotarm_app
     main.cpp
+    qml_hot_reloader.cpp
+    qml_hot_reloader.hpp
     geometry/rounded_box_geometry.cpp
     geometry/rounded_box_geometry.hpp
     geometry/tube_geometry.cpp
@@ -40,7 +42,7 @@ target_link_libraries(robotarm_app PRIVATE
 
 # Loaded from this real source-tree path at runtime (not bundled into a
 # qrc/resource module) so editing a .qml file and reloading the engine -
-# see main.cpp's hot-reload watcher - picks it up with no rebuild.
+# see QmlHotReloader - picks it up with no rebuild.
 target_compile_definitions(robotarm_app PRIVATE
     APP_QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
     PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}"

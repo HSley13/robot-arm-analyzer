@@ -1,6 +1,4 @@
 #include <QCommandLineParser>
-#include <QDir>
-#include <QFileSystemWatcher>
 #include <QGuiApplication>
 #include <QImage>
 #include <QQmlApplicationEngine>
@@ -21,6 +19,7 @@
 #include "geometry/rounded_box_geometry.hpp"
 #include "geometry/tube_geometry.hpp"
 #include "hand_controller.hpp"
+#include "qml_hot_reloader.hpp"
 #include "task_controller.hpp"
 
 #ifndef APP_QML_DIR
@@ -192,21 +191,11 @@ int main(int argc, char *argv[]) {
   const QString qmlDirPath(APP_QML_DIR);
   const QUrl mainQmlUrl = QUrl::fromLocalFile(qmlDirPath + "/Main.qml");
 
-  // Hot reload: watch every .qml file and reload on change.
-  QFileSystemWatcher qmlWatcher;
-  const QDir qmlDir(qmlDirPath);
-  for (const QString &fileName : qmlDir.entryList(QStringList() << "*.qml", QDir::Files)) {
-    qmlWatcher.addPath(qmlDir.filePath(fileName));
-  }
-  QObject::connect(&qmlWatcher, &QFileSystemWatcher::fileChanged, &engine,
-                   [&engine, &mainQmlUrl, &qmlWatcher](const QString &path) {
-                     if (!qmlWatcher.files().contains(path)) qmlWatcher.addPath(path);
-                     engine.clearComponentCache();
-                     engine.load(mainQmlUrl);
-                   });
-
   engine.load(mainQmlUrl);
   if (engine.rootObjects().isEmpty()) return -1;
+
+  // Save a .qml file (from any editor) and the window reloads in place.
+  robotarm::QmlHotReloader hotReloader(&engine, qmlDirPath, mainQmlUrl);
 
   if (parser.isSet(screenshotOption)) {
     const QString path = parser.value(screenshotOption);
