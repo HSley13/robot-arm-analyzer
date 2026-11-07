@@ -94,31 +94,35 @@ TEST(ArmConfig, LoadsFromFile) {
 #ifndef PROJECT_ROOT_DIR
 #error "PROJECT_ROOT_DIR must be defined by the build"
 #endif
-  const ArmConfig config = load_arm_config(std::string(PROJECT_ROOT_DIR) + "/config/two_link_planar.json");
+  const ArmConfig config = load_arm_config(std::string(PROJECT_ROOT_DIR) + "/tests/fixtures/two_link_planar.json");
   ASSERT_EQ(config.joints.size(), 2u);
   EXPECT_DOUBLE_EQ(config.joints[0].dh.a, 1.0);
   EXPECT_DOUBLE_EQ(config.joints[1].torque_limit, 25.0);
 }
 
-TEST(ArmConfig, LoadsThreeDofArmConfigAllRevolutePlanar) {
-  // config/three_dof_arm.json (Phase 5): the shoulder/elbow/wrist arm used
-  // by the app's default UI from P5-M1 onward - all-revolute, all alpha=0
-  // (planar, same gravity convention as the two-link arm), so a typo in
-  // any of those would silently produce a different-shaped arm.
-  const ArmConfig config = load_arm_config(std::string(PROJECT_ROOT_DIR) + "/config/three_dof_arm.json");
+TEST(ArmConfig, LoadsHumanoidArmConfigAllRevolutePlanar) {
+  // config/humanoid_arm.json: the shoulder/elbow/wrist humanoid arm the app
+  // loads by default - all-revolute, all alpha=0 (planar, same gravity
+  // convention as the two-link fixture), with named joints and human-like
+  // travel limits.
+  const ArmConfig config = load_arm_config(std::string(PROJECT_ROOT_DIR) + "/config/humanoid_arm.json");
   ASSERT_EQ(config.joints.size(), 3u);
   for (const auto &joint : config.joints) {
     EXPECT_EQ(joint.dh.type, robotarm::JointType::Revolute);
     EXPECT_NEAR(joint.dh.alpha, 0.0, 1e-12);
+    EXPECT_LT(joint.min_degrees, joint.max_degrees);
   }
-  EXPECT_DOUBLE_EQ(config.joints[0].dh.a, 0.9);
-  EXPECT_DOUBLE_EQ(config.joints[1].dh.a, 0.7);
-  EXPECT_DOUBLE_EQ(config.joints[2].dh.a, 0.3);
+  EXPECT_EQ(config.joints[0].name, "Shoulder");
+  EXPECT_EQ(config.joints[1].name, "Elbow");
+  EXPECT_EQ(config.joints[2].name, "Wrist");
+  // An elbow only flexes one way.
+  EXPECT_DOUBLE_EQ(config.joints[1].min_degrees, 0.0);
+  EXPECT_GT(config.joints[1].max_degrees, 90.0);
 }
 
 TEST(ArmConfig, LoadsThreeDofConfigWithPrismaticJoint) {
   const ArmConfig config =
-      load_arm_config(std::string(PROJECT_ROOT_DIR) + "/config/three_dof_with_prismatic.json");
+      load_arm_config(std::string(PROJECT_ROOT_DIR) + "/tests/fixtures/three_dof_with_prismatic.json");
   ASSERT_EQ(config.joints.size(), 3u);
   EXPECT_NEAR(config.joints[0].dh.alpha, -kPi / 2.0, 1e-12);
   EXPECT_EQ(config.joints[2].dh.type, robotarm::JointType::Prismatic);
@@ -254,4 +258,59 @@ TEST(ArmConfig, SaveThenLoadRoundTripsThroughAnActualFile) {
 TEST(ArmConfig, SavingToAnUnwritablePathThrows) {
   const ArmConfig config = parse_arm_config(two_link_planar_json());
   EXPECT_THROW(save_arm_config(config, "/nonexistent/directory/does_not_exist.json"), std::runtime_error);
+}
+
+TEST(ArmConfig, NameAndLimitsDefaultWhenAbsent) {
+  const ArmConfig config = parse_arm_config(two_link_planar_json());
+  EXPECT_TRUE(config.joints[0].name.empty());
+  EXPECT_DOUBLE_EQ(config.joints[0].min_degrees, -180.0);
+  EXPECT_DOUBLE_EQ(config.joints[0].max_degrees, 180.0);
+}
+
+TEST(ArmConfig, ParsesNameAndLimits) {
+  nlohmann::json doc = two_link_planar_json();
+  doc["joints"][1]["name"] = "Elbow";
+  doc["joints"][1]["min_deg"] = 0.0;
+  doc["joints"][1]["max_deg"] = 145.0;
+  const ArmConfig config = parse_arm_config(doc);
+  EXPECT_EQ(config.joints[1].name, "Elbow");
+  EXPECT_DOUBLE_EQ(config.joints[1].min_degrees, 0.0);
+  EXPECT_DOUBLE_EQ(config.joints[1].max_degrees, 145.0);
+}
+
+TEST(ArmConfig, RejectsMinAboveMax) {
+  nlohmann::json doc = two_link_planar_json();
+  doc["joints"][0]["min_deg"] = 30.0;
+  doc["joints"][0]["max_deg"] = -30.0;
+  EXPECT_THROW(parse_arm_config(doc), std::runtime_error);
+}
+
+TEST(ArmConfig, RejectsNonStringName) {
+  nlohmann::json doc = two_link_planar_json();
+  doc["joints"][0]["name"] = 7;
+  EXPECT_THROW(parse_arm_config(doc), std::runtime_error);
+}
+
+TEST(ArmConfig, NameAndLimitsRoundTripThroughJson) {
+  const ArmConfig original = load_arm_config(std::string(PROJECT_ROOT_DIR) + "/config/humanoid_arm.json");
+  const ArmConfig reparsed = parse_arm_config(to_json(original));
+  ASSERT_EQ(reparsed.joints.size(), original.joints.size());
+  for (size_t i = 0; i < original.joints.size(); i++) {
+    EXPECT_EQ(reparsed.joints[i].name, original.joints[i].name);
+    EXPECT_DOUBLE_EQ(reparsed.joints[i].min_degrees, original.joints[i].min_degrees);
+    EXPECT_DOUBLE_EQ(reparsed.joints[i].max_degrees, original.joints[i].max_degrees);
+  }
+}
+
+TEST(ArmConfig, StyleIsOptionalAndRoundTrips) {
+  EXPECT_TRUE(parse_arm_config(two_link_planar_json()).style.empty());
+  const ArmConfig humanoid = load_arm_config(std::string(PROJECT_ROOT_DIR) + "/config/humanoid_arm.json");
+  EXPECT_EQ(humanoid.style, "humanoid");
+  EXPECT_EQ(parse_arm_config(to_json(humanoid)).style, "humanoid");
+}
+
+TEST(ArmConfig, RejectsNonStringStyle) {
+  nlohmann::json doc = two_link_planar_json();
+  doc["style"] = 3;
+  EXPECT_THROW(parse_arm_config(doc), std::runtime_error);
 }

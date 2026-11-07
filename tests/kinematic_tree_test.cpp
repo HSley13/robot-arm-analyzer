@@ -127,3 +127,54 @@ TEST(KinematicTree, ChainAccessorFindsByNameAndThrowsWhenMissing) {
   EXPECT_EQ(tree.chain("x").name, "x");
   EXPECT_THROW(tree.chain("missing"), std::out_of_range);
 }
+
+TEST(KinematicTree, ChainOriginOffsetsAndRotatesTheChainBase) {
+  KinematicChain palm;
+  palm.name = "palm";
+  palm.joints = {DHParameter(0.1)}; // tip at (0.1, 0, 0) at zero angle
+
+  KinematicChain finger;
+  finger.name = "finger";
+  finger.parent_chain = "palm";
+  // Start 2cm to the side of the palm tip, turned 90 degrees about z.
+  finger.origin = robotarm::xyz_rpy_transform(Eigen::Vector3d(0.0, 0.0, 0.02), Eigen::Vector3d(0.0, 0.0, kPi / 2.0));
+  finger.joints = {DHParameter(0.05)};
+
+  const KinematicTree tree({palm, finger});
+  const auto poses = tree.forward_kinematics({{"palm", {0.0}}, {"finger", {0.0}}});
+
+  const Eigen::Matrix4d base = tree.chain_base_frame("finger", poses);
+  const Eigen::Vector3d base_position = base.block<3, 1>(0, 3);
+  EXPECT_TRUE(base_position.isApprox(Eigen::Vector3d(0.1, 0.0, 0.02), 1e-12));
+
+  // The finger's own link now runs along +y (the rotated x axis).
+  const Eigen::Vector3d tip = poses.at("finger")[0].block<3, 1>(0, 3);
+  EXPECT_TRUE(tip.isApprox(Eigen::Vector3d(0.1, 0.05, 0.02), 1e-12));
+}
+
+TEST(KinematicTree, DefaultOriginIsIdentitySoBaseIsTheParentTip) {
+  KinematicChain root;
+  root.name = "root";
+  root.joints = {DHParameter(0.3)};
+  KinematicChain child;
+  child.name = "child";
+  child.parent_chain = "root";
+  child.joints = {DHParameter(0.1)};
+
+  const KinematicTree tree({root, child});
+  const auto poses = tree.forward_kinematics({{"root", {0.4}}, {"child", {0.0}}});
+  EXPECT_TRUE(tree.chain_base_frame("child", poses).isApprox(poses.at("root").back(), 1e-12));
+  EXPECT_TRUE(tree.chain_base_frame("root", poses).isApprox(Eigen::Matrix4d::Identity(), 1e-12));
+}
+
+TEST(KinematicTree, XyzRpyFollowsTheUrdfFixedAxisConvention) {
+  // R = Rz(yaw) * Ry(pitch) * Rx(roll): roll 90 then yaw 90 maps x -> y, z -> x.
+  const Eigen::Matrix4d t = robotarm::xyz_rpy_transform(Eigen::Vector3d(1, 2, 3), Eigen::Vector3d(kPi / 2, 0, kPi / 2));
+  const Eigen::Vector3d translation = t.block<3, 1>(0, 3);
+  EXPECT_TRUE(translation.isApprox(Eigen::Vector3d(1, 2, 3)));
+  const Eigen::Matrix3d rotation = t.block<3, 3>(0, 0);
+  const Eigen::Vector3d x_mapped = rotation * Eigen::Vector3d::UnitX();
+  const Eigen::Vector3d z_mapped = rotation * Eigen::Vector3d::UnitZ();
+  EXPECT_TRUE(x_mapped.isApprox(Eigen::Vector3d::UnitY(), 1e-12));
+  EXPECT_TRUE(z_mapped.isApprox(Eigen::Vector3d::UnitX(), 1e-12));
+}

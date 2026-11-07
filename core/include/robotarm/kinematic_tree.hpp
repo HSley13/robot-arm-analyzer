@@ -18,11 +18,24 @@ namespace robotarm {
 // different topology from a single serial chain the roadmap calls for
 // multi-finger kinematics to get its own module rather than being folded
 // into ArmModel.
+//
+// `origin` is a fixed transform applied between the parent's tip (or the
+// world origin) and this chain's first DH joint - the same idea as a URDF
+// joint's <origin xyz rpy>. Pure DH can only place a branch by rotating
+// about the previous z axis and sliding along x, which can't express e.g.
+// a thumb whose base sits off to the side of the palm and points
+// forward-and-sideways at once. Identity by default, so a chain that
+// doesn't need it behaves exactly as before.
 struct KinematicChain {
   std::string name;
   std::string parent_chain; // empty => attaches to the world origin
   std::vector<DHParameter> joints;
+  Eigen::Matrix4d origin = Eigen::Matrix4d::Identity();
 };
+
+// Builds a homogeneous transform from a translation and URDF-convention
+// roll/pitch/yaw (radians, fixed axes: R = Rz(yaw) * Ry(pitch) * Rx(roll)).
+Eigen::Matrix4d xyz_rpy_transform(const Eigen::Vector3d &xyz, const Eigen::Vector3d &rpy_radians);
 
 // A tree of KinematicChains, each described purely by data - the same
 // generality goal ArmModel has for a single chain, extended to branching
@@ -53,6 +66,14 @@ public:
   // transform already folded in for any chain that has one.
   std::map<std::string, std::vector<Eigen::Matrix4d>> forward_kinematics(
       const std::map<std::string, std::vector<double>> &joint_values) const;
+
+  // The world-frame pose of one chain's own base - its parent's tip (or
+  // the world origin) times its fixed `origin` - i.e. the frame its first
+  // joint rotates in. Not part of forward_kinematics()'s per-joint list
+  // (which has exactly one entry per joint), so it's exposed separately;
+  // `poses` is a forward_kinematics() result for the same tree.
+  Eigen::Matrix4d chain_base_frame(const std::string &name,
+                                   const std::map<std::string, std::vector<Eigen::Matrix4d>> &poses) const;
 
 private:
   std::vector<KinematicChain> _chains;

@@ -26,7 +26,7 @@ namespace {
 #endif
 
 std::string weights_path() {
-  return std::string(PROJECT_ROOT_DIR) + "/ml/models/two_link_planar_dynamic.surrogate.json";
+  return std::string(PROJECT_ROOT_DIR) + "/tests/fixtures/two_link_planar_dynamic.surrogate.json";
 }
 
 // The exact arm this surrogate was trained on, with LinkInertial's
@@ -36,13 +36,13 @@ ArmModel exact_arm() { return ArmModel({DHParameter(1.0), DHParameter(0.5)}); }
 std::vector<LinkInertial> exact_links() { return {LinkInertial::rod(2.0, 1.0), LinkInertial::rod(1.0, 0.5)}; }
 const Eigen::Vector3d kGravityDownY(0.0, -9.81, 0.0);
 
-// config/three_dof_arm.json (P5-M1).
-std::string three_dof_weights_path() {
-  return std::string(PROJECT_ROOT_DIR) + "/ml/models/three_dof_arm_dynamic.surrogate.json";
+// config/humanoid_arm.json - the humanoid arm the app loads by default.
+std::string humanoid_weights_path() {
+  return std::string(PROJECT_ROOT_DIR) + "/ml/models/humanoid_arm_dynamic.surrogate.json";
 }
-ArmModel three_dof_exact_arm() { return ArmModel({DHParameter(0.9), DHParameter(0.7), DHParameter(0.3)}); }
-std::vector<LinkInertial> three_dof_exact_links() {
-  return {LinkInertial::rod(3.5, 0.9), LinkInertial::rod(2.0, 0.7), LinkInertial::rod(0.8, 0.3)};
+ArmModel humanoid_exact_arm() { return ArmModel({DHParameter(0.30), DHParameter(0.27), DHParameter(0.095)}); }
+std::vector<LinkInertial> humanoid_exact_links() {
+  return {LinkInertial::rod(2.4, 0.30), LinkInertial::rod(1.7, 0.27), LinkInertial::rod(0.75, 0.095)};
 }
 
 } // namespace
@@ -107,19 +107,19 @@ TEST(DynamicSurrogate, PredictRawThrowsOnWrongInputSize) {
   EXPECT_THROW(surrogate.predict_raw({0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}), std::invalid_argument);
 }
 
-TEST(DynamicSurrogate, ThreeDofArmLoadsWeightsAndMetadata) {
-  const Surrogate surrogate(three_dof_weights_path());
+TEST(DynamicSurrogate, HumanoidArmLoadsWeightsAndMetadata) {
+  const Surrogate surrogate(humanoid_weights_path());
   EXPECT_EQ(surrogate.num_joints(), 3u);
   EXPECT_EQ(surrogate.input_dim(), 10u);
   EXPECT_GT(surrogate.val_mean_abs_error(), 0.0);
-  EXPECT_LT(surrogate.val_mean_abs_error(), 5.0);
-  EXPECT_LT(surrogate.val_max_abs_error(), 40.0);
+  EXPECT_LT(surrogate.val_mean_abs_error(), 3.0);
+  EXPECT_LT(surrogate.val_max_abs_error(), 20.0);
 }
 
-TEST(DynamicSurrogate, ThreeDofArmPredictionsCloseToExactOnSampleQueries) {
-  const Surrogate surrogate(three_dof_weights_path());
-  const ArmModel arm = three_dof_exact_arm();
-  const std::vector<LinkInertial> links = three_dof_exact_links();
+TEST(DynamicSurrogate, HumanoidArmPredictionsCloseToExactOnSampleQueries) {
+  const Surrogate surrogate(humanoid_weights_path());
+  const ArmModel arm = humanoid_exact_arm();
+  const std::vector<LinkInertial> links = humanoid_exact_links();
 
   struct Sample {
     std::vector<double> position;
@@ -127,18 +127,17 @@ TEST(DynamicSurrogate, ThreeDofArmPredictionsCloseToExactOnSampleQueries) {
     std::vector<double> acceleration;
     double payload;
   };
+  // Inside the training domain: each joint within its travel, rates
+  // within +-2 rad/s and +-5 rad/s^2, payload 0-40 kg.
   const std::vector<Sample> samples = {
       {{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, 0.0},
-      {{1.0, -1.0, 0.5}, {1.0, -1.0, 0.5}, {2.0, -2.0, 1.0}, 1.0},
-      {{-2.0, 2.5, -1.0}, {-1.5, 0.8, -0.5}, {-3.0, 1.0, 2.0}, 2.5},
-      {{3.0, -3.0, 1.5}, {0.5, -0.5, 0.3}, {4.0, -4.0, -1.0}, 4.0},
-      {{-1.5, 0.5, -2.5}, {1.8, -1.2, 0.5}, {-1.0, 3.5, -2.0}, 5.0},
+      {{-0.6, 1.4, -0.2}, {1.0, -1.0, 0.5}, {2.0, -2.0, 1.0}, 5.0},
+      {{-1.57, 0.3, 0.4}, {-1.5, 0.8, -0.5}, {-3.0, 1.0, 2.0}, 10.0},
+      {{1.2, 0.5, 0.8}, {0.5, -0.5, 0.3}, {4.0, -4.0, -1.0}, 15.0},
+      {{-2.0, 2.2, -0.9}, {1.8, -1.2, 0.5}, {-1.0, 3.5, -2.0}, 20.0},
   };
 
-  // A generous bound: P5-M1's held-out validation saw ~27.5 N*m max
-  // error on a joint with a 130 N*m limit, so allow margin for a
-  // different sample set.
-  constexpr double kMaxAllowedError = 40.0;
+  constexpr double kMaxAllowedError = 15.0;
 
   for (size_t i = 0; i < samples.size(); i++) {
     const Sample &s = samples[i];

@@ -26,13 +26,13 @@ namespace {
 #error "PROJECT_ROOT_DIR must be defined by the build"
 #endif
 
-std::string config_path() { return std::string(PROJECT_ROOT_DIR) + "/config/two_link_planar.json"; }
+std::string config_path() { return std::string(PROJECT_ROOT_DIR) + "/tests/fixtures/two_link_planar.json"; }
 std::string three_dof_config_path() {
-  return std::string(PROJECT_ROOT_DIR) + "/config/three_dof_with_prismatic.json";
+  return std::string(PROJECT_ROOT_DIR) + "/tests/fixtures/three_dof_with_prismatic.json";
 }
-std::string surrogate_path() { return std::string(PROJECT_ROOT_DIR) + "/ml/models/two_link_planar.surrogate.json"; }
+std::string surrogate_path() { return std::string(PROJECT_ROOT_DIR) + "/tests/fixtures/two_link_planar.surrogate.json"; }
 std::string dynamic_surrogate_path() {
-  return std::string(PROJECT_ROOT_DIR) + "/ml/models/two_link_planar_dynamic.surrogate.json";
+  return std::string(PROJECT_ROOT_DIR) + "/tests/fixtures/two_link_planar_dynamic.surrogate.json";
 }
 
 } // namespace
@@ -846,4 +846,125 @@ TEST(ArmController, LoadConfigWithMoreJointsThanCurrentWorksEndToEnd) {
   // The newly-loaded arm's own torques must be computable without
   // crashing or returning a mismatched-size result.
   EXPECT_EQ(controller.jointTorques().size(), 3);
+}
+
+namespace {
+std::string humanoid_config_path() { return std::string(PROJECT_ROOT_DIR) + "/config/humanoid_arm.json"; }
+} // namespace
+
+TEST(ArmController, HumanoidArmExposesJointNamesAndLimits) {
+  ArmController controller(humanoid_config_path(), "/nonexistent/weights.json");
+  const QStringList names = controller.jointNames();
+  ASSERT_EQ(names.size(), 3);
+  EXPECT_EQ(names[0], QString("Shoulder"));
+  EXPECT_EQ(names[1], QString("Elbow"));
+  EXPECT_EQ(names[2], QString("Wrist"));
+  EXPECT_DOUBLE_EQ(controller.jointMinDegrees()[1].toDouble(), 0.0);
+  EXPECT_DOUBLE_EQ(controller.jointMaxDegrees()[1].toDouble(), 145.0);
+}
+
+TEST(ArmController, UnnamedJointsFallBackToNumberedNames) {
+  ArmController controller(config_path(), surrogate_path());
+  EXPECT_EQ(controller.jointNames(), QStringList({"Joint 1", "Joint 2"}));
+}
+
+TEST(ArmController, SetJointAngleDegreesClampsToTheJointsTravel) {
+  ArmController controller(humanoid_config_path(), "/nonexistent/weights.json");
+  controller.setJointAngleDegrees(1, -40.0); // an elbow can't hyperextend
+  EXPECT_NEAR(controller.jointAnglesDegrees()[1].toDouble(), 0.0, 1e-9);
+  controller.setJointAngleDegrees(1, 400.0);
+  EXPECT_NEAR(controller.jointAnglesDegrees()[1].toDouble(), 145.0, 1e-9);
+  controller.setJointAngleDegrees(1, 90.0);
+  EXPECT_NEAR(controller.jointAnglesDegrees()[1].toDouble(), 90.0, 1e-9);
+}
+
+TEST(ArmController, MoveToTargetNeverLeavesTheJointTravel) {
+  ArmController controller(humanoid_config_path(), "/nonexistent/weights.json");
+  // A point below and slightly in front of the shoulder - reachable, but
+  // a naive solve from the straight-out pose wants a negative elbow.
+  controller.moveToTarget(0.35, -0.35);
+  const QVariantList angles = controller.jointAnglesDegrees();
+  for (int i = 0; i < angles.size(); i++) {
+    EXPECT_GE(angles[i].toDouble(), controller.jointMinDegrees()[i].toDouble() - 1e-6) << "joint " << i;
+    EXPECT_LE(angles[i].toDouble(), controller.jointMaxDegrees()[i].toDouble() + 1e-6) << "joint " << i;
+  }
+}
+
+TEST(ArmController, PayloadScanFoldsTheElbowTheWayItCanBend) {
+  ArmController controller(humanoid_config_path(), "/nonexistent/weights.json");
+  controller.runPayloadScan(10);
+  const QVariantList reach = controller.scanReachMeters();
+  ASSERT_EQ(reach.size(), 10);
+  // Folding a positive-only elbow must actually shorten the reach - if it
+  // tried to fold negatively, the clamp would pin it straight and every
+  // sample would sit at full reach.
+  EXPECT_LT(reach.last().toDouble(), reach.first().toDouble() - 0.1);
+}
+
+TEST(ArmController, FrameRotationsMatchJointPositionsAndFollowTheShoulder) {
+  ArmController controller(humanoid_config_path(), "/nonexistent/weights.json");
+  ASSERT_EQ(controller.frameRotations().size(), controller.jointPositions().size());
+
+  controller.setJointAngleDegrees(0, -90.0); // arm hanging straight down
+  const QQuaternion upper_arm = controller.frameRotations()[1].value<QQuaternion>();
+  const QVector3D x_axis = upper_arm.rotatedVector(QVector3D(1, 0, 0));
+  EXPECT_NEAR(x_axis.y(), -1.0, 1e-5);
+}
+
+TEST(ArmController, HumanoidAiScanStaysCloseToTheExactScan) {
+  // The AI search is capped to the network's training payload range, so
+  // it can't wander off into extrapolated nonsense - its capacity curve
+  // should track the exact engine's.
+  ArmController controller(humanoid_config_path(),
+                           std::string(PROJECT_ROOT_DIR) + "/ml/models/humanoid_arm.surrogate.json");
+  ASSERT_TRUE(controller.aiModeAvailable());
+  controller.runPayloadScan(20);
+  ASSERT_TRUE(controller.scanAiAvailable());
+
+  const QVariantList exact = controller.scanExactPayloadKg();
+  const QVariantList ai = controller.scanAiPayloadKg();
+  ASSERT_EQ(exact.size(), ai.size());
+  for (int i = 0; i < exact.size(); i++) {
+    EXPECT_NEAR(ai[i].toDouble(), exact[i].toDouble(), 2.0) << "sample " << i;
+  }
+}
+
+TEST(ArmController, HumanoidConfigCarriesItsStyle) {
+  ArmController controller(humanoid_config_path(), "/nonexistent/weights.json");
+  EXPECT_EQ(controller.armStyle(), QString("humanoid"));
+}
+
+TEST(ArmController, AddingAJointTurnsTheHumanoidArmIndustrial) {
+  ArmController controller(humanoid_config_path(), "/nonexistent/weights.json");
+  controller.addJoint();
+  EXPECT_EQ(controller.armStyle(), QString("industrial"));
+  EXPECT_EQ(controller.jointCount(), 4);
+  // Anatomical names no longer apply.
+  EXPECT_EQ(controller.jointNames(), QStringList({"Joint 1", "Joint 2", "Joint 3", "Joint 4"}));
+  // ... and neither does the elbow's one-way travel.
+  for (int i = 0; i < 4; i++) {
+    EXPECT_DOUBLE_EQ(controller.jointMinDegrees()[i].toDouble(), -170.0);
+    EXPECT_DOUBLE_EQ(controller.jointMaxDegrees()[i].toDouble(), 170.0);
+  }
+  controller.setJointAngleDegrees(1, -60.0); // an "elbow" bending backwards is fine now
+  EXPECT_NEAR(controller.jointAnglesDegrees()[1].toDouble(), -60.0, 1e-9);
+}
+
+TEST(ArmController, ConvertingKeepsLengthsMassesAndLimits) {
+  ArmController controller(humanoid_config_path(), "/nonexistent/weights.json");
+  const QVariantList lengths = controller.linkLengths();
+  const QVariantList masses = controller.jointMassesKg();
+  controller.convertToIndustrial();
+  EXPECT_EQ(controller.armStyle(), QString("industrial"));
+  EXPECT_EQ(controller.jointCount(), 3);
+  EXPECT_EQ(controller.linkLengths(), lengths);
+  EXPECT_EQ(controller.jointMassesKg(), masses);
+}
+
+TEST(ArmController, TheHumanoidSurrogateDoesntApplyToAnIndustrialArm) {
+  ArmController controller(humanoid_config_path(),
+                           std::string(PROJECT_ROOT_DIR) + "/ml/models/humanoid_arm.surrogate.json");
+  ASSERT_TRUE(controller.aiModeAvailable());
+  controller.convertToIndustrial();
+  EXPECT_FALSE(controller.aiModeAvailable());
 }

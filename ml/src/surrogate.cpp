@@ -43,6 +43,7 @@ Surrogate::Surrogate(const std::filesystem::path &weights_path) {
   _num_joints = document.at("num_joints").get<size_t>();
   _val_mean_abs_error = document.value("val_mean_abs_error_nm", 0.0);
   _val_max_abs_error = document.value("val_max_abs_error_nm", 0.0);
+  _payload_max_kg = document.value("payload_max_kg", 0.0);
 
   _w1 = to_matrix(document.at("w1"));
   _b1 = to_vector(document.at("b1"));

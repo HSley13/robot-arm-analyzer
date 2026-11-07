@@ -26,8 +26,18 @@ namespace robotarm {
 // it defaults to LinkInertial::rod(mass, dh.a) - the documented uniform-
 // rod simplification - so an existing Phase 1 config needs no changes to
 // work with Phase 2 dynamics.
+//
+// `name` ("Shoulder", "Elbow", ...) and the min_degrees/max_degrees range
+// are optional in the JSON ("name", "min_deg", "max_deg"). The range is
+// the joint's mechanical travel - a humanoid elbow can't bend backwards -
+// and is enforced by ArmController when posing and by inverse kinematics.
+// The defaults (-180..180) mean "no limit", so older configs behave as
+// before.
 struct JointConfig {
+  std::string name;
   DHParameter dh;
+  double min_degrees = -180.0;
+  double max_degrees = 180.0;
   double mass = 0.0;         // kg, at this joint's frame origin - see statics.hpp
   double torque_limit = 0.0; // N*m (Revolute) or N (Prismatic)
   LinkInertial inertial;
@@ -35,8 +45,14 @@ struct JointConfig {
 
 // A full serial-link arm definition, loaded from JSON so the tool works for
 // any arm instead of one hardcoded one (the project's core generality goal).
+//
+// `style` (JSON "style", optional) says how the arm is meant to be shown
+// and used: "humanoid" (shoulder / elbow / wrist with a hand),
+// "industrial" (any number of joints with a parallel gripper), or empty
+// when the config doesn't say.
 struct ArmConfig {
   std::string name;
+  std::string style;
   std::vector<JointConfig> joints;
 };
 

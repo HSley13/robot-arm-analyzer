@@ -5,8 +5,10 @@
 #include <vector>
 
 #include <QObject>
+#include <QtQml/qqmlregistration.h>
 #include <QQuaternion>
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 #include <QVector3D>
 
@@ -18,6 +20,9 @@
 #include "robotarm/surrogate.hpp"
 #include "robotarm/trajectory.hpp"
 
+class QQmlEngine;
+class QJSEngine;
+
 namespace robotarm {
 
 // QML-facing backend: owns one ArmModel/LinkMass config, current pose/
@@ -25,11 +30,23 @@ namespace robotarm {
 // exposes plain Qt types to QML, never the core/ml C++ types directly.
 class ArmController : public QObject {
   Q_OBJECT
+  // QML: `import Humanoid.Backend`, then use ArmController.<property> - one
+  // shared instance (the one main() made, see qml_singleton.hpp).
+  QML_ELEMENT
+  QML_SINGLETON
   Q_PROPERTY(QString armName READ armName NOTIFY resultsChanged)
+  // "humanoid", "industrial" or "" - see ArmConfig::style. Adding or
+  // removing a joint turns a humanoid arm into an industrial one.
+  Q_PROPERTY(QString armStyle READ armStyle NOTIFY resultsChanged)
   Q_PROPERTY(int jointCount READ jointCount NOTIFY resultsChanged)
   Q_PROPERTY(bool aiModeAvailable READ aiModeAvailable NOTIFY resultsChanged)
   Q_PROPERTY(QVector3D canvasCenter READ canvasCenter NOTIFY resultsChanged)
   Q_PROPERTY(QString configMessage READ configMessage NOTIFY resultsChanged)
+  // How far the arm's base is leaning forward (degrees) - the humanoid's
+  // hip bend. Every torque, capacity and scan number accounts for it by
+  // turning gravity in the arm's frame; joint positions stay in the
+  // arm's own (torso-attached) frame.
+  Q_PROPERTY(double baseTiltDegrees READ baseTiltDegrees WRITE setBaseTiltDegrees NOTIFY resultsChanged)
 
   Q_PROPERTY(double payloadKg READ payloadKg WRITE setPayloadKg NOTIFY resultsChanged)
   // effectivePayloadKg() is 0 while the gripper is open, regardless of
@@ -41,6 +58,9 @@ class ArmController : public QObject {
   Q_PROPERTY(double trajectoryProgress READ trajectoryProgress WRITE setTrajectoryProgress NOTIFY resultsChanged)
   Q_PROPERTY(int trajectoryWaypointCount READ trajectoryWaypointCount NOTIFY resultsChanged)
 
+  Q_PROPERTY(QStringList jointNames READ jointNames NOTIFY resultsChanged)
+  Q_PROPERTY(QVariantList jointMinDegrees READ jointMinDegrees NOTIFY resultsChanged)
+  Q_PROPERTY(QVariantList jointMaxDegrees READ jointMaxDegrees NOTIFY resultsChanged)
   Q_PROPERTY(QVariantList jointAnglesDegrees READ jointAnglesDegrees NOTIFY resultsChanged)
   Q_PROPERTY(QVariantList jointVelocitiesDegrees READ jointVelocitiesDegrees NOTIFY resultsChanged)
   Q_PROPERTY(QVariantList jointAccelerationsDegrees READ jointAccelerationsDegrees NOTIFY resultsChanged)
@@ -57,6 +77,11 @@ class ArmController : public QObject {
   Q_PROPERTY(QVariantList linkMidpoints READ linkMidpoints NOTIFY resultsChanged)
   Q_PROPERTY(QVariantList linkLengths READ linkLengths NOTIFY resultsChanged)
   Q_PROPERTY(QVariantList linkRotations READ linkRotations NOTIFY resultsChanged)
+  // Full orientation of every frame in jointPositions (same length: the
+  // base frame first, then one per joint) - unlike linkRotations, which
+  // only aligns +Y with a link and throws away the roll about it. The 3D
+  // view needs the roll to mount the hand and orient each limb shell.
+  Q_PROPERTY(QVariantList frameRotations READ frameRotations NOTIFY resultsChanged)
 
   // Always via the exact engine, regardless of aiMode - the one number
   // meant to be trusted outright.
@@ -71,13 +96,27 @@ class ArmController : public QObject {
   Q_PROPERTY(int scanSampleCount READ scanSampleCount NOTIFY resultsChanged)
 
 public:
+  // The instance QML gets (see qml_singleton.hpp).
+  static ArmController *create(QQmlEngine *, QJSEngine *);
+  static void setQmlInstance(ArmController *instance) { s_qmlInstance = instance; }
+
   explicit ArmController(const std::filesystem::path &config_path, const std::filesystem::path &surrogate_path,
                           const std::filesystem::path &dynamic_surrogate_path = {}, QObject *parent = nullptr);
 
   QString armName() const;
+  QString armStyle() const { return QString::fromStdString(_config.style); }
   int jointCount() const { return static_cast<int>(_arm.num_joints()); }
   bool aiModeAvailable() const;
   QVector3D canvasCenter() const { return _canvasCenter; }
+  double baseTiltDegrees() const { return _baseTiltRadians * 180.0 / 3.14159265358979323846; }
+  void setBaseTiltDegrees(double degrees);
+
+  // C++-side access for planners (TaskController): the live config (with
+  // any lengths/masses edited in the UI), and a whole-pose update with a
+  // single recompute instead of one per joint.
+  const ArmConfig &config() const { return _config; }
+  std::vector<double> jointAnglesRadians() const { return _jointAnglesRadians; }
+  void setJointAnglesRadians(const std::vector<double> &radians);
 
   double payloadKg() const { return _payloadKg; }
   void setPayloadKg(double kg);
@@ -94,6 +133,9 @@ public:
   void setTrajectoryProgress(double progress);
   int trajectoryWaypointCount() const;
 
+  QStringList jointNames() const;
+  QVariantList jointMinDegrees() const;
+  QVariantList jointMaxDegrees() const;
   QVariantList jointAnglesDegrees() const;
   QVariantList jointVelocitiesDegrees() const;
   QVariantList jointAccelerationsDegrees() const;
@@ -110,6 +152,7 @@ public:
   QVariantList linkMidpoints() const;
   QVariantList linkLengths() const;
   QVariantList linkRotations() const;
+  QVariantList frameRotations() const;
 
   double currentMaxSafePayloadKg() const { return _currentMaxSafePayloadKg; }
   QVariantList scanReachMeters() const;
@@ -119,47 +162,67 @@ public:
   double scanAiMilliseconds() const { return _scanAiMilliseconds; }
   bool scanAiAvailable() const { return _scanAiAvailable; }
   int scanSampleCount() const { return static_cast<int>(_scanReachMeters.size()); }
+  QString configMessage() const { return _configMessage; }
 
-  Q_INVOKABLE void setJointAngleDegrees(int index, double degrees);
+  // Actions. Slots, so QML calls them like functions (ArmController.addJoint())
+  // and C++ can also connect signals straight to them.
+public slots:
+  // Clamped into the joint's configured min_deg..max_deg travel.
+  void setJointAngleDegrees(int index, double degrees);
 
   // Solves for joint angles reaching (xMeters, yMeters) in the base
   // frame's XY plane, from the current pose. An unreachable target
   // still updates to the closest approach, not a no-op.
-  Q_INVOKABLE void moveToTarget(double xMeters, double yMeters);
+  void moveToTarget(double xMeters, double yMeters);
 
-  Q_INVOKABLE void setJointVelocityDegrees(int index, double degreesPerSecond);
-  Q_INVOKABLE void setJointAccelerationDegrees(int index, double degreesPerSecondSquared);
-  Q_INVOKABLE void recordWaypoint();
+  void setJointVelocityDegrees(int index, double degreesPerSecond);
+  void setJointAccelerationDegrees(int index, double degreesPerSecondSquared);
+  void recordWaypoint();
 
-  Q_INVOKABLE void setJointTorqueLimit(int index, double limit);
+  void setJointTorqueLimit(int index, double limit);
 
   // Edits this joint's DH `a` and rebuilds _arm - a geometry change,
   // not just a pose change. Turns aiMode off: the surrogate assumes
   // fixed geometry.
-  Q_INVOKABLE void setJointLength(int index, double meters);
+  void setJointLength(int index, double meters);
 
   // Turns aiMode off for the same reason setJointLength() does - the
   // surrogate's training data baked in the original masses.
-  Q_INVOKABLE void setJointMass(int index, double kg);
+  void setJointMass(int index, double kg);
 
-  Q_INVOKABLE void addJoint();
-  Q_INVOKABLE void removeLastJoint();
+  // Both turn a humanoid arm into an industrial one first (see
+  // convertToIndustrial()) - a fourth joint has no anatomical name.
+  void addJoint();
+  void removeLastJoint();
 
-  QString configMessage() const { return _configMessage; }
+  // Re-labels the arm as a warehouse/industrial arm: style "industrial",
+  // generic joint names, and every joint's travel widened to +-170 degrees
+  // (the humanoid's elbow-only-bends-one-way limits don't apply to a
+  // machine). Lengths, masses and torque limits are kept. No-op if the
+  // arm is already industrial.
+  void convertToIndustrial();
 
-  Q_INVOKABLE bool loadConfig(const QString &path);
-  Q_INVOKABLE bool saveConfig(const QString &path);
+  // Reloads the config file the controller was started with (the
+  // humanoid arm, in the app) - undoes convertToIndustrial()/added joints.
+  bool reloadInitialConfig();
+
+  bool loadConfig(const QString &path);
+  bool saveConfig(const QString &path);
 
   // Sweeps from fully extended to folded, computing max_safe_payload()
   // at each sampled reach through the exact engine and (if available)
   // the AI surrogate, timing each sweep as a whole.
-  Q_INVOKABLE void runPayloadScan(int sampleCount);
+  void runPayloadScan(int sampleCount);
 
 signals:
   void resultsChanged();
 
 private:
   void recompute();
+  // Clamps a joint value (radians) into that joint's configured travel.
+  double clampToLimits(size_t index, double radians) const;
+  Eigen::Vector3d gravity() const;
+  std::vector<double> surrogateAngles(std::vector<double> angles) const;
   TrajectoryState effectiveState() const;
   double effectivePayloadKg() const { return _gripperOpen ? 0.0 : _payloadKg; }
 
@@ -180,6 +243,7 @@ private:
   bool _gripperOpen = false;
   bool _aiMode = false;
   bool _dynamicMode = false;
+  double _baseTiltRadians = 0.0;
 
   bool _trajectoryScrubMode = false;
   double _trajectoryProgress = 0.0;
@@ -188,9 +252,11 @@ private:
   TorqueBreakdown _breakdown;
 
   std::vector<Eigen::Vector3d> _jointPositions;
+  std::vector<Eigen::Matrix3d> _frameRotations;
   std::vector<double> _jointTorques;
   QVector3D _canvasCenter;
   QString _configMessage;
+  QString _initialConfigPath;
 
   double _currentMaxSafePayloadKg = 0.0;
   std::vector<double> _scanReachMeters;
@@ -199,6 +265,8 @@ private:
   double _scanExactMilliseconds = 0.0;
   double _scanAiMilliseconds = 0.0;
   bool _scanAiAvailable = false;
+
+  static inline ArmController *s_qmlInstance = nullptr;
 };
 
 } // namespace robotarm

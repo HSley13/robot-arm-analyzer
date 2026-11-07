@@ -71,3 +71,41 @@ add_executable(inverse_kinematics_tests inverse_kinematics_test.cpp)
 target_link_libraries(inverse_kinematics_tests PRIVATE robotarm_core gtest_main)
 
 add_test(NAME inverse_kinematics_tests COMMAND inverse_kinematics_tests)
+
+add_executable(hand_config_tests hand_config_test.cpp)
+target_link_libraries(hand_config_tests PRIVATE robotarm_core gtest_main)
+target_compile_definitions(hand_config_tests PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
+
+add_test(NAME hand_config_tests COMMAND hand_config_tests)
+
+add_executable(hand_gestures_tests hand_gestures_test.cpp)
+target_link_libraries(hand_gestures_tests PRIVATE robotarm_core gtest_main)
+
+add_test(NAME hand_gestures_tests COMMAND hand_gestures_tests)
+
+add_executable(hand_controller_tests hand_controller_test.cpp)
+target_link_libraries(hand_controller_tests PRIVATE robotarm_app_core gtest_main)
+target_compile_definitions(hand_controller_tests PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
+
+add_test(NAME hand_controller_tests COMMAND hand_controller_tests)
+
+add_executable(pick_planner_tests pick_planner_test.cpp)
+target_link_libraries(pick_planner_tests PRIVATE robotarm_core gtest_main)
+target_compile_definitions(pick_planner_tests PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
+
+add_test(NAME pick_planner_tests COMMAND pick_planner_tests)
+
+add_executable(task_controller_tests task_controller_test.cpp)
+target_link_libraries(task_controller_tests PRIVATE robotarm_app_core gtest_main)
+target_compile_definitions(task_controller_tests PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
+
+add_test(NAME task_controller_tests COMMAND task_controller_tests)
+
+# Loads a little QML through the engine, the way the app does: the
+# Humanoid.Backend module must register the controllers as singletons.
+add_executable(qml_module_tests qml_module_test.cpp)
+target_link_libraries(qml_module_tests PRIVATE robotarm_app_core robotarm_app_coreplugin gtest)
+target_compile_definitions(qml_module_tests PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
+set_target_properties(qml_module_tests PROPERTIES AUTOMOC ON)
+
+add_test(NAME qml_module_tests COMMAND qml_module_tests)

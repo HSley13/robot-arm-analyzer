@@ -85,16 +85,34 @@ ArmConfig parse_arm_config(const nlohmann::json &document) {
 
   ArmConfig config;
   config.name = document.value("name", std::string());
+  if (document.contains("style")) {
+    if (!document.at("style").is_string()) {
+      throw std::runtime_error("arm config: field 'style' must be a string");
+    }
+    config.style = document.at("style").get<std::string>();
+  }
 
   for (size_t i = 0; i < joints_json.size(); i++) {
     const nlohmann::json &joint_json = joints_json.at(i);
 
     JointConfig joint;
+    if (joint_json.contains("name")) {
+      if (!joint_json.at("name").is_string()) {
+        throw std::runtime_error("arm config: joint " + std::to_string(i) + " field 'name' must be a string");
+      }
+      joint.name = joint_json.at("name").get<std::string>();
+    }
     joint.dh.type = parse_joint_type(joint_json, i);
     joint.dh.a = require_number(joint_json, "a", i);
     joint.dh.alpha = to_radians(require_number(joint_json, "alpha_deg", i));
     joint.dh.d = optional_number(joint_json, "d", i, 0.0);
     joint.dh.theta = to_radians(optional_number(joint_json, "theta_offset_deg", i, 0.0));
+
+    joint.min_degrees = optional_number(joint_json, "min_deg", i, -180.0);
+    joint.max_degrees = optional_number(joint_json, "max_deg", i, 180.0);
+    if (joint.min_degrees > joint.max_degrees) {
+      throw std::runtime_error("arm config: joint " + std::to_string(i) + " has min_deg greater than max_deg");
+    }
 
     joint.mass = optional_number(joint_json, "mass", i, 0.0);
     if (joint.mass < 0.0) {
@@ -169,6 +187,9 @@ std::vector<LinkInertial> to_link_inertials(const ArmConfig &config) {
 nlohmann::json to_json(const ArmConfig &config) {
   nlohmann::json document;
   document["name"] = config.name;
+  if (!config.style.empty()) {
+    document["style"] = config.style;
+  }
   document["joints"] = nlohmann::json::array();
 
   for (const JointConfig &joint : config.joints) {
@@ -176,11 +197,16 @@ nlohmann::json to_json(const ArmConfig &config) {
     const Eigen::Matrix3d &inertia = joint.inertial.inertia;
 
     nlohmann::json joint_json;
+    if (!joint.name.empty()) {
+      joint_json["name"] = joint.name;
+    }
     joint_json["type"] = (joint.dh.type == JointType::Revolute) ? "revolute" : "prismatic";
     joint_json["a"] = joint.dh.a;
     joint_json["alpha_deg"] = to_degrees(joint.dh.alpha);
     joint_json["d"] = joint.dh.d;
     joint_json["theta_offset_deg"] = to_degrees(joint.dh.theta);
+    joint_json["min_deg"] = joint.min_degrees;
+    joint_json["max_deg"] = joint.max_degrees;
     joint_json["mass"] = joint.mass;
     joint_json["torque_limit"] = joint.torque_limit;
     joint_json["center_of_mass"] = {com.x(), com.y(), com.z()};

@@ -13,15 +13,17 @@ that exact invocation - P5-M1 added the arguments (to also train a
 three_dof_arm surrogate) without duplicating this whole script.
 
 Regenerate the training data this script expects with (from the project
-root, after `cb`):
-    build/bin/generate_training_data config/<arm-name>.json \
-        python/data/<arm-name>_train.csv 20000 1 0 -9.81 0
-    build/bin/generate_training_data config/<arm-name>.json \
-        python/data/<arm-name>_val.csv 2000 2 0 -9.81 0
+root, after `cb`) - the last argument is the payload range in kg:
+    build/bin/generate_training_data config/humanoid_arm.json \
+        python/data/humanoid_arm_train.csv 30000 1 0 -9.81 0 40
+    build/bin/generate_training_data config/humanoid_arm.json \
+        python/data/humanoid_arm_val.csv 3000 2 0 -9.81 0 40
 
-Usage (from the project root):
-    python/.venv/bin/python python/train_surrogate.py
-    python/.venv/bin/python python/train_surrogate.py --arm-name three_dof_arm --num-joints 3
+Usage (from the project root) - the humanoid arm the app ships with:
+    python/.venv/bin/python python/train_surrogate.py --arm-name humanoid_arm --num-joints 3 --hidden-dim 32
+
+(The defaults still describe the two-link test fixture, whose weights now
+live in tests/fixtures/.)
 """
 from __future__ import annotations
 
@@ -162,6 +164,10 @@ def main() -> None:
         "output_dim": num_joints,
         "val_mean_abs_error_nm": float(abs_err.mean()),
         "val_max_abs_error_nm": float(abs_err.max()),
+        # Largest payload in the training data. The C++ side never asks the
+        # network about heavier payloads - an MLP's extrapolation outside its
+        # training range is meaningless (see ArmController::runPayloadScan).
+        "payload_max_kg": float(train_x[:, -1].max()),
         "w1": w1.tolist(),
         "b1": b1.tolist(),
         "w2": w2.tolist(),

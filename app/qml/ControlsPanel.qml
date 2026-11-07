@@ -2,8 +2,10 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
+import Humanoid.Backend
 
-// Sidebar: legend, reach targeting, payload, and config file I/O.
+// Sidebar: legend, the arm (humanoid / warehouse, joints), a mouse
+// cheat-sheet + status, the body's joints, payload + hand, and config I/O.
 // Per-joint controls, AI toggle, and Static/Dynamic mode live in
 // BottomBar.qml instead.
 Rectangle {
@@ -27,7 +29,7 @@ Rectangle {
             spacing: 8
 
             Label {
-                text: armController.armName
+                text: ArmController.armName
                 font.pixelSize: 18
                 font.bold: true
                 color: "white"
@@ -78,38 +80,200 @@ Rectangle {
                 }
             }
 
+            // The arm on the right shoulder: the humanoid arm + hand, or a
+            // warehouse arm with a gripper and as many joints as you like.
+            Rectangle {
+                id: armCard
+                Layout.fillWidth: true
+                color: "#171a2b"
+                radius: 14
+                border.color: "#262a40"
+                border.width: 1
+                implicitHeight: armColumn.implicitHeight + 16
+
+                readonly property bool industrial: ArmController.armStyle === "industrial"
+                // Swapping the arm under a held object (or mid-move) would drop it.
+                readonly property bool canChange: !TaskController.busy && TaskController.heldId < 0
+
+                ColumnLayout {
+                    id: armColumn
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label { color: "white"; font.bold: true; text: "Arm" }
+                        Item { Layout.fillWidth: true }
+                        Label {
+                            color: "#7a8099"
+                            font.pixelSize: 11
+                            text: ArmController.jointCount + (ArmController.jointCount === 1 ? " joint" : " joints")
+                        }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 5
+                        Button {
+                            Layout.fillWidth: true
+                            text: "Humanoid"
+                            checkable: true
+                            checked: !armCard.industrial
+                            enabled: armCard.canChange
+                            onClicked: TaskController.useHumanoidArm()
+                        }
+                        Button {
+                            Layout.fillWidth: true
+                            text: "Warehouse"
+                            checkable: true
+                            checked: armCard.industrial
+                            enabled: armCard.canChange
+                            onClicked: TaskController.useIndustrialArm()
+                        }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 5
+                        Button {
+                            Layout.fillWidth: true
+                            text: "+ Joint"
+                            enabled: armCard.canChange
+                            onClicked: ArmController.addJoint()
+                        }
+                        Button {
+                            Layout.fillWidth: true
+                            text: "− Joint"
+                            enabled: armCard.canChange && ArmController.jointCount > 1
+                            onClicked: ArmController.removeLastJoint()
+                        }
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        visible: !armCard.industrial
+                        wrapMode: Text.WordWrap
+                        color: "#7a8099"
+                        font.pixelSize: 11
+                        text: "Adding or removing a joint turns it into a warehouse arm with a gripper."
+                    }
+                }
+            }
+
+            // The scene is driven with the mouse; this card just says how,
+            // and shows what's going on.
+            Rectangle {
+                id: sceneCard
+                Layout.fillWidth: true
+                color: "#171a2b"
+                radius: 14
+                border.color: "#262a40"
+                border.width: 1
+                implicitHeight: sceneColumn.implicitHeight + 16
+
+                ColumnLayout {
+                    id: sceneColumn
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label { color: "white"; font.bold: true; text: "Mouse" }
+                        Item { Layout.fillWidth: true }
+                        Button {
+                            visible: TaskController.busy
+                            text: "Stop"
+                            onClicked: TaskController.stop()
+                        }
+                    }
+
+                    Repeater {
+                        model: [
+                            ["Drag the hand", "the body follows"],
+                            ["Drag a joint or limb", "swing that joint"],
+                            ["Drag the torso / column / base", "lean / lift / turn the waist"],
+                            ["Drag an object", "move it"],
+                            ["Drag a table", "move it, and what's on it"],
+                            ["Click an object", "pick up · move · mass · delete"],
+                            ["Click the floor / table", "put down · reach · add objects or furniture"],
+                            ["Drag empty space", "orbit · right-drag pans · wheel zooms"]
+                        ]
+                        Label {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            font.pixelSize: 11
+                            color: "#9aa0ab"
+                            textFormat: Text.StyledText
+                            text: "<font color='#ffffff'>" + modelData[0] + "</font> - " + modelData[1]
+                        }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        visible: TaskController.status !== ""
+                        wrapMode: Text.WordWrap
+                        color: TaskController.status.indexOf("Can't") === 0 || TaskController.status.indexOf("No room") === 0
+                               ? "#ff4d4f" : "#17e0ff"
+                        font.pixelSize: 12
+                        text: TaskController.status
+                    }
+                }
+            }
+
+            // The body's own joints: waist turn, lift height, hip bend.
             Rectangle {
                 Layout.fillWidth: true
                 color: "#171a2b"
                 radius: 14
                 border.color: "#262a40"
                 border.width: 1
-                implicitHeight: moveToTargetColumn.implicitHeight + 16
+                implicitHeight: bodyColumn.implicitHeight + 16
 
                 ColumnLayout {
-                    id: moveToTargetColumn
+                    id: bodyColumn
                     anchors.fill: parent
                     anchors.margins: 8
-                    spacing: 5
+                    spacing: 2
+                    enabled: !TaskController.busy
 
                     Label {
                         color: "white"
                         font.bold: true
-                        text: "Move to target"
+                        text: "Body"
                     }
 
-                    ReachPad {
-                        Layout.alignment: Qt.AlignHCenter
-                        Layout.preferredWidth: 150
-                        Layout.preferredHeight: 150
-                        readonly property real reachDiameterMeters: armController.canvasCenter.x * 2
-                        rangeMeters: Math.max(reachDiameterMeters * 1.8, 0.5)
-                        maxReachMeters: reachDiameterMeters
-                        markerXMeters: armController.jointPositions.length > 0
-                            ? armController.jointPositions[armController.jointPositions.length - 1].x : 0
-                        markerYMeters: armController.jointPositions.length > 0
-                            ? armController.jointPositions[armController.jointPositions.length - 1].y : 0
-                        onTargetMoved: (x, y) => armController.moveToTarget(x, y)
+                    Repeater {
+                        model: [
+                            { label: "Waist", unit: "°", from: TaskController.body.minYaw, to: TaskController.body.maxYaw,
+                              key: "waistYawDegrees", decimals: 0 },
+                            { label: "Lift", unit: " m", from: TaskController.body.minHipHeight,
+                              to: TaskController.body.maxHipHeight, key: "hipHeight", decimals: 2 },
+                            { label: "Lean", unit: "°", from: 0, to: TaskController.body.maxHipBend,
+                              key: "hipBendDegrees", decimals: 0 }
+                        ]
+                        RowLayout {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            spacing: 4
+                            Label {
+                                color: "#9aa0ab"
+                                Layout.preferredWidth: 36
+                                text: modelData.label
+                            }
+                            Slider {
+                                Layout.fillWidth: true
+                                from: modelData.from
+                                to: modelData.to
+                                value: TaskController[modelData.key]
+                                onMoved: TaskController[modelData.key] = value
+                            }
+                            Label {
+                                color: "white"
+                                Layout.preferredWidth: 46
+                                horizontalAlignment: Text.AlignRight
+                                text: TaskController[modelData.key].toFixed(modelData.decimals) + modelData.unit
+                            }
+                        }
                     }
                 }
             }
@@ -121,6 +285,10 @@ Rectangle {
                 border.color: "#262a40"
                 border.width: 1
                 implicitHeight: payloadColumn.implicitHeight + 16
+                // The demo payload is the arm's own; while the hand carries a
+                // scene object, that object's mass is the payload instead.
+                enabled: TaskController.heldId < 0 && !TaskController.busy
+                opacity: enabled ? 1.0 : 0.5
 
                 ColumnLayout {
                     id: payloadColumn
@@ -131,7 +299,7 @@ Rectangle {
                     Label {
                         color: "white"
                         font.bold: true
-                        text: "Payload"
+                        text: "Payload (demo dumbbell)"
                     }
 
                     RowLayout {
@@ -141,16 +309,16 @@ Rectangle {
                         Slider {
                             Layout.fillWidth: true
                             from: 0
-                            to: 50
-                            value: armController.payloadKg
-                            onMoved: armController.payloadKg = value
+                            to: 30
+                            value: ArmController.payloadKg
+                            onMoved: ArmController.payloadKg = value
                         }
 
                         TextField {
                             implicitWidth: 70
-                            text: armController.payloadKg.toFixed(1)
+                            text: ArmController.payloadKg.toFixed(1)
                             validator: DoubleValidator { bottom: 0 }
-                            onEditingFinished: armController.payloadKg = parseFloat(text)
+                            onEditingFinished: ArmController.payloadKg = parseFloat(text)
                         }
 
                         Label {
@@ -165,19 +333,77 @@ Rectangle {
 
                         Label {
                             color: "white"
-                            opacity: armController.gripperOpen ? 1.0 : 0.5
-                            text: "Open"
+                            opacity: ArmController.gripperOpen ? 1.0 : 0.5
+                            text: "Released"
                         }
 
                         Switch {
-                            checked: !armController.gripperOpen
-                            onToggled: armController.gripperOpen = !checked
+                            checked: !ArmController.gripperOpen
+                            onToggled: ArmController.gripperOpen = !checked
                         }
 
                         Label {
                             color: "white"
-                            opacity: armController.gripperOpen ? 0.5 : 1.0
-                            text: "Closed (holding payload)"
+                            opacity: ArmController.gripperOpen ? 0.5 : 1.0
+                            text: "Gripping"
+                        }
+                    }
+                }
+            }
+
+            // Hand gestures. Gripping/releasing the payload above also
+            // drives the hand (power grip / open), these override it.
+            Rectangle {
+                Layout.fillWidth: true
+                color: "#171a2b"
+                radius: 14
+                border.color: "#262a40"
+                border.width: 1
+                implicitHeight: handColumn.implicitHeight + 16
+                visible: ArmController.armStyle !== "industrial"
+
+                ColumnLayout {
+                    id: handColumn
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label {
+                            color: "white"
+                            font.bold: true
+                            text: "Hand"
+                        }
+                        Item { Layout.fillWidth: true }
+                        Label {
+                            color: "#7a8099"
+                            font.pixelSize: 11
+                            text: HandController.currentGesture
+                        }
+                    }
+
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: 3
+                        columnSpacing: 5
+                        rowSpacing: 5
+
+                        Repeater {
+                            model: [
+                                { label: "Grip", gesture: "powerGrip" },
+                                { label: "Open", gesture: "openPalm" },
+                                { label: "Fist", gesture: "closedFist" },
+                                { label: "Relax", gesture: "restPose" },
+                                { label: "Wave", gesture: "wave" }
+                            ]
+                            Button {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                text: modelData.label
+                                highlighted: HandController.currentGesture === modelData.gesture
+                                onClicked: HandController.playGesture(modelData.gesture)
+                            }
                         }
                     }
                 }
@@ -237,7 +463,7 @@ Rectangle {
                             anchors.fill: parent
                             onDropped: (drop) => {
                                 if (!drop.hasUrls || drop.urls.length === 0) return
-                                armController.loadConfig(root.urlToLocalPath(drop.urls[0]))
+                                ArmController.loadConfig(root.urlToLocalPath(drop.urls[0]))
                             }
                         }
                     }
@@ -250,10 +476,10 @@ Rectangle {
 
                     FileDialog {
                         id: loadFileDialog
-                        title: "Choose an arm config file"
+                        title: "Choose an arm config file (e.g. config/humanoid_arm.json)"
                         fileMode: FileDialog.OpenFile
                         nameFilters: ["JSON files (*.json)", "All files (*)"]
-                        onAccepted: armController.loadConfig(root.urlToLocalPath(selectedFile))
+                        onAccepted: ArmController.loadConfig(root.urlToLocalPath(selectedFile))
                     }
 
                     FileDialog {
@@ -261,7 +487,7 @@ Rectangle {
                         title: "Save arm config as"
                         fileMode: FileDialog.SaveFile
                         nameFilters: ["JSON files (*.json)", "All files (*)"]
-                        onAccepted: armController.saveConfig(root.urlToLocalPath(selectedFile))
+                        onAccepted: ArmController.saveConfig(root.urlToLocalPath(selectedFile))
                     }
 
                     Label {
@@ -269,8 +495,8 @@ Rectangle {
                         font.pixelSize: 11
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
-                        visible: armController.configMessage.length > 0
-                        text: armController.configMessage
+                        visible: ArmController.configMessage.length > 0
+                        text: ArmController.configMessage
                     }
                 }
             }
