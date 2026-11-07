@@ -83,11 +83,6 @@ public:
   Q_INVOKABLE double jointMinDegrees(const QString &chainName, int jointIndex) const;
   Q_INVOKABLE double jointMaxDegrees(const QString &chainName, int jointIndex) const;
 
-  // Snaps one joint straight to a target angle - no animation. For manual
-  // control (and later, external sensor input); gestures always go
-  // through playGesture() instead, which is never instant.
-  Q_INVOKABLE void setJointAngleDegrees(const QString &chainName, int jointIndex, double degrees);
-
   // Joint positions (meters) for one chain, in the hand's own local
   // frame, in base-to-tip order - the same QVariantList-of-QVector3D
   // convention ArmController::jointPositions() uses, so QML renders both
@@ -134,15 +129,24 @@ public:
   // own z axis (the first joint's axis).
   Q_INVOKABLE QVariantList rootSegmentFrameForChain(const QString &chainName) const;
 
+  // Actions. Slots, so QML calls them like functions
+  // (HandController.playGesture("wave")) and C++ can connect signals to
+  // them. The per-chain getters above are queries and stay Q_INVOKABLE.
+public slots:
+  // Snaps one joint straight to a target angle - no animation. For manual
+  // control (and later, external sensor input); gestures always go
+  // through playGesture() instead, which is never instant.
+  void setJointAngleDegrees(const QString &chainName, int jointIndex, double degrees);
+
   // Starts a smooth animation toward a named gesture ("restPose",
   // "openPalm", "closedFist", "powerGrip", "wave"), replacing any animation already
   // in progress. Unknown names are logged and ignored - a typo in a QML
   // button binding should do nothing, not crash.
-  Q_INVOKABLE void playGesture(const QString &name);
+  void playGesture(const QString &name);
 
   // Closes the fingers `closure` of the way (0 = open, 1 = fist), animated
   // like a gesture - used to grasp objects of different sizes.
-  Q_INVOKABLE void playGrasp(double closure);
+  void playGrasp(double closure);
 
 signals:
   void resultsChanged();

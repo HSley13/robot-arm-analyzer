@@ -110,6 +110,9 @@ public:
   QStringList tableKinds() const;
   double gripperWidth() const { return _gripperWidth; }
 
+  // Actions. Slots, so QML calls them like functions
+  // (TaskController.pickUp(id)) and C++ can connect signals to them.
+public slots:
   // Sets the goal for the arm's end-effector point to the world point
   // (x, y, z): plan_reach finds the pose (changing as little as possible
   // from the previous goal), and the body then moves there at the speeds
@@ -117,46 +120,49 @@ public:
   // jumps. It's what dragging the hand calls on every mouse move. Returns
   // false if the point is out of reach (the hand then goes to the closest
   // point it can get to). Ignored while a pick / put-down sequence runs.
-  Q_INVOKABLE bool reachTo(double x, double y, double z);
+  bool reachTo(double x, double y, double z);
   // Stops moving toward the reachTo() goal, wherever the body is now.
-  Q_INVOKABLE void cancelReach();
+  void cancelReach();
 
   // Switches the arm between the humanoid (shoulder / elbow / wrist +
   // hand) and an industrial warehouse arm (+ parallel gripper). Not while
   // holding something or mid-sequence.
-  Q_INVOKABLE bool useHumanoidArm();
-  Q_INVOKABLE bool useIndustrialArm();
+  bool useHumanoidArm();
+  bool useIndustrialArm();
 
   // Adds an object standing at (x, z) on whatever surface is there; its
   // mass defaults to the type's typical mass when massKg <= 0. Returns the
   // new id, or -1 (with `status` explaining) if it doesn't fit there.
-  Q_INVOKABLE int addObject(const QString &type, double massKg, double x, double z);
-  Q_INVOKABLE bool moveObject(int id, double x, double z);
-  Q_INVOKABLE void setObjectMass(int id, double kg);
-  Q_INVOKABLE void removeObject(int id);
+  int addObject(const QString &type, double massKg, double x, double z);
+  bool moveObject(int id, double x, double z);
+  void setObjectMass(int id, double kg);
+  void removeObject(int id);
   // Tables (and coffee tables, counters) centered at (x, z). Adding or
   // moving one fails (-1 / false, `status` says why) if it would overlap
   // the robot's base, another table or an object on the floor. Whatever
   // stands on a table moves with it; removing a table sets its objects
   // down on the floor where they were.
-  Q_INVOKABLE int addTable(const QString &kind, double x, double z);
-  Q_INVOKABLE bool moveTable(int id, double x, double z);
-  Q_INVOKABLE void removeTable(int id);
+  int addTable(const QString &kind, double x, double z);
+  bool moveTable(int id, double x, double z);
+  void removeTable(int id);
 
   // Selects the object whose footprint contains (x, z), if any.
-  Q_INVOKABLE bool selectAt(double x, double z);
+  bool selectAt(double x, double z);
 
   // Plans and starts the pick / put-down sequence. False (and `status`
   // says why) if it can't be done - out of reach, too heavy, no room...
-  Q_INVOKABLE bool pickUp(int id);
-  Q_INVOKABLE bool putDown(double x, double z);
+  bool pickUp(int id);
+  bool putDown(double x, double z);
   // Abandons the running sequence where it is.
-  Q_INVOKABLE void stop();
+  void stop();
 
   // One click in the 3D view at (x, z) on a surface, interpreted by
   // clickMode (see the property).
-  Q_INVOKABLE void handleClick(double x, double z);
+  void handleClick(double x, double z);
 
+public:
+  // A query, not an action - stays Q_INVOKABLE (callable from QML, but not
+  // something to connect a signal to).
   // Height of the surface an object of footprint radius `footprint` would
   // stand on at (x, z): a table top, the floor, or -1 if it would hang
   // over a table's edge or overlap the robot's base.

@@ -162,55 +162,57 @@ public:
   double scanAiMilliseconds() const { return _scanAiMilliseconds; }
   bool scanAiAvailable() const { return _scanAiAvailable; }
   int scanSampleCount() const { return static_cast<int>(_scanReachMeters.size()); }
+  QString configMessage() const { return _configMessage; }
 
+  // Actions. Slots, so QML calls them like functions (ArmController.addJoint())
+  // and C++ can also connect signals straight to them.
+public slots:
   // Clamped into the joint's configured min_deg..max_deg travel.
-  Q_INVOKABLE void setJointAngleDegrees(int index, double degrees);
+  void setJointAngleDegrees(int index, double degrees);
 
   // Solves for joint angles reaching (xMeters, yMeters) in the base
   // frame's XY plane, from the current pose. An unreachable target
   // still updates to the closest approach, not a no-op.
-  Q_INVOKABLE void moveToTarget(double xMeters, double yMeters);
+  void moveToTarget(double xMeters, double yMeters);
 
-  Q_INVOKABLE void setJointVelocityDegrees(int index, double degreesPerSecond);
-  Q_INVOKABLE void setJointAccelerationDegrees(int index, double degreesPerSecondSquared);
-  Q_INVOKABLE void recordWaypoint();
+  void setJointVelocityDegrees(int index, double degreesPerSecond);
+  void setJointAccelerationDegrees(int index, double degreesPerSecondSquared);
+  void recordWaypoint();
 
-  Q_INVOKABLE void setJointTorqueLimit(int index, double limit);
+  void setJointTorqueLimit(int index, double limit);
 
   // Edits this joint's DH `a` and rebuilds _arm - a geometry change,
   // not just a pose change. Turns aiMode off: the surrogate assumes
   // fixed geometry.
-  Q_INVOKABLE void setJointLength(int index, double meters);
+  void setJointLength(int index, double meters);
 
   // Turns aiMode off for the same reason setJointLength() does - the
   // surrogate's training data baked in the original masses.
-  Q_INVOKABLE void setJointMass(int index, double kg);
+  void setJointMass(int index, double kg);
 
   // Both turn a humanoid arm into an industrial one first (see
   // convertToIndustrial()) - a fourth joint has no anatomical name.
-  Q_INVOKABLE void addJoint();
-  Q_INVOKABLE void removeLastJoint();
+  void addJoint();
+  void removeLastJoint();
 
   // Re-labels the arm as a warehouse/industrial arm: style "industrial",
   // generic joint names, and every joint's travel widened to +-170 degrees
   // (the humanoid's elbow-only-bends-one-way limits don't apply to a
   // machine). Lengths, masses and torque limits are kept. No-op if the
   // arm is already industrial.
-  Q_INVOKABLE void convertToIndustrial();
+  void convertToIndustrial();
 
   // Reloads the config file the controller was started with (the
   // humanoid arm, in the app) - undoes convertToIndustrial()/added joints.
-  Q_INVOKABLE bool reloadInitialConfig();
+  bool reloadInitialConfig();
 
-  QString configMessage() const { return _configMessage; }
-
-  Q_INVOKABLE bool loadConfig(const QString &path);
-  Q_INVOKABLE bool saveConfig(const QString &path);
+  bool loadConfig(const QString &path);
+  bool saveConfig(const QString &path);
 
   // Sweeps from fully extended to folded, computing max_safe_payload()
   // at each sampled reach through the exact engine and (if available)
   // the AI surrogate, timing each sweep as a whole.
-  Q_INVOKABLE void runPayloadScan(int sampleCount);
+  void runPayloadScan(int sampleCount);
 
 signals:
   void resultsChanged();
