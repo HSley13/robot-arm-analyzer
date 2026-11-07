@@ -30,7 +30,17 @@ Node {
     readonly property int jointCount: armController.jointPositions.length - 1
 
     function linkLength(i) { return i < armController.linkLengths.length ? armController.linkLengths[i] : 0.0 }
-    function jointColor(i) { return i < armController.jointColors.length ? armController.jointColors[i] : "#2ecc71" }
+    function jointColor(i) { return i < armController.jointColors.length ? String(armController.jointColors[i]) : "#2ecc71" }
+
+    // Load status on the shells: untouched while a joint is safe, washed
+    // amber at caution and red at overload, so a struggling joint shows
+    // from across the room - not just on its LED ring.
+    function isSafe(i) { return jointColor(i).toLowerCase() === "#2ecc71" }
+    function tinted(base, i, amount) {
+        if (isSafe(i)) return base
+        const alpha = Math.round(amount * 255).toString(16).padStart(2, "0")
+        return Qt.tint(base, "#" + alpha + jointColor(i).substring(1))
+    }
 
     readonly property real upperArmLength: linkLength(0)
     readonly property real forearmLength: linkLength(1)
@@ -60,7 +70,12 @@ Node {
             eulerRotation.x: 90
             scale: Qt.vector3d(2 * actuator.radius / root.meshUnit, actuator.depth / root.meshUnit,
                                2 * actuator.radius / root.meshUnit)
-            materials: jointMaterial
+            materials: PrincipledMaterial {
+                baseColor: Qt.tint("#3a4552", Qt.rgba(actuator.statusColor.r, actuator.statusColor.g,
+                                                      actuator.statusColor.b, 0.35))
+                roughness: 0.5
+                metalness: 0.15
+            }
         }
         Repeater3D {
             model: 2
@@ -108,7 +123,7 @@ Node {
             position: Qt.vector3d(0, 0, actuator.depth / 2 + 0.0062)
             geometry: TubeGeometry {
                 closed: true
-                radius: 0.0012
+                radius: Math.max(0.0028, actuator.radius * 0.06)
                 radialSegments: 8
                 samplesPerSpan: 3
                 points: {
@@ -140,6 +155,7 @@ Node {
         property real thickness: 0.07 // out-of-plane (Z) at the start
         property real taper: 0.85
         property real roundness: 0.3
+        property color color: "#7f91a3"
         position: Qt.vector3d((start + end) / 2, 0, 0)
         eulerRotation.z: -90
         geometry: RoundedBoxGeometry {
@@ -147,7 +163,7 @@ Node {
             radius: Math.min(shell.width, shell.thickness) * shell.roundness
             taper: shell.taper
         }
-        materials: shellMaterial
+        materials: PrincipledMaterial { baseColor: shell.color; roughness: 0.46; specularAmount: 0.45 }
     }
 
     // A rubber seal band around a limb at `x`.
@@ -214,6 +230,7 @@ Node {
             taper: 0.78
             roundness: 0.46
             position: Qt.vector3d((start + end) / 2, 0.006, -0.004)
+            color: root.tinted("#7f91a3", 0, 0.45)
         }
 
         LimbShell {
@@ -223,6 +240,7 @@ Node {
             thickness: 0.078
             taper: 0.84
             roundness: 0.34
+            color: root.tinted("#7f91a3", 0, 0.45)
         }
         // Back-of-arm (tricep) panel for some shape.
         LimbShell {
@@ -233,7 +251,7 @@ Node {
             taper: 0.8
             roundness: 0.4
             position: Qt.vector3d((start + end) / 2, -0.024, 0)
-            materials: shellDarkMaterial
+            color: root.tinted("#5d6f82", 0, 0.45)
         }
 
         ServicePanel {
@@ -273,6 +291,7 @@ Node {
             thickness: 0.074
             taper: 0.86
             roundness: 0.42
+            color: root.tinted("#7f91a3", 1, 0.45)
         }
         // Main forearm shell, narrowing to the wrist.
         LimbShell {
@@ -282,6 +301,7 @@ Node {
             thickness: 0.062
             taper: 0.72
             roundness: 0.36
+            color: root.tinted("#7f91a3", 1, 0.45)
         }
 
         ServicePanel {
@@ -302,7 +322,7 @@ Node {
             position: Qt.vector3d(forearm.length - 0.012, 0, 0)
             eulerRotation.z: -90
             geometry: RoundedBoxGeometry { size: Qt.vector3d(0.050, 0.034, 0.046); radius: 0.013 }
-            materials: shellDarkMaterial
+            materials: PrincipledMaterial { baseColor: root.tinted("#5d6f82", 2, 0.5); roughness: 0.52 }
         }
         Actuator {
             position: Qt.vector3d(forearm.length, 0, 0)
