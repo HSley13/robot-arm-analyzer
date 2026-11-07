@@ -56,6 +56,8 @@ TaskController::TaskController(ArmController *arm, HandController *hand, QObject
   _pose.hip_height = kStandingHipHeight;
   _pose.hip_bend = 0.0;
   _arm->setBaseTiltDegrees(0.0);
+  addTable(QStringLiteral("table"), 0.50, -0.575); // in front and to the robot's left
+  _status.clear();
 
   // Advance by real elapsed time, so the motion keeps its speed even if
   // the window renders slowly; capped so a long stall doesn't teleport.
@@ -191,17 +193,176 @@ double TaskController::supportHeightAt(double x, double z, double footprint) con
   if (std::hypot(x, z) < kBaseRadius + footprint) {
     return -1.0; // on the robot's own base
   }
-  const bool fully_on_table = x >= kTableX0 + footprint && x <= kTableX1 - footprint && z >= kTableZ0 + footprint &&
-                              z <= kTableZ1 - footprint;
-  if (fully_on_table) {
-    return kTableHeight;
+  for (const Table &table : _tables) {
+    const bool fully_on = x >= table.x0() + footprint && x <= table.x1() - footprint &&
+                          z >= table.z0() + footprint && z <= table.z1() - footprint;
+    if (fully_on) {
+      return table.height;
+    }
+    const double dx = std::max({table.x0() - x, 0.0, x - table.x1()});
+    const double dz = std::max({table.z0() - z, 0.0, z - table.z1()});
+    if (std::hypot(dx, dz) <= footprint) {
+      return -1.0; // straddling this table's edge (or under it)
+    }
   }
-  const double dx = std::max({kTableX0 - x, 0.0, x - kTableX1});
-  const double dz = std::max({kTableZ0 - z, 0.0, z - kTableZ1});
-  if (std::hypot(dx, dz) > footprint) {
-    return 0.0; // clear of the table: the floor
+  return 0.0; // clear of every table: the floor
+}
+
+// ---- tables ----------------------------------------------------------------
+
+QStringList TaskController::tableKinds() const {
+  return {QStringLiteral("table"), QStringLiteral("coffee table"), QStringLiteral("counter")};
+}
+
+TaskController::Table *TaskController::findTable(int id) {
+  for (Table &table : _tables) {
+    if (table.id == id) {
+      return &table;
+    }
   }
-  return -1.0; // straddling the table's edge
+  return nullptr;
+}
+
+bool TaskController::isOn(const SceneObject &object, const Table &table) const {
+  return object.id != _heldId && std::abs(object.base.y() - table.height) < 1e-9 && object.base.x() >= table.x0() &&
+         object.base.x() <= table.x1() && object.base.z() >= table.z0() && object.base.z() <= table.z1();
+}
+
+QString TaskController::tableBlockedBy(const Table &table, int ignore_id) const {
+  constexpr double kGap = 0.02; // m, room to walk a hand between things
+  // The robot's base: closest point of the rectangle to the waist axis.
+  const double nx = std::clamp(0.0, table.x0(), table.x1());
+  const double nz = std::clamp(0.0, table.z0(), table.z1());
+  if (std::hypot(nx, nz) < kBaseRadius + kGap) {
+    return QStringLiteral("too close to the robot");
+  }
+  for (const Table &other : _tables) {
+    if (other.id == ignore_id) {
+      continue;
+    }
+    if (table.x0() < other.x1() + kGap && other.x0() < table.x1() + kGap && table.z0() < other.z1() + kGap &&
+        other.z0() < table.z1() + kGap) {
+      return QStringLiteral("another %1 is in the way").arg(other.kind);
+    }
+  }
+  for (const SceneObject &object : _objects) {
+    if (object.id == _heldId || object.base.y() > 0.0) {
+      continue; // carried, or standing on a table (a moved table takes its own along)
+    }
+    const double footprint = shapeOf(object.type, object.mass).footprint;
+    const double dx = std::max({table.x0() - object.base.x(), 0.0, object.base.x() - table.x1()});
+    const double dz = std::max({table.z0() - object.base.z(), 0.0, object.base.z() - table.z1()});
+    if (std::hypot(dx, dz) <= footprint) {
+      return QStringLiteral("the %1 on the floor is in the way").arg(object.type);
+    }
+  }
+  return {};
+}
+
+QVariantList TaskController::tables() const {
+  QVariantList list;
+  for (const Table &table : _tables) {
+    QVariantMap map;
+    map["id"] = table.id;
+    map["kind"] = table.kind;
+    map["label"] = labelOf(table.kind);
+    map["x"] = table.x;
+    map["z"] = table.z;
+    map["width"] = table.width;
+    map["depth"] = table.depth;
+    map["height"] = table.height;
+    map["x0"] = table.x0();
+    map["x1"] = table.x1();
+    map["z0"] = table.z0();
+    map["z1"] = table.z1();
+    list.append(map);
+  }
+  return list;
+}
+
+int TaskController::addTable(const QString &kind, double x, double z) {
+  Table table;
+  table.kind = kind;
+  table.x = x;
+  table.z = z;
+  if (kind == QStringLiteral("table")) {
+    table.width = 0.50;
+    table.depth = 0.45;
+    table.height = 0.72;
+  } else if (kind == QStringLiteral("coffee table")) {
+    table.width = 0.70;
+    table.depth = 0.42;
+    table.height = 0.42;
+  } else if (kind == QStringLiteral("counter")) {
+    table.width = 0.42;
+    table.depth = 0.60;
+    table.height = 0.92;
+  } else {
+    setStatus(QStringLiteral("Unknown kind of table '%1'").arg(kind));
+    return -1;
+  }
+  const QString blocked = tableBlockedBy(table, -1);
+  if (!blocked.isEmpty()) {
+    setStatus(QStringLiteral("No room for a %1 there - %2").arg(kind, blocked));
+    return -1;
+  }
+  table.id = _nextTableId;
+  _nextTableId++;
+  _tables.push_back(table);
+  setStatus(QStringLiteral("Added a %1").arg(kind));
+  emit tablesChanged();
+  return table.id;
+}
+
+bool TaskController::moveTable(int id, double x, double z) {
+  Table *table = findTable(id);
+  if (table == nullptr) {
+    return false;
+  }
+  Table moved = *table;
+  moved.x = x;
+  moved.z = z;
+  if (!tableBlockedBy(moved, id).isEmpty()) {
+    return false; // dragging into something: just stay put
+  }
+  // What stands on it rides along.
+  const Eigen::Vector3d shift(x - table->x, 0.0, z - table->z);
+  bool carried = false;
+  for (SceneObject &object : _objects) {
+    if (isOn(object, *table)) {
+      object.base += shift;
+      carried = true;
+    }
+  }
+  *table = moved;
+  emit tablesChanged();
+  if (carried) {
+    emit objectsChanged();
+  }
+  return true;
+}
+
+void TaskController::removeTable(int id) {
+  const Table *table = findTable(id);
+  if (table == nullptr || busy()) {
+    return;
+  }
+  const QString kind = table->kind;
+  bool dropped = false;
+  for (SceneObject &object : _objects) {
+    if (isOn(object, *table)) {
+      object.base.y() = 0.0; // set down on the floor right below
+      dropped = true;
+    }
+  }
+  _tables.erase(std::remove_if(_tables.begin(), _tables.end(), [id](const Table &t) { return t.id == id; }),
+                _tables.end());
+  setStatus(dropped ? QStringLiteral("Removed the %1 - what was on it is on the floor now").arg(kind)
+                    : QStringLiteral("Removed the %1").arg(kind));
+  emit tablesChanged();
+  if (dropped) {
+    emit objectsChanged();
+  }
 }
 
 bool TaskController::spotIsFree(double x, double z, double footprint, int ignore_id) const {
@@ -349,16 +510,6 @@ QVariantMap TaskController::body() const {
   map["minYaw"] = _geometry.min_yaw_degrees;
   map["maxYaw"] = _geometry.max_yaw_degrees;
   map["baseRadius"] = kBaseRadius;
-  return map;
-}
-
-QVariantMap TaskController::table() const {
-  QVariantMap map;
-  map["x0"] = kTableX0;
-  map["x1"] = kTableX1;
-  map["z0"] = kTableZ0;
-  map["z1"] = kTableZ1;
-  map["height"] = kTableHeight;
   return map;
 }
 

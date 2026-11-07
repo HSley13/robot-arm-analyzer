@@ -21,7 +21,6 @@ Item {
     id: root
 
     readonly property real meshUnit: 100.0
-    readonly property var table: taskController.table
 
     // The hand closes around the Payload card's demo dumbbell and opens
     // when it's released. While a pick/put-down sequence runs, the
@@ -120,36 +119,19 @@ Item {
             }
         }
 
-        // ---- table ----------------------------------------------------------
+        // ---- tables ---------------------------------------------------------
 
-        Node {
-            id: tableNode
-            readonly property real x0: root.table.x0
-            readonly property real x1: root.table.x1
-            readonly property real z0: root.table.z0
-            readonly property real z1: root.table.z1
-            readonly property real h: root.table.height
-
-            Model {
-                objectName: "table"
-                position: Qt.vector3d((tableNode.x0 + tableNode.x1) / 2, tableNode.h - 0.015, (tableNode.z0 + tableNode.z1) / 2)
-                geometry: RoundedBoxGeometry {
-                    size: Qt.vector3d(tableNode.x1 - tableNode.x0, 0.03, tableNode.z1 - tableNode.z0)
-                    radius: 0.006
-                }
-                pickable: true
-                materials: PrincipledMaterial { baseColor: "#6b5643"; roughness: 0.6 }
-            }
-            Repeater3D {
-                model: 4
-                Model {
-                    required property int index
-                    readonly property real lx: index % 2 === 0 ? tableNode.x0 + 0.04 : tableNode.x1 - 0.04
-                    readonly property real lz: index < 2 ? tableNode.z0 + 0.04 : tableNode.z1 - 0.04
-                    position: Qt.vector3d(lx, (tableNode.h - 0.03) / 2, lz)
-                    geometry: RoundedBoxGeometry { size: Qt.vector3d(0.04, tableNode.h - 0.03, 0.04); radius: 0.006 }
-                    materials: PrincipledMaterial { baseColor: "#2b2f37"; metalness: 0.6; roughness: 0.45 }
-                }
+        Repeater3D {
+            model: taskController.tables
+            Table3D {
+                required property var modelData
+                tableId: modelData.id
+                kind: modelData.kind
+                position: Qt.vector3d(modelData.x, 0, modelData.z)
+                tableWidth: modelData.width
+                tableDepth: modelData.depth
+                tableHeight: modelData.height
+                highlighted: mouse.grab.kind === "table" && mouse.grab.id === modelData.id
             }
         }
 

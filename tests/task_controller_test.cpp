@@ -59,7 +59,7 @@ QVector3D tipInWorld(const ArmController &arm, const TaskController &task) {
 
 TEST(TaskController, ObjectsStandOnTheFloorOrTheTable) {
   Rig rig;
-  const QVariantMap table = rig.task.table();
+  const QVariantMap table = rig.task.tables().first().toMap();
   const double table_x = (table["x0"].toDouble() + table["x1"].toDouble()) / 2.0;
   const double table_z = (table["z0"].toDouble() + table["z1"].toDouble()) / 2.0;
 
@@ -75,7 +75,7 @@ TEST(TaskController, ObjectsStandOnTheFloorOrTheTable) {
 
 TEST(TaskController, RejectsSpotsThatDontWork) {
   Rig rig;
-  const QVariantMap table = rig.task.table();
+  const QVariantMap table = rig.task.tables().first().toMap();
   EXPECT_EQ(rig.task.addObject("bottle", 1.0, 0.1, 0.1), -1);                        // on the robot's base
   EXPECT_EQ(rig.task.addObject("bottle", 1.0, table["x0"].toDouble(), -0.5), -1);   // straddling the table edge
   EXPECT_EQ(rig.task.addObject("teapot", 1.0, 0.6, 0.4), -1);                       // unknown type
@@ -107,7 +107,7 @@ TEST(TaskController, PutsTheHeldObjectDownOnTheTable) {
   rig.runToEnd();
   ASSERT_EQ(rig.task.heldId(), id);
 
-  const QVariantMap table = rig.task.table();
+  const QVariantMap table = rig.task.tables().first().toMap();
   ASSERT_TRUE(rig.task.putDown(0.40, -0.50)) << rig.task.status().toStdString();
   rig.runToEnd();
 
@@ -280,4 +280,43 @@ TEST(TaskController, SwitchesBetweenTheHumanoidAndTheWarehouseArm) {
   rig.runToEnd();
   EXPECT_FALSE(rig.task.useIndustrialArm());
   EXPECT_EQ(rig.arm.armStyle(), QString("humanoid"));
+}
+
+TEST(TaskController, TablesCanBeAddedMovedAndRemoved) {
+  Rig rig;
+  ASSERT_EQ(rig.task.tables().size(), 1);
+
+  // A coffee table on the robot's right; a can on it.
+  const int coffee = rig.task.addTable("coffee table", 0.55, 0.60);
+  ASSERT_NE(coffee, -1) << rig.task.status().toStdString();
+  const int can = rig.task.addObject("can", 0.0, 0.55, 0.60);
+  ASSERT_NE(can, -1);
+  EXPECT_NEAR(objectById(rig.task, can)["y"].toDouble(), 0.42, 1e-12);
+
+  // Moving the table carries the can along.
+  ASSERT_TRUE(rig.task.moveTable(coffee, 0.70, 0.70));
+  EXPECT_NEAR(objectById(rig.task, can)["x"].toDouble(), 0.70, 1e-12);
+  EXPECT_NEAR(objectById(rig.task, can)["z"].toDouble(), 0.70, 1e-12);
+
+  // Not into the robot, not onto the other table.
+  EXPECT_FALSE(rig.task.moveTable(coffee, 0.20, 0.10));
+  EXPECT_FALSE(rig.task.moveTable(coffee, 0.50, -0.55));
+  EXPECT_EQ(rig.task.addTable("counter", 0.0, 0.0), -1);
+
+  // Removing it sets the can down on the floor.
+  rig.task.removeTable(coffee);
+  EXPECT_EQ(rig.task.tables().size(), 1);
+  EXPECT_DOUBLE_EQ(objectById(rig.task, can)["y"].toDouble(), 0.0);
+}
+
+TEST(TaskController, PutsThingsDownOnAnAddedCounter) {
+  Rig rig;
+  const int counter = rig.task.addTable("counter", 0.60, 0.55);
+  ASSERT_NE(counter, -1) << rig.task.status().toStdString();
+  const int id = rig.task.addObject("bottle", 0.0, 0.62, -0.10);
+  ASSERT_TRUE(rig.task.pickUp(id)) << rig.task.status().toStdString();
+  rig.runToEnd();
+  ASSERT_TRUE(rig.task.putDown(0.55, 0.45)) << rig.task.status().toStdString();
+  rig.runToEnd();
+  EXPECT_NEAR(objectById(rig.task, id)["y"].toDouble(), 0.92, 1e-12);
 }

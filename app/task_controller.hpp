@@ -59,8 +59,10 @@ class TaskController : public QObject {
   Q_PROPERTY(double hipBendDegrees READ hipBendDegrees WRITE setHipBendDegrees NOTIFY bodyChanged)
   // Body dimensions and ranges for the 3D model and the sliders.
   Q_PROPERTY(QVariantMap body READ body CONSTANT)
-  // The table: {x0, x1, z0, z1, height}.
-  Q_PROPERTY(QVariantMap table READ table CONSTANT)
+  // The tables, coffee tables and counters standing around:
+  // [{id, kind, label, x, z, width, depth, height, x0, x1, z0, z1}].
+  Q_PROPERTY(QVariantList tables READ tables NOTIFY tablesChanged)
+  Q_PROPERTY(QStringList tableKinds READ tableKinds CONSTANT)
   // Distance between the industrial gripper's fingers (m): wide open, or
   // closed onto whatever it's holding.
   Q_PROPERTY(double gripperWidth READ gripperWidth NOTIFY stateChanged)
@@ -92,7 +94,8 @@ public:
   double hipBendDegrees() const;
   void setHipBendDegrees(double degrees);
   QVariantMap body() const;
-  QVariantMap table() const;
+  QVariantList tables() const;
+  QStringList tableKinds() const;
   double gripperWidth() const { return _gripperWidth; }
 
   // Sets the goal for the arm's end-effector point to the world point
@@ -119,6 +122,15 @@ public:
   Q_INVOKABLE bool moveObject(int id, double x, double z);
   Q_INVOKABLE void setObjectMass(int id, double kg);
   Q_INVOKABLE void removeObject(int id);
+  // Tables (and coffee tables, counters) centered at (x, z). Adding or
+  // moving one fails (-1 / false, `status` says why) if it would overlap
+  // the robot's base, another table or an object on the floor. Whatever
+  // stands on a table moves with it; removing a table sets its objects
+  // down on the floor where they were.
+  Q_INVOKABLE int addTable(const QString &kind, double x, double z);
+  Q_INVOKABLE bool moveTable(int id, double x, double z);
+  Q_INVOKABLE void removeTable(int id);
+
   // Selects the object whose footprint contains (x, z), if any.
   Q_INVOKABLE bool selectAt(double x, double z);
 
@@ -134,8 +146,8 @@ public:
   Q_INVOKABLE void handleClick(double x, double z);
 
   // Height of the surface an object of footprint radius `footprint` would
-  // stand on at (x, z): the table top, the floor, or -1 if it would hang
-  // over the table's edge or overlap the robot's base.
+  // stand on at (x, z): a table top, the floor, or -1 if it would hang
+  // over a table's edge or overlap the robot's base.
   Q_INVOKABLE double supportHeightAt(double x, double z, double footprint) const;
 
   // Moves every running animation forward by `seconds`. Called by the
@@ -146,6 +158,7 @@ signals:
   void objectsChanged();
   void stateChanged();
   void bodyChanged();
+  void tablesChanged();
 
 private:
   struct SceneObject {
@@ -157,6 +170,22 @@ private:
     // or "side" (gripper level), and at what height above its base.
     QString grasp_mode;
     double grasp_height = 0.0;
+  };
+
+  // An axis-aligned table: center (x, z), size along X (width) and Z
+  // (depth), top at `height`.
+  struct Table {
+    int id = 0;
+    QString kind;
+    double x = 0.0;
+    double z = 0.0;
+    double width = 0.5;
+    double depth = 0.45;
+    double height = 0.72;
+    double x0() const { return x - width / 2.0; }
+    double x1() const { return x + width / 2.0; }
+    double z0() const { return z - depth / 2.0; }
+    double z1() const { return z + depth / 2.0; }
   };
 
   // One way of grasping an object: the planner target, which mode it is,
@@ -191,6 +220,11 @@ private:
   static double gripPalmar(double grip_radius);
   static double gripClosure(double grip_radius);
 
+  Table *findTable(int id);
+  // Why a table of this size can't stand at (x, z) - empty if it can.
+  // `ignore_id` is the table being moved (its own objects ride along).
+  QString tableBlockedBy(const Table &table, int ignore_id) const;
+  bool isOn(const SceneObject &object, const Table &table) const;
   SceneObject *findObject(int id);
   const SceneObject *findObject(int id) const;
   bool spotIsFree(double x, double z, double footprint, int ignore_id) const;
@@ -229,6 +263,8 @@ private:
   HandController *_hand;
   BodyGeometry _geometry;
 
+  std::vector<Table> _tables;
+  int _nextTableId = 1;
   std::vector<SceneObject> _objects;
   int _nextId = 1;
   int _selectedId = -1;
@@ -251,12 +287,6 @@ private:
   double _gripperWidth = 0.11;
   double _placeMassKg = 1.0;
 
-  // The table, in front and to the robot's left.
-  static constexpr double kTableX0 = 0.25;
-  static constexpr double kTableX1 = 0.75;
-  static constexpr double kTableZ0 = -0.80;
-  static constexpr double kTableZ1 = -0.35;
-  static constexpr double kTableHeight = 0.72;
   static constexpr double kBaseRadius = 0.32; // the robot's mobile base
 };
 
