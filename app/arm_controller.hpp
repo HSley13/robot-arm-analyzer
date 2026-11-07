@@ -186,6 +186,10 @@ public:
   // arm is already industrial.
   Q_INVOKABLE void convertToIndustrial();
 
+  // Reloads the config file the controller was started with (the
+  // humanoid arm, in the app) - undoes convertToIndustrial()/added joints.
+  Q_INVOKABLE bool reloadInitialConfig();
+
   QString configMessage() const { return _configMessage; }
 
   Q_INVOKABLE bool loadConfig(const QString &path);
@@ -238,6 +242,7 @@ private:
   std::vector<double> _jointTorques;
   QVector3D _canvasCenter;
   QString _configMessage;
+  QString _initialConfigPath;
 
   double _currentMaxSafePayloadKg = 0.0;
   std::vector<double> _scanReachMeters;

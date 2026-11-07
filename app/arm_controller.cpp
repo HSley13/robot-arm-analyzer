@@ -53,7 +53,8 @@ ArmController::ArmController(const std::filesystem::path &config_path, const std
     : QObject(parent), _config(load_arm_config(config_path)), _arm(to_arm_model(_config)),
       _links(to_link_masses(_config)), _inertialLinks(to_link_inertials(_config)),
       _jointAnglesRadians(_arm.num_joints(), 0.0), _jointVelocitiesRadians(_arm.num_joints(), 0.0),
-      _jointAccelerationsRadians(_arm.num_joints(), 0.0) {
+      _jointAccelerationsRadians(_arm.num_joints(), 0.0),
+      _initialConfigPath(QString::fromStdString(config_path.string())) {
   for (size_t i = 0; i < _jointAnglesRadians.size(); i++) {
     _jointAnglesRadians[i] = clampToLimits(i, 0.0);
   }
@@ -281,6 +282,8 @@ void ArmController::convertToIndustrial() {
   _aiMode = false;
   recompute();
 }
+
+bool ArmController::reloadInitialConfig() { return loadConfig(_initialConfigPath); }
 
 void ArmController::addJoint() {
   convertToIndustrial();
