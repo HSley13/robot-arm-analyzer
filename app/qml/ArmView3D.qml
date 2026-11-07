@@ -7,12 +7,16 @@ import QtQuick3D.Helpers
 import Humanoid.Geometry
 
 // The 3D scene: the humanoid (HumanoidBody3D, which carries the analyzed
-// right arm and hand) on its mobile lift base, a table, the objects lying
-// around, and a draggable ring over every arm joint.
+// right arm and hand) on its mobile lift base, a table and the objects
+// lying around - and everything you do with the mouse:
 //
-// Clicking the floor or the table is handed to taskController.handleClick()
-// - what it does depends on the Objects panel (place a new object, move
-// one, put the held one down, or just select).
+//   * drag the hand (or gripper)  -> the whole body follows it: waist
+//     turns, lift rises/sinks, hip leans, arm reaches (taskController.reachTo)
+//   * drag a joint or a limb      -> swings that joint, like grabbing the arm
+//   * drag an object              -> slides it across the floor / table
+//   * click an object             -> menu: pick up, move, mass, delete
+//   * click the floor / table     -> menu: put down here, reach here, add
+//   * drag empty space            -> orbit; right-drag pans; wheel zooms
 Item {
     id: root
 
@@ -64,12 +68,6 @@ Item {
                 clipNear: 0.02
                 clipFar: 50
             }
-        }
-
-        OrbitCameraController {
-            anchors.fill: parent
-            origin: cameraOrigin
-            camera: camera
         }
 
         // Key light (casts the shadows), cool fill from the other side, and
@@ -166,6 +164,7 @@ Item {
             model: taskController.objects
             SceneObject3D {
                 required property var modelData
+                objectId: modelData.id
                 visible: !modelData.held
                 position: Qt.vector3d(modelData.x, modelData.y, modelData.z)
                 type: modelData.type
@@ -178,20 +177,233 @@ Item {
         }
     }
 
-    // A click (not a drag - dragging orbits the camera) on the floor, the
-    // table or an object: find the surface point under the cursor and let
-    // the task controller decide what it means.
-    TapHandler {
-        acceptedButtons: Qt.LeftButton
-        onTapped: (eventPoint) => {
-            const result = view3D.pick(eventPoint.position.x, eventPoint.position.y)
-            if (result.objectHit === null) {
+    // ---- screen <-> scene helpers ------------------------------------------
+
+    // Arm-frame point (armController.jointPositions) -> scene -> screen.
+    function armToScene(p) { return body.armNode.mapPositionToScene(p) }
+    function toScreen(scenePoint) { return view3D.mapFrom3DScene(scenePoint) }
+    function jointScreen(i) {
+        const _dependencies = [root.cameraEulerRotation, root.cameraDistance, root.cameraOriginPosition,
+                               root.layoutTick, root.bodyDependency, armController.jointAnglesDegrees]
+        if (!view3D.camera) return Qt.vector3d(-1000, -1000, 0)
+        return i < armController.jointPositions.length ? toScreen(armToScene(armController.jointPositions[i]))
+                                                       : Qt.vector3d(-1000, -1000, 0)
+    }
+    // Where the mouse ray crosses the plane through `point` facing the
+    // camera - how far "in" a drag happens is wherever it started.
+    function rayOnCameraPlane(x, y, point) {
+        const a = view3D.mapTo3DScene(Qt.vector3d(x, y, 0))
+        const b = view3D.mapTo3DScene(Qt.vector3d(x, y, 1))
+        const dir = b.minus(a).normalized()
+        const n = camera.forward
+        const denom = dir.dotProduct(n)
+        if (Math.abs(denom) < 1e-6) return point
+        const t = point.minus(a).dotProduct(n) / denom
+        return a.plus(dir.times(t))
+    }
+    function distanceToSegment(p, a, b) {
+        const abx = b.x - a.x, aby = b.y - a.y
+        const len2 = abx * abx + aby * aby
+        const t = len2 > 0 ? Math.max(0, Math.min(1, ((p.x - a.x) * abx + (p.y - a.y) * aby) / len2)) : 0
+        return { distance: Math.hypot(p.x - (a.x + t * abx), p.y - (a.y + t * aby)), t: t }
+    }
+    // The floor or table point under the mouse, ignoring objects (so an
+    // object can be dragged across the surface under it), or null.
+    function surfaceAt(x, y) {
+        const hits = view3D.pickAll(x, y)
+        for (let i = 0; i < hits.length; i++) {
+            const name = hits[i].objectHit ? hits[i].objectHit.objectName : ""
+            if (name === "floor" || name === "table") return hits[i].scenePosition
+        }
+        return null
+    }
+    // The id of the scene object under the mouse (one standing around, not
+    // the one being carried), or -1.
+    function objectAt(x, y) {
+        const hits = view3D.pickAll(x, y)
+        for (let i = 0; i < hits.length; i++) {
+            for (let node = hits[i].objectHit; node; node = node.parent) {
+                if (node.objectId !== undefined) {
+                    if (node.objectId >= 0 && node.visible) return node.objectId
+                    break
+                }
+            }
+        }
+        return -1
+    }
+
+    // What's under the mouse, most specific first:
+    //   {kind: "hand"} / {kind: "joint", index} / {kind: "object", id} /
+    //   {kind: "surface", point} / {kind: "none"}
+    function hitTest(x, y) {
+        const p = Qt.point(x, y)
+        const n = armController.jointCount
+        if (!taskController.busy && !armController.trajectoryScrubMode && n > 0) {
+            // The hand: around the arm's tip or along the hand link.
+            const tip = jointScreen(n)
+            const wrist = jointScreen(n - 1)
+            if (Math.hypot(x - tip.x, y - tip.y) < 34) return { kind: "hand" }
+            const last = distanceToSegment(p, wrist, tip)
+            if (last.distance < 22 && last.t > 0.35) return { kind: "hand" }
+            for (let i = 0; i < n; i++) {
+                const c = jointScreen(i)
+                if (Math.hypot(x - c.x, y - c.y) < 20) return { kind: "joint", index: i }
+            }
+        }
+        const object = objectAt(x, y)
+        if (object >= 0) return { kind: "object", id: object }
+        if (!taskController.busy && !armController.trajectoryScrubMode) {
+            // Grabbing a limb swings the joint it hangs from.
+            for (let i = 0; i < n; i++) {
+                if (distanceToSegment(p, jointScreen(i), jointScreen(i + 1)).distance < 16) {
+                    return { kind: "joint", index: i }
+                }
+            }
+        }
+        const surface = surfaceAt(x, y)
+        return surface !== null ? { kind: "surface", point: surface } : { kind: "none" }
+    }
+
+    // Forces the overlay below to depend on everything that moves the arm
+    // on screen - mapFrom3DScene() reads transforms without QML's binding
+    // tracker seeing them.
+    readonly property vector3d cameraEulerRotation: cameraOrigin.eulerRotation
+    readonly property vector3d cameraOriginPosition: cameraOrigin.position
+    readonly property real cameraDistance: camera.z
+    readonly property real bodyDependency: taskController.waistYawDegrees + taskController.hipHeight
+                                           + taskController.hipBendDegrees
+    // mapFrom3DScene() also only gives a real answer once the view has
+    // been laid out and rendered; re-run the projection a few times after
+    // startup and on every resize, or the rings sit at (0, 0) until the
+    // first joint moves.
+    property int layoutTick: 0
+    Timer {
+        interval: 120
+        repeat: true
+        running: root.layoutTick < 10
+        onTriggered: root.layoutTick++
+    }
+    Connections {
+        target: view3D
+        function onWidthChanged() { root.layoutTick++ }
+        function onHeightChanged() { root.layoutTick++ }
+    }
+
+    // ---- the mouse ----------------------------------------------------------
+
+    MouseArea {
+        id: mouse
+        anchors.fill: parent
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        hoverEnabled: true
+
+        property var grab: ({ kind: "none" })   // what the press landed on
+        property var hover: ({ kind: "none" })
+        property bool dragging: false
+        property point pressPoint
+        property point lastPoint
+        property int pressButton: Qt.NoButton
+        // Hand drag: the plane it moves in (planning a reach takes a few
+        // milliseconds, so every mouse move goes straight to the planner).
+        property vector3d handPlanePoint
+        // Joint drag: screen angle around the joint at the last move.
+        property real lastScreenAngle: 0
+        property real jointSign: 1
+
+        cursorShape: dragging && grab.kind !== "none" && grab.kind !== "surface" ? Qt.ClosedHandCursor
+                   : hover.kind === "hand" || hover.kind === "joint" ? Qt.OpenHandCursor
+                   : hover.kind === "object" ? Qt.PointingHandCursor
+                   : Qt.ArrowCursor
+
+        onPressed: (event) => {
+            pressPoint = Qt.point(event.x, event.y)
+            lastPoint = pressPoint
+            pressButton = event.button
+            dragging = false
+            grab = event.button === Qt.LeftButton ? root.hitTest(event.x, event.y) : { kind: "none" }
+            if (grab.kind === "hand") {
+                handPlanePoint = root.armToScene(armController.jointPositions[armController.jointCount])
+            } else if (grab.kind === "joint") {
+                const c = root.jointScreen(grab.index)
+                lastScreenAngle = Math.atan2(event.y - c.y, event.x - c.x)
+                // Positive joint angles turn counter-clockwise about the arm
+                // plane's normal; on screen that's counter-clockwise only when
+                // the normal faces the camera.
+                const normal = body.armNode.mapDirectionToScene(Qt.vector3d(0, 0, 1))
+                jointSign = normal.dotProduct(camera.forward) < 0 ? -1 : 1
+            }
+        }
+
+        onPositionChanged: (event) => {
+            if (!pressed) {
+                hover = root.hitTest(event.x, event.y)
                 return
             }
-            const p = result.scenePosition
-            taskController.handleClick(p.x, p.z)
+            if (!dragging && Math.hypot(event.x - pressPoint.x, event.y - pressPoint.y) < 4) return
+            dragging = true
+            const dx = event.x - lastPoint.x
+            const dy = event.y - lastPoint.y
+            lastPoint = Qt.point(event.x, event.y)
+
+            if (grab.kind === "hand") {
+                const target = root.rayOnCameraPlane(event.x, event.y, handPlanePoint)
+                taskController.reachTo(target.x, target.y, target.z)
+            } else if (grab.kind === "joint") {
+                const c = root.jointScreen(grab.index)
+                const angle = Math.atan2(event.y - c.y, event.x - c.x)
+                let delta = angle - lastScreenAngle
+                if (delta > Math.PI) delta -= 2 * Math.PI
+                if (delta < -Math.PI) delta += 2 * Math.PI
+                lastScreenAngle = angle
+                const current = armController.jointAnglesDegrees[grab.index]
+                armController.setJointAngleDegrees(grab.index, current + jointSign * delta * 180 / Math.PI)
+            } else if (grab.kind === "object") {
+                const spot = root.surfaceAt(event.x, event.y)
+                if (spot !== null) taskController.moveObject(grab.id, spot.x, spot.z)
+            } else if (pressButton === Qt.RightButton) {
+                // Pan: slide the orbit center in the camera's plane.
+                const scale = camera.z * 0.0013
+                const right = camera.right
+                const up = camera.up
+                cameraOrigin.position = cameraOrigin.position.minus(right.times(dx * scale)).plus(up.times(dy * scale))
+            } else {
+                // Orbit.
+                const pitch = Math.max(-85, Math.min(5, cameraOrigin.eulerRotation.x - dy * 0.3))
+                cameraOrigin.eulerRotation = Qt.vector3d(pitch, cameraOrigin.eulerRotation.y - dx * 0.3, 0)
+            }
+        }
+
+        onReleased: (event) => {
+            if (!dragging) root.clicked(event.x, event.y, event.button)
+            dragging = false
+            grab = { kind: "none" }
+        }
+
+        onWheel: (wheel) => {
+            camera.z = Math.max(0.5, Math.min(8.0, camera.z * Math.pow(0.9, wheel.angleDelta.y / 120)))
+        }
+        onExited: hover = { kind: "none" }
+    }
+
+    // A plain click (no drag): menus.
+    signal clicked(real x, real y, int button)
+    onClicked: (x, y, button) => {
+        const hit = hitTest(x, y)
+        if (taskController.clickMode !== "" && hit.kind === "surface") {
+            // An armed click mode from the panel still works.
+            taskController.handleClick(hit.point.x, hit.point.z)
+        } else if (hit.kind === "object") {
+            taskController.selectedId = hit.id
+            objectMenu.openFor(hit.id, x, y)
+        } else if (hit.kind === "surface") {
+            spotMenu.openAt(hit.point, x, y)
+        } else {
+            taskController.selectedId = -1
         }
     }
+
+    ObjectMenu { id: objectMenu }
+    SpotMenu { id: spotMenu }
 
     // Hint for the armed click mode.
     Rectangle {
@@ -214,70 +426,37 @@ Item {
         }
     }
 
-    // Forces the overlay below to depend on everything that moves the arm
-    // on screen - mapFrom3DScene() reads transforms without QML's binding
-    // tracker seeing them.
-    readonly property vector3d cameraEulerRotation: cameraOrigin.eulerRotation
-    readonly property real cameraDistance: camera.z
-    readonly property real bodyDependency: taskController.waistYawDegrees + taskController.hipHeight
-                                           + taskController.hipBendDegrees
-    // mapFrom3DScene() also only gives a real answer once the view has
-    // been laid out and rendered; re-run the projection a few times after
-    // startup and on every resize, or the rings sit at (0, 0) until the
-    // first joint moves.
-    property int layoutTick: 0
-    Timer {
-        interval: 120
-        repeat: true
-        running: root.layoutTick < 10
-        onTriggered: root.layoutTick++
-    }
-    Connections {
-        target: view3D
-        function onWidthChanged() { root.layoutTick++ }
-        function onHeightChanged() { root.layoutTick++ }
-    }
+    // ---- joint markers + the hand handle (drawn only; the MouseArea
+    // above does the grabbing) ----------------------------------------------
 
-    // Draggable ring per arm joint, projected onto its screen position -
-    // plain 2D Items on top of the View3D, so a press on a ring never
-    // reaches the orbit controller underneath.
     Repeater {
         model: armController.jointCount
 
         Item {
-            id: jointHandle
+            id: jointMarker
             required property int index
+            readonly property vector3d screenPosition: root.jointScreen(index)
+            readonly property bool active: (mouse.grab.kind === "joint" && mouse.grab.index === index && mouse.dragging)
+            readonly property bool hovered: mouse.hover.kind === "joint" && mouse.hover.index === index
+            readonly property color status: index < armController.jointColors.length ? armController.jointColors[index] : "#2ecc71"
 
-            readonly property vector3d screenPosition: {
-                const _cameraRotationDependency = root.cameraEulerRotation
-                const _cameraDistanceDependency = root.cameraDistance
-                const _layoutDependency = root.layoutTick
-                const _bodyDependency = root.bodyDependency
-                const scenePoint = body.armNode.mapPositionToScene(armController.jointPositions[index])
-                return view3D.mapFrom3DScene(scenePoint)
-            }
-
-            enabled: !armController.trajectoryScrubMode && !taskController.busy
+            visible: !taskController.busy
             x: screenPosition.x - width / 2
             y: screenPosition.y - height / 2
-            width: 30
-            height: 30
-            opacity: enabled ? 1.0 : 0.3
+            width: 26
+            height: 26
 
             Rectangle {
                 anchors.fill: parent
                 radius: width / 2
-                color: dragHandler.active ? Qt.rgba(0.09, 0.88, 1.0, 0.3)
-                     : (hoverHandler.hovered ? Qt.rgba(0.09, 0.88, 1.0, 0.15) : Qt.rgba(0.09, 0.88, 1.0, 0.04))
-                border.width: dragHandler.active ? 3 : 2
-                border.color: dragHandler.active ? "#ffffff" : (hoverHandler.hovered ? "#17e0ff" : Qt.rgba(0.6, 0.66, 0.78, 0.55))
-
-                Behavior on color { ColorAnimation { duration: 120 } }
-                Behavior on border.color { ColorAnimation { duration: 120 } }
+                color: jointMarker.active ? Qt.rgba(1, 1, 1, 0.25) : jointMarker.hovered ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
+                border.width: jointMarker.active || jointMarker.hovered ? 3 : 2
+                border.color: jointMarker.active ? "#ffffff" : jointMarker.status
+                opacity: jointMarker.active || jointMarker.hovered ? 1.0 : 0.75
             }
 
             Rectangle {
-                visible: dragHandler.active || hoverHandler.hovered
+                visible: jointMarker.active || jointMarker.hovered
                 anchors.bottom: parent.top
                 anchors.bottomMargin: 6
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -285,7 +464,7 @@ Item {
                 height: angleReadout.implicitHeight + 6
                 radius: 4
                 color: "#0e1021"
-                border.color: "#17e0ff"
+                border.color: jointMarker.status
                 border.width: 1
 
                 Text {
@@ -294,33 +473,50 @@ Item {
                     color: "white"
                     font.bold: true
                     font.pixelSize: 12
-                    text: armController.jointNames[jointHandle.index] + "  "
-                          + Math.round(armController.jointAnglesDegrees[jointHandle.index]) + "°"
+                    text: (armController.jointNames[jointMarker.index] || ("Joint " + (jointMarker.index + 1))) + "  "
+                          + Math.round(armController.jointAnglesDegrees[jointMarker.index]) + "°  ·  "
+                          + Math.round(Math.abs(armController.jointTorques[jointMarker.index] || 0)) + " N·m"
                 }
             }
+        }
+    }
 
-            HoverHandler {
-                id: hoverHandler
-                cursorShape: dragHandler.active ? Qt.ClosedHandCursor : Qt.OpenHandCursor
-            }
+    // Hand handle: a dashed cyan circle at the tip that says "drag me".
+    Item {
+        id: handHandle
+        readonly property vector3d screenPosition: root.jointScreen(armController.jointCount)
+        readonly property bool active: mouse.grab.kind === "hand" && mouse.dragging
+        readonly property bool hovered: mouse.hover.kind === "hand"
+        visible: !taskController.busy && armController.jointCount > 0
+        x: screenPosition.x - width / 2
+        y: screenPosition.y - height / 2
+        width: active || hovered ? 46 : 38
+        height: width
 
-            DragHandler {
-                id: dragHandler
-                target: null
-                property double baseAngleDegrees: 0
-
-                onActiveChanged: {
-                    if (active) baseAngleDegrees = armController.jointAnglesDegrees[jointHandle.index]
-                }
-
-                onCentroidChanged: {
-                    if (!active) return
-                    // Drag up/right to raise (positive angle).
-                    const delta = (centroid.position.x - centroid.pressPosition.x)
-                                - (centroid.position.y - centroid.pressPosition.y)
-                    const sensitivity = 0.4
-                    armController.setJointAngleDegrees(jointHandle.index, baseAngleDegrees + delta * sensitivity)
-                }
+        Rectangle {
+            anchors.fill: parent
+            radius: width / 2
+            color: handHandle.active ? Qt.rgba(0.09, 0.88, 1.0, 0.22) : handHandle.hovered ? Qt.rgba(0.09, 0.88, 1.0, 0.12) : "transparent"
+            border.width: 2
+            border.color: "#17e0ff"
+            opacity: handHandle.active || handHandle.hovered ? 1.0 : 0.6
+        }
+        Rectangle {
+            visible: handHandle.hovered && !handHandle.active
+            anchors.top: parent.bottom
+            anchors.topMargin: 6
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: handHint.implicitWidth + 12
+            height: handHint.implicitHeight + 6
+            radius: 4
+            color: "#0e1021"
+            border.color: "#17e0ff"
+            Text {
+                id: handHint
+                anchors.centerIn: parent
+                color: "white"
+                font.pixelSize: 12
+                text: "Drag the hand - the body follows"
             }
         }
     }

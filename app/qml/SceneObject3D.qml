@@ -13,6 +13,9 @@ import Humanoid.Geometry
 Node {
     id: root
 
+    // TaskController's id for it (-1 when it's the one being carried), so
+    // a pick in the 3D view can tell which object was hit.
+    property int objectId: -1
     property string type: "bottle"
     property real mass: 1.0
     property real gripRadius: 0.033
