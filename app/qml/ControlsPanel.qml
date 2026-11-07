@@ -3,7 +3,8 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 
-// Sidebar: legend, reach targeting, payload + hand, and config file I/O.
+// Sidebar: legend, the arm (humanoid / warehouse, joints), a mouse
+// cheat-sheet + status, the body's joints, payload + hand, and config I/O.
 // Per-joint controls, AI toggle, and Static/Dynamic mode live in
 // BottomBar.qml instead.
 Rectangle {
@@ -78,40 +79,104 @@ Rectangle {
                 }
             }
 
-            // Objects: place things on the floor/table (click or typed
-            // coordinates), then have the humanoid pick them up and put
-            // them down somewhere else.
+            // The arm on the right shoulder: the humanoid arm + hand, or a
+            // warehouse arm with a gripper and as many joints as you like.
             Rectangle {
-                id: objectsCard
+                id: armCard
                 Layout.fillWidth: true
                 color: "#171a2b"
                 radius: 14
-                border.color: taskController.clickMode !== "" ? "#17e0ff" : "#262a40"
+                border.color: "#262a40"
                 border.width: 1
-                implicitHeight: objectsColumn.implicitHeight + 16
+                implicitHeight: armColumn.implicitHeight + 16
 
-                readonly property var selected: {
-                    const list = taskController.objects
-                    for (let i = 0; i < list.length; i++) {
-                        if (list[i].id === taskController.selectedId) return list[i]
-                    }
-                    return null
-                }
-                readonly property bool holding: taskController.heldId >= 0
+                readonly property bool industrial: armController.armStyle === "industrial"
+                // Swapping the arm under a held object (or mid-move) would drop it.
+                readonly property bool canChange: !taskController.busy && taskController.heldId < 0
 
                 ColumnLayout {
-                    id: objectsColumn
+                    id: armColumn
                     anchors.fill: parent
                     anchors.margins: 8
                     spacing: 6
 
                     RowLayout {
                         Layout.fillWidth: true
+                        Label { color: "white"; font.bold: true; text: "Arm" }
+                        Item { Layout.fillWidth: true }
                         Label {
-                            color: "white"
-                            font.bold: true
-                            text: "Objects"
+                            color: "#7a8099"
+                            font.pixelSize: 11
+                            text: armController.jointCount + (armController.jointCount === 1 ? " joint" : " joints")
                         }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 5
+                        Button {
+                            Layout.fillWidth: true
+                            text: "Humanoid"
+                            checkable: true
+                            checked: !armCard.industrial
+                            enabled: armCard.canChange
+                            onClicked: taskController.useHumanoidArm()
+                        }
+                        Button {
+                            Layout.fillWidth: true
+                            text: "Warehouse"
+                            checkable: true
+                            checked: armCard.industrial
+                            enabled: armCard.canChange
+                            onClicked: taskController.useIndustrialArm()
+                        }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 5
+                        Button {
+                            Layout.fillWidth: true
+                            text: "+ Joint"
+                            enabled: armCard.canChange
+                            onClicked: armController.addJoint()
+                        }
+                        Button {
+                            Layout.fillWidth: true
+                            text: "− Joint"
+                            enabled: armCard.canChange && armController.jointCount > 1
+                            onClicked: armController.removeLastJoint()
+                        }
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        visible: !armCard.industrial
+                        wrapMode: Text.WordWrap
+                        color: "#7a8099"
+                        font.pixelSize: 11
+                        text: "Adding or removing a joint turns it into a warehouse arm with a gripper."
+                    }
+                }
+            }
+
+            // The scene is driven with the mouse; this card just says how,
+            // and shows what's going on.
+            Rectangle {
+                id: sceneCard
+                Layout.fillWidth: true
+                color: "#171a2b"
+                radius: 14
+                border.color: "#262a40"
+                border.width: 1
+                implicitHeight: sceneColumn.implicitHeight + 16
+
+                ColumnLayout {
+                    id: sceneColumn
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label { color: "white"; font.bold: true; text: "Mouse" }
                         Item { Layout.fillWidth: true }
                         Button {
                             visible: taskController.busy
@@ -120,125 +185,23 @@ Rectangle {
                         }
                     }
 
-                    // New object: type + mass, then click to drop or type x/z.
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 5
-                        ComboBox {
+                    Repeater {
+                        model: [
+                            ["Drag the hand", "the body follows"],
+                            ["Drag a joint or limb", "swing that joint"],
+                            ["Drag an object", "move it"],
+                            ["Click an object", "pick up · move · mass · delete"],
+                            ["Click the floor / table", "put down · reach · add"],
+                            ["Drag empty space", "orbit · right-drag pans · wheel zooms"]
+                        ]
+                        Label {
+                            required property var modelData
                             Layout.fillWidth: true
-                            model: taskController.objectTypes
-                            currentIndex: taskController.objectTypes.indexOf(taskController.placeType)
-                            onActivated: (index) => taskController.placeType = taskController.objectTypes[index]
-                        }
-                        TextField {
-                            implicitWidth: 52
-                            text: taskController.placeMassKg.toFixed(2)
-                            validator: DoubleValidator { bottom: 0.01 }
-                            onEditingFinished: taskController.placeMassKg = parseFloat(text)
-                        }
-                        Label { color: "#9aa0ab"; text: "kg" }
-                    }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 5
-                        Button {
-                            Layout.fillWidth: true
-                            text: taskController.clickMode === "place" ? "Cancel" : "Click to place"
-                            highlighted: taskController.clickMode === "place"
-                            onClicked: taskController.clickMode = taskController.clickMode === "place" ? "" : "place"
-                        }
-                    }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 4
-                        Label { color: "#9aa0ab"; text: "x" }
-                        TextField { id: newX; implicitWidth: 50; text: "0.60"; validator: DoubleValidator {} }
-                        Label { color: "#9aa0ab"; text: "z" }
-                        TextField { id: newZ; implicitWidth: 50; text: "-0.30"; validator: DoubleValidator {} }
-                        Button {
-                            Layout.fillWidth: true
-                            text: "Add"
-                            onClicked: taskController.addObject(taskController.placeType, taskController.placeMassKg,
-                                                                parseFloat(newX.text), parseFloat(newZ.text))
-                        }
-                    }
-
-                    Rectangle { Layout.fillWidth: true; height: 1; color: "#262a40" }
-
-                    // The selected object (click one in the 3D view).
-                    Label {
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        color: objectsCard.selected ? "white" : "#7a8099"
-                        font.pixelSize: 12
-                        text: objectsCard.selected
-                              ? objectsCard.selected.label + " · " + objectsCard.selected.mass.toFixed(2) + " kg · ("
-                                + objectsCard.selected.x.toFixed(2) + ", " + objectsCard.selected.z.toFixed(2) + ")"
-                                + (objectsCard.selected.y > 0 ? " on the table" : " on the floor")
-                              : (objectsCard.holding ? "" : "Click an object in the view to select it")
-                    }
-                    RowLayout {
-                        visible: objectsCard.selected !== null && !objectsCard.selected.held
-                        Layout.fillWidth: true
-                        spacing: 5
-                        Button {
-                            Layout.fillWidth: true
-                            text: "Pick up"
-                            enabled: !taskController.busy && !objectsCard.holding
-                            onClicked: taskController.pickUp(taskController.selectedId)
-                        }
-                        Button {
-                            Layout.fillWidth: true
-                            text: "Move"
-                            highlighted: taskController.clickMode === "move"
-                            enabled: !taskController.busy
-                            onClicked: taskController.clickMode = taskController.clickMode === "move" ? "" : "move"
-                        }
-                        Button {
-                            text: "✕"
-                            enabled: !taskController.busy
-                            onClicked: taskController.removeObject(taskController.selectedId)
-                        }
-                    }
-                    RowLayout {
-                        visible: objectsCard.selected !== null
-                        Layout.fillWidth: true
-                        spacing: 5
-                        Label { color: "#9aa0ab"; text: "mass" }
-                        Slider {
-                            Layout.fillWidth: true
-                            from: 0.1
-                            to: 30
-                            value: objectsCard.selected ? objectsCard.selected.mass : 1
-                            onMoved: taskController.setObjectMass(taskController.selectedId, value)
-                        }
-                    }
-
-                    // Putting the held object down.
-                    ColumnLayout {
-                        visible: objectsCard.holding
-                        Layout.fillWidth: true
-                        spacing: 5
-                        Button {
-                            Layout.fillWidth: true
-                            text: taskController.clickMode === "putDown" ? "Cancel" : "Put down (click a spot)"
-                            highlighted: taskController.clickMode === "putDown"
-                            enabled: !taskController.busy
-                            onClicked: taskController.clickMode = taskController.clickMode === "putDown" ? "" : "putDown"
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 4
-                            Label { color: "#9aa0ab"; text: "x" }
-                            TextField { id: putX; implicitWidth: 50; text: "0.60"; validator: DoubleValidator {} }
-                            Label { color: "#9aa0ab"; text: "z" }
-                            TextField { id: putZ; implicitWidth: 50; text: "0.45"; validator: DoubleValidator {} }
-                            Button {
-                                Layout.fillWidth: true
-                                text: "Put at x,z"
-                                enabled: !taskController.busy
-                                onClicked: taskController.putDown(parseFloat(putX.text), parseFloat(putZ.text))
-                            }
+                            wrapMode: Text.WordWrap
+                            font.pixelSize: 11
+                            color: "#9aa0ab"
+                            textFormat: Text.StyledText
+                            text: "<font color='#ffffff'>" + modelData[0] + "</font> - " + modelData[1]
                         }
                     }
 
@@ -308,42 +271,6 @@ Rectangle {
                                 text: taskController[modelData.key].toFixed(modelData.decimals) + modelData.unit
                             }
                         }
-                    }
-                }
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                color: "#171a2b"
-                radius: 14
-                border.color: "#262a40"
-                border.width: 1
-                implicitHeight: moveToTargetColumn.implicitHeight + 16
-
-                ColumnLayout {
-                    id: moveToTargetColumn
-                    anchors.fill: parent
-                    anchors.margins: 8
-                    spacing: 5
-
-                    Label {
-                        color: "white"
-                        font.bold: true
-                        text: "Move to target"
-                    }
-
-                    ReachPad {
-                        Layout.alignment: Qt.AlignHCenter
-                        Layout.preferredWidth: 150
-                        Layout.preferredHeight: 150
-                        readonly property real reachDiameterMeters: armController.canvasCenter.x * 2
-                        rangeMeters: Math.max(reachDiameterMeters * 1.8, 0.5)
-                        maxReachMeters: reachDiameterMeters
-                        markerXMeters: armController.jointPositions.length > 0
-                            ? armController.jointPositions[armController.jointPositions.length - 1].x : 0
-                        markerYMeters: armController.jointPositions.length > 0
-                            ? armController.jointPositions[armController.jointPositions.length - 1].y : 0
-                        onTargetMoved: (x, y) => armController.moveToTarget(x, y)
                     }
                 }
             }
@@ -430,6 +357,7 @@ Rectangle {
                 border.color: "#262a40"
                 border.width: 1
                 implicitHeight: handColumn.implicitHeight + 16
+                visible: armController.armStyle !== "industrial"
 
                 ColumnLayout {
                     id: handColumn
