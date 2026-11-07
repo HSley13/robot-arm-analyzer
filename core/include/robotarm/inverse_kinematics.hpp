@@ -54,4 +54,38 @@ std::vector<double> solve_inverse_kinematics(const ArmModel &arm, const std::vec
                                               const std::vector<JointLimit> &limits, int max_iterations = 200,
                                               double damping = 0.05, double step_scale = 1.0);
 
+// ---- planar arms: position AND hand direction ----------------------------
+
+struct PlanarIkResult {
+  std::vector<double> joint_values;
+  double position_error = 0.0; // m, |tip - target| at the result
+  double angle_error = 0.0;    // rad, |hand angle - target angle| (0 when no angle was asked for)
+  bool converged = false;      // both errors within tolerance
+};
+
+// Inverse kinematics for a planar arm (every joint turning about the same
+// axis, alpha = 0) with any number of joints, solving for the tip's
+// position in the arm's plane and - optionally - the direction the last
+// link points (`hand_angle`, radians, measured like a joint angle: 0 =
+// along the base's +x).
+//
+// Why a separate solver: the general one above only controls position.
+// To grasp an upright bottle the hand has to arrive level (or pointing
+// straight down for a gripper), so orientation is part of the task. For a
+// planar arm that's one extra row in the Jacobian - every revolute joint
+// turns the hand by exactly the joint's own rotation, so d(angle)/dq_i = 1.
+//
+// Joint limits are handled as an active set, not just by clamping: a
+// joint pinned at a limit that the step would push further out is taken
+// out of the solve for that step, and the step is recomputed with the
+// joints that can still move. Plain clamping keeps "spending" the step on
+// the pinned joint, so the solve crawls - the arm visibly lags behind a
+// dragged target whenever an elbow is straight.
+//
+// Errors are weighted so 1 rad of hand angle counts like 0.1 m of position.
+PlanarIkResult solve_planar_ik(const ArmModel &arm, const std::vector<double> &initial_joint_values,
+                               const Eigen::Vector2d &tip_target, const double *hand_angle,
+                               const std::vector<JointLimit> &limits, int max_iterations = 150,
+                               double damping = 0.02);
+
 } // namespace robotarm

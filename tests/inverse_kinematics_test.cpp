@@ -169,3 +169,45 @@ TEST(InverseKinematics, RespectsJointLimits) {
   // Still reaches it, using the other elbow solution.
   EXPECT_LT((tip_position(arm, result) - target).norm(), 1e-3);
 }
+
+namespace {
+ArmModel five_link_planar_arm() {
+  return ArmModel({DHParameter(0.30), DHParameter(0.25), DHParameter(0.20), DHParameter(0.15), DHParameter(0.10)});
+}
+} // namespace
+
+TEST(PlanarIk, ReachesPositionAndHandAngleWithFiveJoints) {
+  const ArmModel arm = five_link_planar_arm();
+  const Eigen::Vector2d target(0.45, -0.30);
+  const double angle = -1.2; // hand pointing down-ish
+  const auto result = robotarm::solve_planar_ik(arm, std::vector<double>(5, 0.2), target, &angle, {});
+  ASSERT_TRUE(result.converged) << result.position_error << " " << result.angle_error;
+  const Eigen::Matrix4d tip = arm.forward_kinematics(result.joint_values).back();
+  EXPECT_NEAR(tip(0, 3), target.x(), 1e-4);
+  EXPECT_NEAR(tip(1, 3), target.y(), 1e-4);
+  EXPECT_NEAR(std::atan2(tip(1, 0), tip(0, 0)), angle, 1e-3);
+}
+
+TEST(PlanarIk, PositionOnlyWhenNoAngleIsGiven) {
+  const ArmModel arm = five_link_planar_arm();
+  const auto result = robotarm::solve_planar_ik(arm, std::vector<double>(5, 0.1), Eigen::Vector2d(0.2, 0.5), nullptr, {});
+  EXPECT_TRUE(result.converged);
+  EXPECT_DOUBLE_EQ(result.angle_error, 0.0);
+}
+
+TEST(PlanarIk, StaysInsideLimitsAndStillConvergesUsingTheFreeJoints) {
+  // Third joint locked straight (0..0): the others must do all the work.
+  const ArmModel arm = five_link_planar_arm();
+  std::vector<robotarm::JointLimit> limits(5, {-3.0, 3.0});
+  limits[2] = {0.0, 0.0};
+  const auto result = robotarm::solve_planar_ik(arm, std::vector<double>(5, 0.3), Eigen::Vector2d(0.5, 0.3), nullptr, limits);
+  EXPECT_TRUE(result.converged);
+  EXPECT_DOUBLE_EQ(result.joint_values[2], 0.0);
+}
+
+TEST(PlanarIk, ReportsNotConvergedOutOfReach) {
+  const ArmModel arm = five_link_planar_arm();
+  const auto result = robotarm::solve_planar_ik(arm, std::vector<double>(5, 0.0), Eigen::Vector2d(3.0, 0.0), nullptr, {});
+  EXPECT_FALSE(result.converged);
+  EXPECT_NEAR(result.position_error, 3.0 - 1.0, 1e-3); // stretched straight toward it
+}
