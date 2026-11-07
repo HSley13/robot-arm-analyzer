@@ -75,9 +75,12 @@ int main(int argc, char *argv[]) {
                                     "seconds");
   const QCommandLineOption sizeOption("size", "Window size, e.g. 1600x1000.", "WxH");
   const QCommandLineOption industrialOption("industrial", "Start with the warehouse arm with N joints.", "N");
+  const QCommandLineOption tableOption("table", "Add a table: kind,x,z (kind: table, coffee table, counter). Repeatable.",
+                                       "kind,x,z");
+  const QCommandLineOption addOption("add", "Add an object: type,x,z (on the floor or a table). Repeatable.", "type,x,z");
   parser.addOptions({poseOption, payloadOption, openHandOption, cameraOption, focusOption, screenshotOption,
                      delayOption, scanOption, pickOption, putOption, atOption, sizeOption,
-                     industrialOption});
+                     industrialOption, tableOption, addOption});
   parser.process(app);
 
   // Lets QML say `Model { geometry: RoundedBoxGeometry { ... } }`.
@@ -121,6 +124,18 @@ int main(int argc, char *argv[]) {
   taskController.addObject("dumbbell", 6.0, 0.80, 0.52);
   taskController.addObject("can", 0.35, 0.40, -0.50);
   taskController.addObject("ball", 0.45, 0.25, 0.66);
+  for (const QString &value : parser.values(tableOption)) {
+    const QStringList parts = value.split(',');
+    if (parts.size() == 3) {
+      taskController.addTable(parts[0].trimmed(), parts[1].toDouble(), parts[2].toDouble());
+    }
+  }
+  for (const QString &value : parser.values(addOption)) {
+    const QStringList parts = value.split(',');
+    if (parts.size() == 3) {
+      taskController.addObject(parts[0].trimmed(), 0.0, parts[1].toDouble(), parts[2].toDouble());
+    }
+  }
   taskController.selectObject(-1);
   // Scripted pick / put-down for screenshots: the motion is stepped
   // through directly (advance()), not played in real time, so the shot is
