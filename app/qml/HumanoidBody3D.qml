@@ -2,13 +2,14 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick3D
 import Humanoid.Geometry
+import Humanoid.Backend
 
 // The humanoid's upper body: pelvis, a hip joint that lets the torso lean
 // forward, segmented abdomen, chest, shoulder yoke, neck and head, a
 // passive left arm, and the analyzed right arm (HumanoidArm3D) at the
 // right shoulder.
 //
-// Frames (all from taskController):
+// Frames (all from TaskController):
 //   * this node: at the hip joint, turned by the waist yaw - the pelvis
 //     lives here;
 //   * `torso`: leans forward by the hip bend (a turn of -bend about Z);
@@ -21,17 +22,17 @@ Node {
     id: root
 
     readonly property real meshUnit: 100.0
-    readonly property real hipToShoulder: taskController.body.hipToShoulder
-    readonly property real shoulderLateral: taskController.body.shoulderLateral
-    readonly property real bend: taskController.hipBendDegrees
+    readonly property real hipToShoulder: TaskController.body.hipToShoulder
+    readonly property real shoulderLateral: TaskController.body.shoulderLateral
+    readonly property real bend: TaskController.hipBendDegrees
 
     // Exposed so ArmView3D can project the arm's joints and the torso to
     // the screen (and grab them with the mouse).
     property alias armNode: rightArmMount
     property alias torsoNode: torso
 
-    position: Qt.vector3d(0, taskController.hipHeight, 0)
-    eulerRotation.y: taskController.waistYawDegrees
+    position: Qt.vector3d(0, TaskController.hipHeight, 0)
+    eulerRotation.y: TaskController.waistYawDegrees
 
     PrincipledMaterial { id: shellMaterial; baseColor: "#7f91a3"; roughness: 0.46; specularAmount: 0.45 }
     PrincipledMaterial { id: shellDarkMaterial; baseColor: "#5d6f82"; roughness: 0.52 }
@@ -194,7 +195,7 @@ Node {
         // torso leans), and the elbow folds up as the shoulder gets close to
         // the floor so the hand never sinks into the base.
         Node {
-            readonly property real shoulderHeight: taskController.hipHeight
+            readonly property real shoulderHeight: TaskController.hipHeight
                                                    + root.hipToShoulder * Math.cos(root.bend * Math.PI / 180)
             readonly property real elbowFold: Math.min(110, 18 + Math.max(0, 1.0 - shoulderHeight) * 180)
             position: Qt.vector3d(0, root.hipToShoulder, -root.shoulderLateral)
@@ -261,8 +262,8 @@ Node {
 
             // The humanoid arm + hand, or - once joints are added or removed -
             // the warehouse arm with a gripper.
-            HumanoidArm3D { visible: armController.armStyle !== "industrial" }
-            IndustrialArm3D { visible: armController.armStyle === "industrial" }
+            HumanoidArm3D { visible: ArmController.armStyle !== "industrial" }
+            IndustrialArm3D { visible: ArmController.armStyle === "industrial" }
         }
     }
 }

@@ -195,9 +195,6 @@ int main(int argc, char *argv[]) {
 
   QQmlApplicationEngine engine;
   engine.addImportPath(QStringLiteral("qrc:/qt/qml")); // the default from Qt 6.5 on
-  engine.rootContext()->setContextProperty("armController", &controller);
-  engine.rootContext()->setContextProperty("handController", &handController);
-  engine.rootContext()->setContextProperty("taskController", &taskController);
   engine.rootContext()->setContextProperty("launchOptions", launchOptions);
 
   const QString qmlDirPath(APP_QML_DIR);

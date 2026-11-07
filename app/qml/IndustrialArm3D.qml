@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick3D
 import Humanoid.Geometry
+import Humanoid.Backend
 
 // The warehouse version of the right arm: any number of joints, each a
 // round servo drum with a load-status band, joined by safety-yellow box
@@ -17,12 +18,12 @@ Node {
     id: root
 
     readonly property real meshUnit: 100.0
-    readonly property int jointCount: Math.max(0, armController.jointPositions.length - 1)
-    readonly property var held: taskController.heldObject
+    readonly property int jointCount: Math.max(0, ArmController.jointPositions.length - 1)
+    readonly property var held: TaskController.heldObject
     readonly property real gripperReach: held.gripperReach !== undefined ? held.gripperReach : 0.075
 
-    function linkLength(i) { return i < armController.linkLengths.length ? armController.linkLengths[i] : 0.0 }
-    function jointColor(i) { return i < armController.jointColors.length ? String(armController.jointColors[i]) : "#2ecc71" }
+    function linkLength(i) { return i < ArmController.linkLengths.length ? ArmController.linkLengths[i] : 0.0 }
+    function jointColor(i) { return i < ArmController.jointColors.length ? String(ArmController.jointColors[i]) : "#2ecc71" }
     function isSafe(i) { return jointColor(i).toLowerCase() === "#2ecc71" }
     // Same load wash as the humanoid arm: none when safe.
     function tinted(base, i, amount) {
@@ -61,9 +62,9 @@ Node {
             readonly property bool last: index === root.jointCount - 1
             readonly property color status: root.jointColor(index)
 
-            position: index < armController.jointPositions.length ? armController.jointPositions[index]
+            position: index < ArmController.jointPositions.length ? ArmController.jointPositions[index]
                                                                   : Qt.vector3d(0, 0, 0)
-            rotation: index + 1 < armController.frameRotations.length ? armController.frameRotations[index + 1]
+            rotation: index + 1 < ArmController.frameRotations.length ? ArmController.frameRotations[index + 1]
                                                                       : Qt.quaternion(1, 0, 0, 0)
 
             // Servo drum with steel end caps.
@@ -146,7 +147,7 @@ Node {
                     Node {
                         required property int index
                         readonly property real side: index === 0 ? 1 : -1
-                        readonly property real gap: Math.max(0.004, taskController.gripperWidth)
+                        readonly property real gap: Math.max(0.004, TaskController.gripperWidth)
                         position: Qt.vector3d(0, 0, side * (gap / 2 + 0.008))
                         Behavior on position { Vector3dAnimation { duration: 220 } }
                         Model {

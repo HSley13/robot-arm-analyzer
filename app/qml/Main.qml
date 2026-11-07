@@ -1,14 +1,15 @@
 import QtQuick
 import QtQuick.Window
 import QtQuick.Layouts
+import Humanoid.Backend
 
 Window {
     width: launchOptions.width !== undefined ? launchOptions.width : Math.min(1600, Screen.desktopAvailableWidth * 0.92)
     height: launchOptions.height !== undefined ? launchOptions.height : Math.min(1050, Screen.desktopAvailableHeight * 0.92)
     visible: true
     color: "#0e1021"
-    title: "Humanoid Arm Load Analyzer - " + armController.armName
-            + (armController.aiMode ? " [AI]" : " [Exact]")
+    title: "Humanoid Arm Load Analyzer - " + ArmController.armName
+            + (ArmController.aiMode ? " [AI]" : " [Exact]")
 
     ColumnLayout {
         anchors.fill: parent

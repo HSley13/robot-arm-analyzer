@@ -5,13 +5,14 @@ import QtQuick.Layouts
 import QtQuick3D
 import QtQuick3D.Helpers
 import Humanoid.Geometry
+import Humanoid.Backend
 
 // The 3D scene: the humanoid (HumanoidBody3D, which carries the analyzed
 // right arm and hand) on its mobile lift base, a table and the objects
 // lying around - and everything you do with the mouse:
 //
 //   * drag the hand (or gripper)  -> the whole body follows it: waist
-//     turns, lift rises/sinks, hip leans, arm reaches (taskController.reachTo)
+//     turns, lift rises/sinks, hip leans, arm reaches (TaskController.reachTo)
 //   * drag a joint or a limb      -> swings that joint, like grabbing the arm
 //   * drag the torso / the column / the round base
 //                                 -> lean at the hip / raise or lower the
@@ -28,13 +29,13 @@ Item {
     // The hand closes around the Payload card's demo dumbbell and opens
     // when it's released. While a pick/put-down sequence runs, the
     // TaskController drives the hand itself.
-    readonly property bool holding: !armController.gripperOpen
+    readonly property bool holding: !ArmController.gripperOpen
     onHoldingChanged: {
-        if (!taskController.busy && taskController.heldId < 0) {
-            handController.playGesture(holding ? "powerGrip" : "openPalm")
+        if (!TaskController.busy && TaskController.heldId < 0) {
+            HandController.playGesture(holding ? "powerGrip" : "openPalm")
         }
     }
-    Component.onCompleted: handController.playGesture(holding ? "powerGrip" : "openPalm")
+    Component.onCompleted: HandController.playGesture(holding ? "powerGrip" : "openPalm")
 
     View3D {
         id: view3D
@@ -125,7 +126,7 @@ Item {
         // ---- tables ---------------------------------------------------------
 
         Repeater3D {
-            model: taskController.tables
+            model: TaskController.tables
             Table3D {
                 required property var modelData
                 tableId: modelData.id
@@ -146,7 +147,7 @@ Item {
         // ---- objects lying around -------------------------------------------
 
         Repeater3D {
-            model: taskController.objects
+            model: TaskController.objects
             SceneObject3D {
                 required property var modelData
                 objectId: modelData.id
@@ -164,14 +165,14 @@ Item {
 
     // ---- screen <-> scene helpers ------------------------------------------
 
-    // Arm-frame point (armController.jointPositions) -> scene -> screen.
+    // Arm-frame point (ArmController.jointPositions) -> scene -> screen.
     function armToScene(p) { return body.armNode.mapPositionToScene(p) }
     function toScreen(scenePoint) { return view3D.mapFrom3DScene(scenePoint) }
     function jointScreen(i) {
         const _dependencies = [root.cameraEulerRotation, root.cameraDistance, root.cameraOriginPosition,
-                               root.layoutTick, root.bodyDependency, armController.jointAnglesDegrees]
+                               root.layoutTick, root.bodyDependency, ArmController.jointAnglesDegrees]
         if (!view3D.camera) return Qt.vector3d(-1000, -1000, 0)
-        return i < armController.jointPositions.length ? toScreen(armToScene(armController.jointPositions[i]))
+        return i < ArmController.jointPositions.length ? toScreen(armToScene(ArmController.jointPositions[i]))
                                                        : Qt.vector3d(-1000, -1000, 0)
     }
     // Where the mouse ray crosses the plane through `point` facing the
@@ -196,7 +197,7 @@ Item {
         return t > 0 ? a.plus(dir.times(t)) : null
     }
     function tableById(id) {
-        const list = taskController.tables
+        const list = TaskController.tables
         for (let i = 0; i < list.length; i++) {
             if (list[i].id === id) return list[i]
         }
@@ -246,9 +247,9 @@ Item {
 
     // ---- the body's own joints ----------------------------------------------
 
-    readonly property real torsoLength: taskController.body.hipToShoulder + 0.25 // hip to the top of the head
+    readonly property real torsoLength: TaskController.body.hipToShoulder + 0.25 // hip to the top of the head
     readonly property real baseTop: 0.11
-    readonly property real baseRadius: taskController.body.baseRadius
+    readonly property real baseRadius: TaskController.body.baseRadius
 
     // Scene point on the torso centerline `length` above the hip at lean
     // `bend` (radians) - the body node is the hip, turned by the waist.
@@ -277,13 +278,13 @@ Item {
     function headScreen() {
         const _dependencies = [root.cameraEulerRotation, root.cameraDistance, root.cameraOriginPosition,
                                root.layoutTick, root.bodyDependency]
-        return view3D.camera ? toScreen(torsoPoint(torsoLength, taskController.hipBendDegrees * Math.PI / 180))
+        return view3D.camera ? toScreen(torsoPoint(torsoLength, TaskController.hipBendDegrees * Math.PI / 180))
                              : Qt.vector3d(-1000, -1000, 0)
     }
     function columnScreen(top) {
         const _dependencies = [root.cameraEulerRotation, root.cameraDistance, root.cameraOriginPosition,
                                root.layoutTick, root.bodyDependency]
-        const y = top ? taskController.hipHeight - 0.13 : baseTop + 0.05
+        const y = top ? TaskController.hipHeight - 0.13 : baseTop + 0.05
         return view3D.camera ? toScreen(Qt.vector3d(0, y, 0)) : Qt.vector3d(-1000, -1000, 0)
     }
     // The point of the base's rim nearest the camera - where the waist
@@ -313,8 +314,8 @@ Item {
     //   {kind: "table", id, point} / {kind: "surface", point} / {kind: "none"}
     function hitTest(x, y) {
         const p = Qt.point(x, y)
-        const n = armController.jointCount
-        if (!taskController.busy && !armController.trajectoryScrubMode && n > 0) {
+        const n = ArmController.jointCount
+        if (!TaskController.busy && !ArmController.trajectoryScrubMode && n > 0) {
             // The hand: around the arm's tip or along the hand link.
             const tip = jointScreen(n)
             const wrist = jointScreen(n - 1)
@@ -328,7 +329,7 @@ Item {
         }
         const object = objectAt(x, y)
         if (object >= 0) return { kind: "object", id: object }
-        if (!taskController.busy && !armController.trajectoryScrubMode) {
+        if (!TaskController.busy && !ArmController.trajectoryScrubMode) {
             // Grabbing a limb swings the joint it hangs from.
             for (let i = 0; i < n; i++) {
                 if (distanceToSegment(p, jointScreen(i), jointScreen(i + 1)).distance < 16) {
@@ -336,7 +337,7 @@ Item {
                 }
             }
         }
-        if (!taskController.busy) {
+        if (!TaskController.busy) {
             // The body: torso (lean at the hip), column (lift), base (waist).
             const hip = hipScreen()
             if (distanceToSegment(p, hip, headScreen()).distance < 30) return { kind: "lean" }
@@ -362,8 +363,8 @@ Item {
     readonly property vector3d cameraEulerRotation: cameraOrigin.eulerRotation
     readonly property vector3d cameraOriginPosition: cameraOrigin.position
     readonly property real cameraDistance: camera.z
-    readonly property real bodyDependency: taskController.waistYawDegrees + taskController.hipHeight
-                                           + taskController.hipBendDegrees
+    readonly property real bodyDependency: TaskController.waistYawDegrees + TaskController.hipHeight
+                                           + TaskController.hipBendDegrees
     // mapFrom3DScene() also only gives a real answer once the view has
     // been laid out and rendered; re-run the projection a few times after
     // startup and on every resize, or the rings sit at (0, 0) until the
@@ -421,18 +422,18 @@ Item {
             dragging = false
             grab = event.button === Qt.LeftButton ? root.hitTest(event.x, event.y) : { kind: "none" }
             if (grab.kind === "hand") {
-                handPlanePoint = root.armToScene(armController.jointPositions[armController.jointCount])
+                handPlanePoint = root.armToScene(ArmController.jointPositions[ArmController.jointCount])
             } else if (grab.kind === "lean" || grab.kind === "lift" || grab.kind === "waist") {
-                taskController.cancelReach()
+                TaskController.cancelReach()
                 if (grab.kind === "waist") {
                     waistGrab = grab.point
-                    waistYawAtGrab = taskController.waistYawDegrees
+                    waistYawAtGrab = TaskController.waistYawDegrees
                 }
             } else if (grab.kind === "table") {
                 const table = root.tableById(grab.id)
                 tableOffset = Qt.vector2d(table.x - grab.point.x, table.z - grab.point.z)
             } else if (grab.kind === "joint") {
-                taskController.cancelReach() // the joint is yours now, not the hand goal's
+                TaskController.cancelReach() // the joint is yours now, not the hand goal's
                 const c = root.jointScreen(grab.index)
                 lastScreenAngle = Math.atan2(event.y - c.y, event.x - c.x)
                 // Positive joint angles turn counter-clockwise about the arm
@@ -456,43 +457,43 @@ Item {
 
             if (grab.kind === "hand") {
                 const target = root.rayOnCameraPlane(event.x, event.y, handPlanePoint)
-                taskController.reachTo(target.x, target.y, target.z)
+                TaskController.reachTo(target.x, target.y, target.z)
             } else if (grab.kind === "joint") {
-                taskController.cancelReach() // the joint is yours now, not the hand goal's
+                TaskController.cancelReach() // the joint is yours now, not the hand goal's
                 const c = root.jointScreen(grab.index)
                 const angle = Math.atan2(event.y - c.y, event.x - c.x)
                 let delta = angle - lastScreenAngle
                 if (delta > Math.PI) delta -= 2 * Math.PI
                 if (delta < -Math.PI) delta += 2 * Math.PI
                 lastScreenAngle = angle
-                const current = armController.jointAnglesDegrees[grab.index]
-                armController.setJointAngleDegrees(grab.index, current + jointSign * delta * 180 / Math.PI)
+                const current = ArmController.jointAnglesDegrees[grab.index]
+                ArmController.setJointAngleDegrees(grab.index, current + jointSign * delta * 180 / Math.PI)
             } else if (grab.kind === "lean") {
                 // The head swings about the hip: d(point)/d(bend).
-                const bend = taskController.hipBendDegrees * Math.PI / 180
+                const bend = TaskController.hipBendDegrees * Math.PI / 180
                 const L = root.torsoLength
                 const v = root.screenVelocity(root.torsoPoint(L, bend),
                                               body.mapDirectionToScene(Qt.vector3d(L * Math.cos(bend), -L * Math.sin(bend), 0)))
-                taskController.hipBendDegrees = taskController.hipBendDegrees + root.followMouse(v, dx, dy) * 180 / Math.PI
+                TaskController.hipBendDegrees = TaskController.hipBendDegrees + root.followMouse(v, dx, dy) * 180 / Math.PI
             } else if (grab.kind === "lift") {
-                const v = root.screenVelocity(Qt.vector3d(0, taskController.hipHeight, 0), Qt.vector3d(0, 1, 0))
-                taskController.hipHeight = taskController.hipHeight + root.followMouse(v, dx, dy)
+                const v = root.screenVelocity(Qt.vector3d(0, TaskController.hipHeight, 0), Qt.vector3d(0, 1, 0))
+                TaskController.hipHeight = TaskController.hipHeight + root.followMouse(v, dx, dy)
             } else if (grab.kind === "waist") {
                 // The grabbed rim point turns with the waist: d(point)/d(yaw)
                 // is (z, 0, -x) for a turn about +Y.
-                const turned = (taskController.waistYawDegrees - waistYawAtGrab) * Math.PI / 180
+                const turned = (TaskController.waistYawDegrees - waistYawAtGrab) * Math.PI / 180
                 const g = waistGrab
                 const p = Qt.vector3d(g.x * Math.cos(turned) + g.z * Math.sin(turned), g.y,
                                       -g.x * Math.sin(turned) + g.z * Math.cos(turned))
                 const v = root.screenVelocity(p, Qt.vector3d(p.z, 0, -p.x))
-                taskController.waistYawDegrees = taskController.waistYawDegrees + root.followMouse(v, dx, dy) * 180 / Math.PI
+                TaskController.waistYawDegrees = TaskController.waistYawDegrees + root.followMouse(v, dx, dy) * 180 / Math.PI
             } else if (grab.kind === "table") {
                 const table = root.tableById(grab.id)
                 const p = table !== null ? root.rayOnPlaneY(event.x, event.y, table.height) : null
-                if (p !== null) taskController.moveTable(grab.id, p.x + tableOffset.x, p.z + tableOffset.y)
+                if (p !== null) TaskController.moveTable(grab.id, p.x + tableOffset.x, p.z + tableOffset.y)
             } else if (grab.kind === "object") {
                 const spot = root.surfaceAt(event.x, event.y)
-                if (spot !== null) taskController.moveObject(grab.id, spot.x, spot.z)
+                if (spot !== null) TaskController.moveObject(grab.id, spot.x, spot.z)
             } else if (pressButton === Qt.RightButton) {
                 // Pan: slide the orbit center in the camera's plane.
                 const scale = camera.z * 0.0013
@@ -522,18 +523,18 @@ Item {
     signal clicked(real x, real y, int button)
     onClicked: (x, y, button) => {
         const hit = hitTest(x, y)
-        if (taskController.clickMode !== "" && (hit.kind === "surface" || hit.kind === "table")) {
+        if (TaskController.clickMode !== "" && (hit.kind === "surface" || hit.kind === "table")) {
             // An armed click mode from the panel still works.
-            taskController.handleClick(hit.point.x, hit.point.z)
+            TaskController.handleClick(hit.point.x, hit.point.z)
         } else if (hit.kind === "object") {
-            taskController.selectedId = hit.id
+            TaskController.selectedId = hit.id
             objectMenu.openFor(hit.id, x, y)
         } else if (hit.kind === "table") {
             spotMenu.openAt(hit.point, x, y, hit.id)
         } else if (hit.kind === "surface") {
             spotMenu.openAt(hit.point, x, y, -1)
         } else {
-            taskController.selectedId = -1
+            TaskController.selectedId = -1
         }
     }
 
@@ -542,7 +543,7 @@ Item {
 
     // Hint for the armed click mode.
     Rectangle {
-        visible: taskController.clickMode !== ""
+        visible: TaskController.clickMode !== ""
         anchors.top: parent.top
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.topMargin: 14
@@ -555,8 +556,8 @@ Item {
             anchors.centerIn: parent
             color: "#0e1021"
             font.bold: true
-            text: taskController.clickMode === "place" ? "Click the floor or the table to place a " + taskController.placeType
-                : taskController.clickMode === "move" ? "Click where the selected object should go"
+            text: TaskController.clickMode === "place" ? "Click the floor or the table to place a " + TaskController.placeType
+                : TaskController.clickMode === "move" ? "Click where the selected object should go"
                 : "Click where to put the held object down"
         }
     }
@@ -565,7 +566,7 @@ Item {
     // above does the grabbing) ----------------------------------------------
 
     Repeater {
-        model: armController.jointCount
+        model: ArmController.jointCount
 
         Item {
             id: jointMarker
@@ -573,9 +574,9 @@ Item {
             readonly property vector3d screenPosition: root.jointScreen(index)
             readonly property bool active: (mouse.grab.kind === "joint" && mouse.grab.index === index && mouse.dragging)
             readonly property bool hovered: mouse.hover.kind === "joint" && mouse.hover.index === index
-            readonly property color status: index < armController.jointColors.length ? armController.jointColors[index] : "#2ecc71"
+            readonly property color status: index < ArmController.jointColors.length ? ArmController.jointColors[index] : "#2ecc71"
 
-            visible: !taskController.busy
+            visible: !TaskController.busy
             x: screenPosition.x - width / 2
             y: screenPosition.y - height / 2
             width: 26
@@ -608,9 +609,9 @@ Item {
                     color: "white"
                     font.bold: true
                     font.pixelSize: 12
-                    text: (armController.jointNames[jointMarker.index] || ("Joint " + (jointMarker.index + 1))) + "  "
-                          + Math.round(armController.jointAnglesDegrees[jointMarker.index]) + "°  ·  "
-                          + Math.round(Math.abs(armController.jointTorques[jointMarker.index] || 0)) + " N·m"
+                    text: (ArmController.jointNames[jointMarker.index] || ("Joint " + (jointMarker.index + 1))) + "  "
+                          + Math.round(ArmController.jointAnglesDegrees[jointMarker.index]) + "°  ·  "
+                          + Math.round(Math.abs(ArmController.jointTorques[jointMarker.index] || 0)) + " N·m"
                 }
             }
         }
@@ -626,7 +627,7 @@ Item {
         property string kind
         readonly property bool active: mouse.grab.kind === kind && mouse.dragging
         readonly property bool hovered: mouse.hover.kind === kind
-        visible: !taskController.busy
+        visible: !TaskController.busy
         x: screenPosition.x - width / 2
         y: screenPosition.y - height / 2
         width: 26
@@ -670,7 +671,7 @@ Item {
         kind: "lean"
         glyph: "↷"
         screenPosition: root.hipScreen()
-        label: "Lean " + Math.round(taskController.hipBendDegrees) + "°  -  drag the torso"
+        label: "Lean " + Math.round(TaskController.hipBendDegrees) + "°  -  drag the torso"
     }
     BodyHandle {
         kind: "lift"
@@ -680,22 +681,22 @@ Item {
             const b = root.columnScreen(true)
             return Qt.vector3d((a.x + b.x) / 2, (a.y + b.y) / 2, 0)
         }
-        label: "Lift " + taskController.hipHeight.toFixed(2) + " m  -  drag up / down"
+        label: "Lift " + TaskController.hipHeight.toFixed(2) + " m  -  drag up / down"
     }
     BodyHandle {
         kind: "waist"
         glyph: "⟲"
         screenPosition: root.waistHandleScreen()
-        label: "Waist " + Math.round(taskController.waistYawDegrees) + "°  -  drag the base sideways"
+        label: "Waist " + Math.round(TaskController.waistYawDegrees) + "°  -  drag the base sideways"
     }
 
     // Hand handle: a dashed cyan circle at the tip that says "drag me".
     Item {
         id: handHandle
-        readonly property vector3d screenPosition: root.jointScreen(armController.jointCount)
+        readonly property vector3d screenPosition: root.jointScreen(ArmController.jointCount)
         readonly property bool active: mouse.grab.kind === "hand" && mouse.dragging
         readonly property bool hovered: mouse.hover.kind === "hand"
-        visible: !taskController.busy && armController.jointCount > 0
+        visible: !TaskController.busy && ArmController.jointCount > 0
         x: screenPosition.x - width / 2
         y: screenPosition.y - height / 2
         width: active || hovered ? 46 : 38

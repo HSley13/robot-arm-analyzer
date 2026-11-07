@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick3D
 import Humanoid.Geometry
+import Humanoid.Backend
 
 // The humanoid hand, modeled after a real dexterous robot hand: matte
 // blue-grey molded shells for the palm and every phalanx, dark hinge
@@ -10,7 +11,7 @@ import Humanoid.Geometry
 // cuff where the hand meets the wrist mechanism.
 //
 // Everything here is in the HAND's own local frame - the frame
-// handController's forward kinematics works in:
+// HandController's forward kinematics works in:
 //   +X toward the fingertips, +Y out of the palm (palmar), +Z thumb side.
 // ArmView3D parents this node to the arm's wrist, so the hand follows the
 // arm without this file knowing anything about it.
@@ -21,10 +22,10 @@ import Humanoid.Geometry
 // differently-proportioned hand config renders correctly with no QML
 // changes.
 //
-// handController.jointPositionsForChain()/etc. are Q_INVOKABLE methods
+// HandController.jointPositionsForChain()/etc. are Q_INVOKABLE methods
 // (they take a chain name, which a Q_PROPERTY can't), so a binding that
 // calls them doesn't re-run on its own when the pose changes. _data
-// reads handController.revision (bumped on every recompute) to give it a
+// reads HandController.revision (bumped on every recompute) to give it a
 // real dependency.
 Node {
     id: root
@@ -49,7 +50,7 @@ Node {
     function widthOf(chain) { return fingerWidths[chain] !== undefined ? fingerWidths[chain] : 0.018 }
 
     function _flatten() {
-        const names = handController.chainNames
+        const names = HandController.chainNames
         const links = []
         const pins = []
         const roots = []
@@ -59,10 +60,10 @@ Node {
             if (name === "wrist") continue // pure rotations at one point - the palm stands in for it
             const width = widthOf(name)
 
-            const positions = handController.jointPositionsForChain(name)
-            const mids = handController.linkMidpointsForChain(name)
-            const lens = handController.linkLengthsForChain(name)
-            const frames = handController.linkFramesForChain(name)
+            const positions = HandController.jointPositionsForChain(name)
+            const mids = HandController.linkMidpointsForChain(name)
+            const lens = HandController.linkLengthsForChain(name)
+            const frames = HandController.linkFramesForChain(name)
             for (let i = 0; i < mids.length; i++) {
                 // Fingers taper a little toward the tip.
                 const w = width * (1.0 - 0.07 * i)
@@ -72,19 +73,19 @@ Node {
                 pins.push({ position: positions[i], rotation: frames[i], width: w, thickness: w * 0.9 })
             }
 
-            const rootMid = handController.rootSegmentMidpointForChain(name)
+            const rootMid = HandController.rootSegmentMidpointForChain(name)
             if (rootMid.length > 0) {
                 roots.push({ name: name, position: rootMid[0],
-                             rotation: handController.rootSegmentFrameForChain(name)[0],
-                             length: handController.rootSegmentLengthForChain(name)[0],
-                             width: width, base: handController.chainBasePosition(name) })
+                             rotation: HandController.rootSegmentFrameForChain(name)[0],
+                             length: HandController.rootSegmentLengthForChain(name)[0],
+                             width: width, base: HandController.chainBasePosition(name) })
             }
         }
         return { links: links, pins: pins, roots: roots }
     }
 
     readonly property var _data: {
-        handController.revision // forces re-evaluation on every recompute, see note above
+        HandController.revision // forces re-evaluation on every recompute, see note above
         return root._flatten()
     }
 
@@ -199,8 +200,8 @@ Node {
     // The palm follows the wrist chain's own roll/deviation.
     Node {
         id: palm
-        position: { handController.revision; return handController.palmPosition }
-        rotation: { handController.revision; return handController.palmRotation }
+        position: { HandController.revision; return HandController.palmPosition }
+        rotation: { HandController.revision; return HandController.palmRotation }
 
         // Main palm shell: narrower at the wrist, widening toward the
         // knuckles, and turned a few degrees about the palm normal so its
@@ -337,7 +338,7 @@ Node {
 
     // Thumb base (CMC) housing where the thumb pivots out of the palm.
     Model {
-        readonly property vector3d base: { handController.revision; return handController.chainBasePosition("thumb") }
+        readonly property vector3d base: { HandController.revision; return HandController.chainBasePosition("thumb") }
         position: base
         geometry: RoundedBoxGeometry {
             size: Qt.vector3d(0.030, 0.028, 0.026)

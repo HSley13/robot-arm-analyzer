@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Humanoid.Backend
 
 // The menu that opens when you click the floor or a table: put the held
 // object down there, send the hand there, drop a new object - and add
@@ -10,9 +11,9 @@ Popup {
 
     property vector3d point
     property int tableId: -1
-    readonly property var held: taskController.heldObject
+    readonly property var held: TaskController.heldObject
     readonly property var table: {
-        const list = taskController.tables
+        const list = TaskController.tables
         for (let i = 0; i < list.length; i++) {
             if (list[i].id === tableId) return list[i]
         }
@@ -49,22 +50,22 @@ Popup {
         Button {
             Layout.fillWidth: true
             visible: menu.held.id !== undefined
-            enabled: !taskController.busy
+            enabled: !TaskController.busy
             highlighted: true
             text: "Put the " + (menu.held.type || "object") + " down here"
             onClicked: {
                 menu.close()
-                taskController.putDown(menu.point.x, menu.point.z)
+                TaskController.putDown(menu.point.x, menu.point.z)
             }
         }
         Button {
             Layout.fillWidth: true
-            enabled: !taskController.busy
+            enabled: !TaskController.busy
             text: "Reach here"
             onClicked: {
                 menu.close()
                 // A hand's width above the surface, not into it.
-                taskController.reachTo(menu.point.x, menu.point.y + 0.10, menu.point.z)
+                TaskController.reachTo(menu.point.x, menu.point.y + 0.10, menu.point.z)
             }
         }
 
@@ -73,13 +74,13 @@ Popup {
             Layout.fillWidth: true
             spacing: 4
             Repeater {
-                model: taskController.objectTypes
+                model: TaskController.objectTypes
                 Button {
                     required property string modelData
                     text: modelData
                     onClicked: {
                         menu.close()
-                        taskController.addObject(modelData, 0, menu.point.x, menu.point.z)
+                        TaskController.addObject(modelData, 0, menu.point.x, menu.point.z)
                     }
                 }
             }
@@ -96,13 +97,13 @@ Popup {
             Layout.fillWidth: true
             spacing: 4
             Repeater {
-                model: taskController.tableKinds
+                model: TaskController.tableKinds
                 Button {
                     required property string modelData
                     text: modelData
                     onClicked: {
                         menu.close()
-                        taskController.addTable(modelData, menu.point.x, menu.point.z)
+                        TaskController.addTable(modelData, menu.point.x, menu.point.z)
                     }
                 }
             }
@@ -111,13 +112,13 @@ Popup {
         Button {
             Layout.fillWidth: true
             visible: menu.table !== null
-            enabled: !taskController.busy
+            enabled: !TaskController.busy
             text: menu.table !== null ? "Remove this " + menu.table.kind : ""
             palette.buttonText: "#ff4d4f"
             onClicked: {
                 const id = menu.tableId
                 menu.close()
-                taskController.removeTable(id)
+                TaskController.removeTable(id)
             }
         }
     }

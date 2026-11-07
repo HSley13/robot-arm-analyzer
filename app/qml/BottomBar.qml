@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Humanoid.Backend
 
 // Every joint's full card, side by side across the bottom of the
 // window, plus AI/Static-Dynamic/joint-count and payload capacity.
@@ -12,10 +13,10 @@ Rectangle {
     // Movable hand joints (fixed placement joints, min == max, excluded).
     readonly property int handJointCount: {
         let count = 0
-        const names = handController.chainNames
+        const names = HandController.chainNames
         for (let c = 0; c < names.length; c++) {
-            for (let j = 0; j < handController.jointCountForChain(names[c]); j++) {
-                if (handController.jointMinDegrees(names[c], j) !== handController.jointMaxDegrees(names[c], j)) count++
+            for (let j = 0; j < HandController.jointCountForChain(names[c]); j++) {
+                if (HandController.jointMinDegrees(names[c], j) !== HandController.jointMaxDegrees(names[c], j)) count++
             }
         }
         return count
@@ -61,20 +62,20 @@ Rectangle {
 
                             Label {
                                 color: "white"
-                                opacity: armController.aiMode ? 0.5 : 1.0
+                                opacity: ArmController.aiMode ? 0.5 : 1.0
                                 text: "Exact"
                             }
 
                             Switch {
-                                checked: armController.aiMode
-                                enabled: armController.aiModeAvailable
-                                onToggled: armController.aiMode = checked
+                                checked: ArmController.aiMode
+                                enabled: ArmController.aiModeAvailable
+                                onToggled: ArmController.aiMode = checked
                             }
 
                             Label {
                                 color: "white"
-                                opacity: armController.aiMode ? 1.0 : 0.5
-                                text: "AI" + (armController.aiModeAvailable ? "" : " (none)")
+                                opacity: ArmController.aiMode ? 1.0 : 0.5
+                                text: "AI" + (ArmController.aiModeAvailable ? "" : " (none)")
                             }
                         }
                     }
@@ -91,18 +92,18 @@ Rectangle {
 
                             Label {
                                 color: "white"
-                                opacity: armController.dynamicMode ? 0.5 : 1.0
+                                opacity: ArmController.dynamicMode ? 0.5 : 1.0
                                 text: "Static"
                             }
 
                             Switch {
-                                checked: armController.dynamicMode
-                                onToggled: armController.dynamicMode = checked
+                                checked: ArmController.dynamicMode
+                                onToggled: ArmController.dynamicMode = checked
                             }
 
                             Label {
                                 color: "white"
-                                opacity: armController.dynamicMode ? 1.0 : 0.5
+                                opacity: ArmController.dynamicMode ? 1.0 : 0.5
                                 text: "Dynamic"
                             }
                         }
@@ -110,7 +111,7 @@ Rectangle {
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 5
-                            visible: armController.dynamicMode
+                            visible: ArmController.dynamicMode
 
                             Label {
                                 color: "white"
@@ -118,36 +119,36 @@ Rectangle {
                             }
 
                             Switch {
-                                checked: armController.trajectoryScrubMode
-                                onToggled: armController.trajectoryScrubMode = checked
+                                checked: ArmController.trajectoryScrubMode
+                                onToggled: ArmController.trajectoryScrubMode = checked
                             }
                         }
 
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 4
-                            visible: armController.trajectoryScrubMode
+                            visible: ArmController.trajectoryScrubMode
 
                             Label {
                                 color: "#9aa0ab"
                                 font.pixelSize: 11
                                 wrapMode: Text.WordWrap
                                 Layout.fillWidth: true
-                                text: armController.trajectoryWaypointCount + " waypoints (drag to scrub)"
+                                text: ArmController.trajectoryWaypointCount + " waypoints (drag to scrub)"
                             }
 
                             Slider {
                                 Layout.fillWidth: true
                                 from: 0
                                 to: 1
-                                value: armController.trajectoryProgress
-                                onMoved: armController.trajectoryProgress = value
+                                value: ArmController.trajectoryProgress
+                                onMoved: ArmController.trajectoryProgress = value
                             }
 
                             Button {
                                 Layout.fillWidth: true
                                 text: "Record waypoint"
-                                onClicked: armController.recordWaypoint()
+                                onClicked: ArmController.recordWaypoint()
                             }
                         }
                     }
@@ -164,14 +165,14 @@ Rectangle {
                         Label {
                             color: "white"
                             font.bold: true
-                            text: "Reach " + (armController.canvasCenter.x * 2).toFixed(2) + " m"
+                            text: "Reach " + (ArmController.canvasCenter.x * 2).toFixed(2) + " m"
                         }
                         Label {
                             color: "#9aa0ab"
                             font.pixelSize: 11
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
-                            text: armController.jointCount + " arm joints · " + root.handJointCount + " hand joints"
+                            text: ArmController.jointCount + " arm joints · " + root.handJointCount + " hand joints"
                         }
 
                         Item { Layout.fillHeight: true }
@@ -181,7 +182,7 @@ Rectangle {
 
             Repeater {
                 id: jointRepeater
-                model: armController.jointCount
+                model: ArmController.jointCount
 
                 Rectangle {
                     id: jointCard
@@ -202,7 +203,7 @@ Rectangle {
                         Label {
                             color: "white"
                             font.bold: true
-                            text: armController.jointNames[jointCard.index]
+                            text: ArmController.jointNames[jointCard.index]
                         }
 
                         RowLayout {
@@ -222,10 +223,10 @@ Rectangle {
                                 AngleDial {
                                     Layout.preferredWidth: 88
                                     Layout.preferredHeight: 88
-                                    from: armController.jointMinDegrees[jointCard.index]
-                                    to: armController.jointMaxDegrees[jointCard.index]
-                                    value: armController.jointAnglesDegrees[jointCard.index]
-                                    onMoved: armController.setJointAngleDegrees(jointCard.index, value)
+                                    from: ArmController.jointMinDegrees[jointCard.index]
+                                    to: ArmController.jointMaxDegrees[jointCard.index]
+                                    value: ArmController.jointAnglesDegrees[jointCard.index]
+                                    onMoved: ArmController.setJointAngleDegrees(jointCard.index, value)
                                 }
                             }
 
@@ -241,8 +242,8 @@ Rectangle {
                                 RadialGauge {
                                     Layout.preferredWidth: 88
                                     Layout.preferredHeight: 88
-                                    value: armController.jointTorques[jointCard.index]
-                                    limit: armController.jointTorqueLimits[jointCard.index]
+                                    value: ArmController.jointTorques[jointCard.index]
+                                    limit: ArmController.jointTorqueLimits[jointCard.index]
                                 }
                             }
                         }
@@ -258,9 +259,9 @@ Rectangle {
 
                             TextField {
                                 Layout.fillWidth: true
-                                text: armController.jointTorqueLimits[jointCard.index].toFixed(1)
+                                text: ArmController.jointTorqueLimits[jointCard.index].toFixed(1)
                                 validator: DoubleValidator { bottom: 0.0001 }
-                                onEditingFinished: armController.setJointTorqueLimit(jointCard.index, parseFloat(text))
+                                onEditingFinished: ArmController.setJointTorqueLimit(jointCard.index, parseFloat(text))
                             }
                         }
 
@@ -277,13 +278,13 @@ Rectangle {
                                 Layout.fillWidth: true
                                 from: 0.05
                                 to: 0.6
-                                value: armController.linkLengths[jointCard.index]
-                                onMoved: armController.setJointLength(jointCard.index, value)
+                                value: ArmController.linkLengths[jointCard.index]
+                                onMoved: ArmController.setJointLength(jointCard.index, value)
                             }
 
                             Label {
                                 color: "#9aa0ab"
-                                text: armController.linkLengths[jointCard.index].toFixed(2) + "m"
+                                text: ArmController.linkLengths[jointCard.index].toFixed(2) + "m"
                             }
                         }
 
@@ -300,49 +301,49 @@ Rectangle {
                                 Layout.fillWidth: true
                                 from: 0
                                 to: 10
-                                value: armController.jointMassesKg[jointCard.index]
-                                onMoved: armController.setJointMass(jointCard.index, value)
+                                value: ArmController.jointMassesKg[jointCard.index]
+                                onMoved: ArmController.setJointMass(jointCard.index, value)
                             }
 
                             Label {
                                 color: "#9aa0ab"
-                                text: armController.jointMassesKg[jointCard.index].toFixed(1) + "kg"
+                                text: ArmController.jointMassesKg[jointCard.index].toFixed(1) + "kg"
                             }
                         }
 
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 5
-                            visible: armController.dynamicMode
+                            visible: ArmController.dynamicMode
 
                             Label {
                                 color: "#9aa0ab"
                                 font.pixelSize: 11
-                                text: "vel " + armController.jointVelocitiesDegrees[jointCard.index].toFixed(0) + "°/s"
+                                text: "vel " + ArmController.jointVelocitiesDegrees[jointCard.index].toFixed(0) + "°/s"
                             }
 
                             Slider {
                                 Layout.fillWidth: true
-                                enabled: !armController.trajectoryScrubMode
+                                enabled: !ArmController.trajectoryScrubMode
                                 from: -180
                                 to: 180
-                                value: armController.jointVelocitiesDegrees[jointCard.index]
-                                onMoved: armController.setJointVelocityDegrees(jointCard.index, value)
+                                value: ArmController.jointVelocitiesDegrees[jointCard.index]
+                                onMoved: ArmController.setJointVelocityDegrees(jointCard.index, value)
                             }
 
                             Label {
                                 color: "#9aa0ab"
                                 font.pixelSize: 11
-                                text: "accel " + armController.jointAccelerationsDegrees[jointCard.index].toFixed(0) + "°/s²"
+                                text: "accel " + ArmController.jointAccelerationsDegrees[jointCard.index].toFixed(0) + "°/s²"
                             }
 
                             Slider {
                                 Layout.fillWidth: true
-                                enabled: !armController.trajectoryScrubMode
+                                enabled: !ArmController.trajectoryScrubMode
                                 from: -360
                                 to: 360
-                                value: armController.jointAccelerationsDegrees[jointCard.index]
-                                onMoved: armController.setJointAccelerationDegrees(jointCard.index, value)
+                                value: ArmController.jointAccelerationsDegrees[jointCard.index]
+                                onMoved: ArmController.setJointAccelerationDegrees(jointCard.index, value)
                             }
 
                             Label {
@@ -350,9 +351,9 @@ Rectangle {
                                 font.pixelSize: 10
                                 wrapMode: Text.WordWrap
                                 Layout.fillWidth: true
-                                text: "g " + armController.gravityTorques[jointCard.index].toFixed(1)
-                                    + " · i " + armController.inertiaTorques[jointCard.index].toFixed(1)
-                                    + " · c " + armController.coriolisTorques[jointCard.index].toFixed(1)
+                                text: "g " + ArmController.gravityTorques[jointCard.index].toFixed(1)
+                                    + " · i " + ArmController.inertiaTorques[jointCard.index].toFixed(1)
+                                    + " · c " + ArmController.coriolisTorques[jointCard.index].toFixed(1)
                             }
                         }
                     }
@@ -390,13 +391,13 @@ Rectangle {
                         font.pixelSize: 15
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
-                        text: armController.currentMaxSafePayloadKg.toFixed(1) + " kg safe now"
+                        text: ArmController.currentMaxSafePayloadKg.toFixed(1) + " kg safe now"
                     }
 
                     Button {
                         Layout.fillWidth: true
                         text: "Run scan"
-                        onClicked: armController.runPayloadScan(40)
+                        onClicked: ArmController.runPayloadScan(40)
                     }
 
                     Item { Layout.fillHeight: true }
@@ -405,7 +406,7 @@ Rectangle {
 
             Rectangle {
                 id: scanResultsCard
-                visible: armController.scanSampleCount > 0
+                visible: ArmController.scanSampleCount > 0
                 Layout.preferredWidth: 340
                 implicitHeight: jointRepeater.count > 0
                     ? jointRepeater.itemAt(0).implicitHeight
@@ -426,23 +427,23 @@ Rectangle {
                         font.pixelSize: 11
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
-                        text: armController.scanAiAvailable
-                            ? "Exact: " + armController.scanExactMilliseconds.toFixed(2) + " ms  ·  AI: "
-                                + armController.scanAiMilliseconds.toFixed(2) + " ms  ("
-                                + (armController.scanAiMilliseconds > 0
-                                    ? (armController.scanExactMilliseconds / armController.scanAiMilliseconds).toFixed(1)
+                        text: ArmController.scanAiAvailable
+                            ? "Exact: " + ArmController.scanExactMilliseconds.toFixed(2) + " ms  ·  AI: "
+                                + ArmController.scanAiMilliseconds.toFixed(2) + " ms  ("
+                                + (ArmController.scanAiMilliseconds > 0
+                                    ? (ArmController.scanExactMilliseconds / ArmController.scanAiMilliseconds).toFixed(1)
                                     : "?") + "x faster)"
-                            : "Exact: " + armController.scanExactMilliseconds.toFixed(2)
+                            : "Exact: " + ArmController.scanExactMilliseconds.toFixed(2)
                                 + " ms  ·  AI unavailable for this arm"
                     }
 
                     PayloadScanChart {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        reachMeters: armController.scanReachMeters
-                        exactPayloadKg: armController.scanExactPayloadKg
-                        aiPayloadKg: armController.scanAiPayloadKg
-                        aiAvailable: armController.scanAiAvailable
+                        reachMeters: ArmController.scanReachMeters
+                        exactPayloadKg: ArmController.scanExactPayloadKg
+                        aiPayloadKg: ArmController.scanAiPayloadKg
+                        aiAvailable: ArmController.scanAiAvailable
                     }
 
                     RowLayout {
@@ -457,7 +458,7 @@ Rectangle {
 
                         RowLayout {
                             spacing: 5
-                            visible: armController.scanAiAvailable
+                            visible: ArmController.scanAiAvailable
                             Rectangle { implicitWidth: 10; implicitHeight: 10; radius: 5; color: "#ff8a3d" }
                             Label { color: "#c7cbd6"; font.pixelSize: 11; text: "AI" }
                         }

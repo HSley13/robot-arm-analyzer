@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick3D
 import Humanoid.Geometry
+import Humanoid.Backend
 
 // The humanoid's right arm from shoulder to wrist, as a clean simulation
 // model: molded shells over every segment (no exposed electronics or
@@ -10,7 +11,7 @@ import Humanoid.Geometry
 // deltoid cap, rubber seal bands at the joints, inset service panels and
 // screw heads.
 //
-// Placement comes straight from armController's forward kinematics.
+// Placement comes straight from ArmController's forward kinematics.
 // Each limb is a Node at its joint, rotated by that joint's full frame
 // (frameRotations), so inside it:
 //   +X runs along the limb toward the next joint,
@@ -27,10 +28,10 @@ Node {
     id: root
 
     readonly property real meshUnit: 100.0
-    readonly property int jointCount: armController.jointPositions.length - 1
+    readonly property int jointCount: ArmController.jointPositions.length - 1
 
-    function linkLength(i) { return i < armController.linkLengths.length ? armController.linkLengths[i] : 0.0 }
-    function jointColor(i) { return i < armController.jointColors.length ? String(armController.jointColors[i]) : "#2ecc71" }
+    function linkLength(i) { return i < ArmController.linkLengths.length ? ArmController.linkLengths[i] : 0.0 }
+    function jointColor(i) { return i < ArmController.jointColors.length ? String(ArmController.jointColors[i]) : "#2ecc71" }
 
     // Load status on the shells: untouched while a joint is safe, washed
     // amber at caution and red at overload, so a struggling joint shows
@@ -210,8 +211,8 @@ Node {
     Node {
         id: upperArm
         visible: root.jointCount >= 1
-        position: armController.jointPositions.length > 0 ? armController.jointPositions[0] : Qt.vector3d(0, 0, 0)
-        rotation: armController.frameRotations.length > 1 ? armController.frameRotations[1] : Qt.quaternion(1, 0, 0, 0)
+        position: ArmController.jointPositions.length > 0 ? ArmController.jointPositions[0] : Qt.vector3d(0, 0, 0)
+        rotation: ArmController.frameRotations.length > 1 ? ArmController.frameRotations[1] : Qt.quaternion(1, 0, 0, 0)
 
         Actuator {
             radius: 0.056
@@ -272,8 +273,8 @@ Node {
     Node {
         id: forearm
         visible: root.jointCount >= 2
-        position: armController.jointPositions.length > 1 ? armController.jointPositions[1] : Qt.vector3d(0, 0, 0)
-        rotation: armController.frameRotations.length > 2 ? armController.frameRotations[2] : Qt.quaternion(1, 0, 0, 0)
+        position: ArmController.jointPositions.length > 1 ? ArmController.jointPositions[1] : Qt.vector3d(0, 0, 0)
+        rotation: ArmController.frameRotations.length > 2 ? ArmController.frameRotations[2] : Qt.quaternion(1, 0, 0, 0)
 
         readonly property real length: root.forearmLength
 
@@ -336,8 +337,8 @@ Node {
 
     Node {
         id: handMountNode
-        position: armController.jointPositions.length > 2 ? armController.jointPositions[2] : Qt.vector3d(0, 0, 0)
-        rotation: armController.frameRotations.length > 3 ? armController.frameRotations[3] : Qt.quaternion(1, 0, 0, 0)
+        position: ArmController.jointPositions.length > 2 ? ArmController.jointPositions[2] : Qt.vector3d(0, 0, 0)
+        rotation: ArmController.frameRotations.length > 3 ? ArmController.frameRotations[3] : Qt.quaternion(1, 0, 0, 0)
 
         // Arm frame -> hand frame: fingers along the hand link (+X), palm
         // facing the body (-Z), thumb up (+Y). That's a -90 degree turn
@@ -346,9 +347,9 @@ Node {
             eulerRotation.x: -90
             // The demo dumbbell from the Payload card - hidden while the hand
             // is carrying one of the scene's objects instead.
-            holdingPayload: !armController.gripperOpen && taskController.heldId < 0
-            payloadKg: armController.payloadKg
-            heldObject: taskController.heldObject
+            holdingPayload: !ArmController.gripperOpen && TaskController.heldId < 0
+            payloadKg: ArmController.payloadKg
+            heldObject: TaskController.heldObject
         }
     }
 }

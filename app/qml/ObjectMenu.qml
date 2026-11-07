@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Humanoid.Backend
 
 // The menu that opens when you click an object in the 3D view: pick it
 // up, move it to exact coordinates, change its mass, or delete it.
@@ -10,7 +11,7 @@ Popup {
 
     property int objectId: -1
     readonly property var object: {
-        const list = taskController.objects
+        const list = TaskController.objects
         for (let i = 0; i < list.length; i++) {
             if (list[i].id === objectId) return list[i]
         }
@@ -28,7 +29,7 @@ Popup {
         open()
     }
 
-    onClosed: taskController.selectedId = -1
+    onClosed: TaskController.selectedId = -1
     // It's gone (deleted, or picked up) - nothing left to edit.
     onObjectChanged: if (opened && (object === null || object.held)) close()
 
@@ -66,13 +67,13 @@ Popup {
 
         Button {
             Layout.fillWidth: true
-            text: taskController.heldId >= 0 ? "Pick up (hands full)" : "Pick up"
-            enabled: !taskController.busy && taskController.heldId < 0
+            text: TaskController.heldId >= 0 ? "Pick up (hands full)" : "Pick up"
+            enabled: !TaskController.busy && TaskController.heldId < 0
             highlighted: true
             onClicked: {
                 const id = menu.objectId
                 menu.close()
-                taskController.pickUp(id)
+                TaskController.pickUp(id)
             }
         }
 
@@ -86,7 +87,7 @@ Popup {
             Button {
                 Layout.fillWidth: true
                 text: "Move"
-                onClicked: taskController.moveObject(menu.objectId, parseFloat(xField.text), parseFloat(zField.text))
+                onClicked: TaskController.moveObject(menu.objectId, parseFloat(xField.text), parseFloat(zField.text))
             }
         }
 
@@ -99,7 +100,7 @@ Popup {
             Button {
                 Layout.fillWidth: true
                 text: "Set"
-                onClicked: taskController.setObjectMass(menu.objectId, parseFloat(massField.text))
+                onClicked: TaskController.setObjectMass(menu.objectId, parseFloat(massField.text))
             }
         }
 
@@ -110,7 +111,7 @@ Popup {
             onClicked: {
                 const id = menu.objectId
                 menu.close()
-                taskController.removeObject(id)
+                TaskController.removeObject(id)
             }
         }
     }

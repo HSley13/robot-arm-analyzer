@@ -2,8 +2,9 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick3D
 import Humanoid.Geometry
+import Humanoid.Backend
 
-// One table from taskController.tables, drawn by kind:
+// One table from TaskController.tables, drawn by kind:
 //   * "table"        - wooden top on four steel legs;
 //   * "coffee table" - low, thick walnut top with a shelf underneath;
 //   * "counter"      - a cabinet with a stone top and a door + handle on

@@ -2,17 +2,18 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick3D
 import Humanoid.Geometry
+import Humanoid.Backend
 
 // The humanoid's mobile base and lift column. It doesn't turn with the
 // waist; the column stretches from the base up to the hip joint
-// (taskController.hipHeight), so lowering the lift visibly telescopes it.
+// (TaskController.hipHeight), so lowering the lift visibly telescopes it.
 Node {
     id: root
 
     readonly property real meshUnit: 100.0
-    readonly property real baseRadius: taskController.body.baseRadius
+    readonly property real baseRadius: TaskController.body.baseRadius
     readonly property real baseTop: 0.11
-    readonly property real columnTop: taskController.hipHeight - 0.115 // just under the waist turntable
+    readonly property real columnTop: TaskController.hipHeight - 0.115 // just under the waist turntable
 
     // Base body.
     Model {

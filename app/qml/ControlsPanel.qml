@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
+import Humanoid.Backend
 
 // Sidebar: legend, the arm (humanoid / warehouse, joints), a mouse
 // cheat-sheet + status, the body's joints, payload + hand, and config I/O.
@@ -28,7 +29,7 @@ Rectangle {
             spacing: 8
 
             Label {
-                text: armController.armName
+                text: ArmController.armName
                 font.pixelSize: 18
                 font.bold: true
                 color: "white"
@@ -90,9 +91,9 @@ Rectangle {
                 border.width: 1
                 implicitHeight: armColumn.implicitHeight + 16
 
-                readonly property bool industrial: armController.armStyle === "industrial"
+                readonly property bool industrial: ArmController.armStyle === "industrial"
                 // Swapping the arm under a held object (or mid-move) would drop it.
-                readonly property bool canChange: !taskController.busy && taskController.heldId < 0
+                readonly property bool canChange: !TaskController.busy && TaskController.heldId < 0
 
                 ColumnLayout {
                     id: armColumn
@@ -107,7 +108,7 @@ Rectangle {
                         Label {
                             color: "#7a8099"
                             font.pixelSize: 11
-                            text: armController.jointCount + (armController.jointCount === 1 ? " joint" : " joints")
+                            text: ArmController.jointCount + (ArmController.jointCount === 1 ? " joint" : " joints")
                         }
                     }
                     RowLayout {
@@ -119,7 +120,7 @@ Rectangle {
                             checkable: true
                             checked: !armCard.industrial
                             enabled: armCard.canChange
-                            onClicked: taskController.useHumanoidArm()
+                            onClicked: TaskController.useHumanoidArm()
                         }
                         Button {
                             Layout.fillWidth: true
@@ -127,7 +128,7 @@ Rectangle {
                             checkable: true
                             checked: armCard.industrial
                             enabled: armCard.canChange
-                            onClicked: taskController.useIndustrialArm()
+                            onClicked: TaskController.useIndustrialArm()
                         }
                     }
                     RowLayout {
@@ -137,13 +138,13 @@ Rectangle {
                             Layout.fillWidth: true
                             text: "+ Joint"
                             enabled: armCard.canChange
-                            onClicked: armController.addJoint()
+                            onClicked: ArmController.addJoint()
                         }
                         Button {
                             Layout.fillWidth: true
                             text: "− Joint"
-                            enabled: armCard.canChange && armController.jointCount > 1
-                            onClicked: armController.removeLastJoint()
+                            enabled: armCard.canChange && ArmController.jointCount > 1
+                            onClicked: ArmController.removeLastJoint()
                         }
                     }
                     Label {
@@ -179,9 +180,9 @@ Rectangle {
                         Label { color: "white"; font.bold: true; text: "Mouse" }
                         Item { Layout.fillWidth: true }
                         Button {
-                            visible: taskController.busy
+                            visible: TaskController.busy
                             text: "Stop"
-                            onClicked: taskController.stop()
+                            onClicked: TaskController.stop()
                         }
                     }
 
@@ -209,12 +210,12 @@ Rectangle {
 
                     Label {
                         Layout.fillWidth: true
-                        visible: taskController.status !== ""
+                        visible: TaskController.status !== ""
                         wrapMode: Text.WordWrap
-                        color: taskController.status.indexOf("Can't") === 0 || taskController.status.indexOf("No room") === 0
+                        color: TaskController.status.indexOf("Can't") === 0 || TaskController.status.indexOf("No room") === 0
                                ? "#ff4d4f" : "#17e0ff"
                         font.pixelSize: 12
-                        text: taskController.status
+                        text: TaskController.status
                     }
                 }
             }
@@ -233,7 +234,7 @@ Rectangle {
                     anchors.fill: parent
                     anchors.margins: 8
                     spacing: 2
-                    enabled: !taskController.busy
+                    enabled: !TaskController.busy
 
                     Label {
                         color: "white"
@@ -243,11 +244,11 @@ Rectangle {
 
                     Repeater {
                         model: [
-                            { label: "Waist", unit: "°", from: taskController.body.minYaw, to: taskController.body.maxYaw,
+                            { label: "Waist", unit: "°", from: TaskController.body.minYaw, to: TaskController.body.maxYaw,
                               key: "waistYawDegrees", decimals: 0 },
-                            { label: "Lift", unit: " m", from: taskController.body.minHipHeight,
-                              to: taskController.body.maxHipHeight, key: "hipHeight", decimals: 2 },
-                            { label: "Lean", unit: "°", from: 0, to: taskController.body.maxHipBend,
+                            { label: "Lift", unit: " m", from: TaskController.body.minHipHeight,
+                              to: TaskController.body.maxHipHeight, key: "hipHeight", decimals: 2 },
+                            { label: "Lean", unit: "°", from: 0, to: TaskController.body.maxHipBend,
                               key: "hipBendDegrees", decimals: 0 }
                         ]
                         RowLayout {
@@ -263,14 +264,14 @@ Rectangle {
                                 Layout.fillWidth: true
                                 from: modelData.from
                                 to: modelData.to
-                                value: taskController[modelData.key]
-                                onMoved: taskController[modelData.key] = value
+                                value: TaskController[modelData.key]
+                                onMoved: TaskController[modelData.key] = value
                             }
                             Label {
                                 color: "white"
                                 Layout.preferredWidth: 46
                                 horizontalAlignment: Text.AlignRight
-                                text: taskController[modelData.key].toFixed(modelData.decimals) + modelData.unit
+                                text: TaskController[modelData.key].toFixed(modelData.decimals) + modelData.unit
                             }
                         }
                     }
@@ -286,7 +287,7 @@ Rectangle {
                 implicitHeight: payloadColumn.implicitHeight + 16
                 // The demo payload is the arm's own; while the hand carries a
                 // scene object, that object's mass is the payload instead.
-                enabled: taskController.heldId < 0 && !taskController.busy
+                enabled: TaskController.heldId < 0 && !TaskController.busy
                 opacity: enabled ? 1.0 : 0.5
 
                 ColumnLayout {
@@ -309,15 +310,15 @@ Rectangle {
                             Layout.fillWidth: true
                             from: 0
                             to: 30
-                            value: armController.payloadKg
-                            onMoved: armController.payloadKg = value
+                            value: ArmController.payloadKg
+                            onMoved: ArmController.payloadKg = value
                         }
 
                         TextField {
                             implicitWidth: 70
-                            text: armController.payloadKg.toFixed(1)
+                            text: ArmController.payloadKg.toFixed(1)
                             validator: DoubleValidator { bottom: 0 }
-                            onEditingFinished: armController.payloadKg = parseFloat(text)
+                            onEditingFinished: ArmController.payloadKg = parseFloat(text)
                         }
 
                         Label {
@@ -332,18 +333,18 @@ Rectangle {
 
                         Label {
                             color: "white"
-                            opacity: armController.gripperOpen ? 1.0 : 0.5
+                            opacity: ArmController.gripperOpen ? 1.0 : 0.5
                             text: "Released"
                         }
 
                         Switch {
-                            checked: !armController.gripperOpen
-                            onToggled: armController.gripperOpen = !checked
+                            checked: !ArmController.gripperOpen
+                            onToggled: ArmController.gripperOpen = !checked
                         }
 
                         Label {
                             color: "white"
-                            opacity: armController.gripperOpen ? 0.5 : 1.0
+                            opacity: ArmController.gripperOpen ? 0.5 : 1.0
                             text: "Gripping"
                         }
                     }
@@ -359,7 +360,7 @@ Rectangle {
                 border.color: "#262a40"
                 border.width: 1
                 implicitHeight: handColumn.implicitHeight + 16
-                visible: armController.armStyle !== "industrial"
+                visible: ArmController.armStyle !== "industrial"
 
                 ColumnLayout {
                     id: handColumn
@@ -378,7 +379,7 @@ Rectangle {
                         Label {
                             color: "#7a8099"
                             font.pixelSize: 11
-                            text: handController.currentGesture
+                            text: HandController.currentGesture
                         }
                     }
 
@@ -400,8 +401,8 @@ Rectangle {
                                 required property var modelData
                                 Layout.fillWidth: true
                                 text: modelData.label
-                                highlighted: handController.currentGesture === modelData.gesture
-                                onClicked: handController.playGesture(modelData.gesture)
+                                highlighted: HandController.currentGesture === modelData.gesture
+                                onClicked: HandController.playGesture(modelData.gesture)
                             }
                         }
                     }
@@ -462,7 +463,7 @@ Rectangle {
                             anchors.fill: parent
                             onDropped: (drop) => {
                                 if (!drop.hasUrls || drop.urls.length === 0) return
-                                armController.loadConfig(root.urlToLocalPath(drop.urls[0]))
+                                ArmController.loadConfig(root.urlToLocalPath(drop.urls[0]))
                             }
                         }
                     }
@@ -478,7 +479,7 @@ Rectangle {
                         title: "Choose an arm config file (e.g. config/humanoid_arm.json)"
                         fileMode: FileDialog.OpenFile
                         nameFilters: ["JSON files (*.json)", "All files (*)"]
-                        onAccepted: armController.loadConfig(root.urlToLocalPath(selectedFile))
+                        onAccepted: ArmController.loadConfig(root.urlToLocalPath(selectedFile))
                     }
 
                     FileDialog {
@@ -486,7 +487,7 @@ Rectangle {
                         title: "Save arm config as"
                         fileMode: FileDialog.SaveFile
                         nameFilters: ["JSON files (*.json)", "All files (*)"]
-                        onAccepted: armController.saveConfig(root.urlToLocalPath(selectedFile))
+                        onAccepted: ArmController.saveConfig(root.urlToLocalPath(selectedFile))
                     }
 
                     Label {
@@ -494,8 +495,8 @@ Rectangle {
                         font.pixelSize: 11
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
-                        visible: armController.configMessage.length > 0
-                        text: armController.configMessage
+                        visible: ArmController.configMessage.length > 0
+                        text: ArmController.configMessage
                     }
                 }
             }
