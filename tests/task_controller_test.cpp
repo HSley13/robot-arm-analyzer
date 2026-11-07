@@ -1,3 +1,5 @@
+#include <QVector3D>
+
 #include <cmath>
 #include <string>
 
@@ -35,6 +37,22 @@ QVariantMap objectById(const TaskController &task, int id) {
     }
   }
   return {};
+}
+
+// Where the arm's tip is in the world, from the drawn frames: arm plane
+// at the right shoulder, torso leaning at the hip, the waist turning it.
+QVector3D tipInWorld(const ArmController &arm, const TaskController &task) {
+  const QVariantMap body = task.body();
+  const QVector3D tip = arm.jointPositions().constLast().value<QVector3D>();
+  const double bend = task.hipBendDegrees() * M_PI / 180.0;
+  const double yaw = task.waistYawDegrees() * M_PI / 180.0;
+  const double x = tip.x();
+  const double y = tip.y() + body["hipToShoulder"].toDouble();
+  const double z = body["shoulderLateral"].toDouble();
+  const double xb = x * std::cos(bend) + y * std::sin(bend);
+  const double yb = -x * std::sin(bend) + y * std::cos(bend);
+  return QVector3D(float(xb * std::cos(yaw) + z * std::sin(yaw)), float(yb + task.hipHeight()),
+                   float(-xb * std::sin(yaw) + z * std::cos(yaw)));
 }
 
 } // namespace
@@ -160,4 +178,73 @@ TEST(ArmController, LeaningTheBaseIsTheSameAsTurningTheShoulder) {
     EXPECT_NEAR(leaning.jointTorques()[i].toDouble(), upright.jointTorques()[i].toDouble(), 1e-9) << "joint " << i;
   }
   EXPECT_NEAR(leaning.currentMaxSafePayloadKg(), upright.currentMaxSafePayloadKg(), 1e-6);
+}
+
+TEST(TaskController, DraggingTheHandMovesTheWholeBodyThere) {
+  Rig rig;
+  // Low and off to the side: the waist has to turn and the hip bend.
+  ASSERT_TRUE(rig.task.reachTo(0.35, 0.30, 0.55));
+  EXPECT_FALSE(rig.task.busy()); // instant, no queued motion
+  const QVector3D tip = tipInWorld(rig.arm, rig.task);
+  EXPECT_NEAR(tip.x(), 0.35, 2e-3);
+  EXPECT_NEAR(tip.y(), 0.30, 2e-3);
+  EXPECT_NEAR(tip.z(), 0.55, 2e-3);
+  EXPECT_GT(rig.task.hipBendDegrees(), 1.0);
+
+  // Out of reach: says so, but still leans as far as it can toward it.
+  EXPECT_FALSE(rig.task.reachTo(3.0, 1.0, 0.0));
+  EXPECT_GT(tipInWorld(rig.arm, rig.task).x(), 0.5);
+}
+
+TEST(TaskController, IgnoresDragsWhileAMoveIsPlaying) {
+  Rig rig;
+  const int id = rig.task.addObject("can", 0.0, 0.62, 0.30);
+  ASSERT_TRUE(rig.task.pickUp(id));
+  const double yaw = rig.task.waistYawDegrees();
+  EXPECT_FALSE(rig.task.reachTo(0.4, 1.0, -0.4));
+  EXPECT_DOUBLE_EQ(rig.task.waistYawDegrees(), yaw);
+}
+
+TEST(TaskController, WarehouseArmPicksWithItsGripper) {
+  Rig rig;
+  ASSERT_TRUE(rig.task.useIndustrialArm());
+  EXPECT_EQ(rig.arm.armStyle(), QString("industrial"));
+  rig.arm.addJoint(); // four joints now - no closed form
+  ASSERT_EQ(rig.arm.jointCount(), 4);
+
+  const int id = rig.task.addObject("can", 0.0, 0.55, 0.35);
+  ASSERT_TRUE(rig.task.pickUp(id)) << rig.task.status().toStdString();
+  rig.runToEnd();
+  ASSERT_EQ(rig.task.heldId(), id);
+  EXPECT_DOUBLE_EQ(rig.arm.payloadKg(), 0.35);
+  // Closed on the can, and it says how it's held.
+  EXPECT_LT(rig.task.gripperWidth(), 0.08);
+  const QString mode = rig.task.heldObject()["graspMode"].toString();
+  EXPECT_TRUE(mode == "top" || mode == "side") << mode.toStdString();
+
+  ASSERT_TRUE(rig.task.putDown(0.40, -0.50)) << rig.task.status().toStdString();
+  rig.runToEnd();
+  EXPECT_EQ(rig.task.heldId(), -1);
+  EXPECT_NEAR(rig.task.gripperWidth(), 0.11, 1e-12);
+  EXPECT_NEAR(objectById(rig.task, id)["x"].toDouble(), 0.40, 1e-12);
+}
+
+TEST(TaskController, SwitchesBetweenTheHumanoidAndTheWarehouseArm) {
+  Rig rig;
+  ASSERT_TRUE(rig.task.useIndustrialArm());
+  rig.arm.addJoint();
+  rig.arm.addJoint();
+  ASSERT_EQ(rig.arm.jointCount(), 5);
+
+  ASSERT_TRUE(rig.task.useHumanoidArm());
+  EXPECT_EQ(rig.arm.armStyle(), QString("humanoid"));
+  EXPECT_EQ(rig.arm.jointCount(), 3);
+  EXPECT_EQ(rig.arm.jointNames().first(), QString("Shoulder"));
+
+  // Not while holding something.
+  const int id = rig.task.addObject("bottle", 0.0, 0.62, 0.30);
+  ASSERT_TRUE(rig.task.pickUp(id));
+  rig.runToEnd();
+  EXPECT_FALSE(rig.task.useIndustrialArm());
+  EXPECT_EQ(rig.arm.armStyle(), QString("humanoid"));
 }

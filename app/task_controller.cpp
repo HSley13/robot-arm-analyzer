@@ -15,6 +15,8 @@ constexpr double kApproachClearance = 0.10; // m, hand starts/ends this far from
 constexpr double kLiftHeight = 0.12;        // m, how far a picked object is raised (and lowered onto a spot)
 constexpr double kTickSeconds = 1.0 / 60.0;
 constexpr double kStandingHipHeight = 0.80; // m, the lift's normal standing height
+constexpr double kGripperReach = 0.075;     // m, gripper finger center past the arm's flange
+constexpr double kGripperOpen = 0.11;       // m, gripper fingers wide open
 
 double wrap(double angle) {
   while (angle > kPi) {
@@ -147,6 +149,9 @@ QVariantMap TaskController::toVariant(const SceneObject &object) const {
   // Where it sits in the hand (Hand3D's frame) while held.
   map["gripForward"] = gripForward(shape.grip_radius);
   map["gripPalmar"] = gripPalmar(shape.grip_radius);
+  map["graspMode"] = object.grasp_mode;
+  map["graspHeight"] = object.grasp_height;
+  map["gripperReach"] = kGripperReach;
   return map;
 }
 
@@ -362,18 +367,139 @@ void TaskController::applyPose(const BodyPose &pose) {
 
 // ---- planning + sequences ------------------------------------------------
 
-GraspTarget TaskController::graspTargetFor(const SceneObject &object, const Eigen::Vector3d &grip_point) const {
+bool TaskController::industrial() const { return _arm->config().style == "industrial"; }
+
+TaskController::GraspOption TaskController::graspOption(const SceneObject &object, const Eigen::Vector3d &base,
+                                                        const QString &mode, double height) const {
   const Shape shape = shapeOf(object.type, object.mass);
   const ArmConfig &config = _arm->config();
   const double hand_link = config.joints.empty() ? 0.0 : config.joints.back().dh.a;
 
-  GraspTarget target;
-  target.grip_point = grip_point;
-  target.palmar_offset = gripPalmar(shape.grip_radius);
-  target.forward_offset = gripForward(shape.grip_radius) - hand_link;
-  target.mass = object.mass;
-  target.keep_hand_level = shape.upright;
-  return target;
+  GraspOption option;
+  option.mode = mode;
+  option.height = height;
+  option.target.grip_point = base + Eigen::Vector3d(0.0, height, 0.0);
+  option.target.mass = object.mass;
+  option.target.keep_hand_level = shape.upright;
+  if (mode == QStringLiteral("hand")) {
+    option.target.palmar_offset = gripPalmar(shape.grip_radius);
+    option.target.forward_offset = gripForward(shape.grip_radius) - hand_link;
+  } else {
+    // Parallel gripper: the fingers close across the arm's plane, so the
+    // object sits centered in the plane, kGripperReach past the flange.
+    option.target.palmar_offset = 0.0;
+    option.target.forward_offset = kGripperReach;
+    option.target.hand_angles = {mode == QStringLiteral("top") ? -kPi / 2.0 : 0.0};
+    if (!shape.upright && mode == QStringLiteral("side")) {
+      option.target.hand_angles.push_back(-kPi / 6.0);
+      option.target.hand_angles.push_back(-kPi / 3.0);
+    }
+  }
+  return option;
+}
+
+std::vector<TaskController::GraspOption> TaskController::graspOptions(const SceneObject &object,
+                                                                      const Eigen::Vector3d &base) const {
+  const Shape shape = shapeOf(object.type, object.mass);
+  std::vector<GraspOption> options;
+  if (!industrial()) {
+    options.push_back(graspOption(object, base, QStringLiteral("hand"), shape.grip_height));
+    return options;
+  }
+  // From above first (the warehouse way), gripping an upright object near
+  // its top so the gripper's palm clears it - except a standing dumbbell,
+  // whose top plate is in the way.
+  if (object.type != QStringLiteral("dumbbell")) {
+    const double top_height = shape.upright ? std::max(shape.grip_height, shape.height - 0.035) : shape.grip_height;
+    options.push_back(graspOption(object, base, QStringLiteral("top"), top_height));
+  }
+  options.push_back(graspOption(object, base, QStringLiteral("side"), shape.grip_height));
+  return options;
+}
+
+BodyPose TaskController::approachPose(const GraspOption &option, const PickPlan &at, double distance) const {
+  if (option.mode == QStringLiteral("hand")) {
+    return sideOffPose(at.pose, option.target.grip_point, option.target.palmar_offset, distance);
+  }
+  GraspTarget back = option.target;
+  back.hand_angles = {at.hand_angle};
+  if (option.mode == QStringLiteral("top")) {
+    back.grip_point.y() += distance; // straight down onto it
+  } else {
+    // In along the gripper's own direction (level, facing the torso's way).
+    const Eigen::Vector3d forward(std::cos(at.pose.yaw), 0.0, -std::sin(at.pose.yaw));
+    back.grip_point -= distance * forward;
+  }
+  const PickPlan plan = plan_grasp(_arm->config(), _geometry, back, at.pose.hip_height);
+  return plan.ok ? plan.pose : at.pose;
+}
+
+BodyPose TaskController::carryPose(const GraspOption &option, const PickPlan &fallback) const {
+  // Held in front of the body at about waist height, standing upright.
+  const double yaw = fallback.pose.yaw;
+  const double lateral = _geometry.shoulder_lateral - option.target.palmar_offset;
+  const double forward = 0.40;
+  GraspTarget carry = option.target;
+  carry.grip_point = Eigen::Vector3d(forward * std::cos(yaw) + lateral * std::sin(yaw), industrial() ? 1.00 : 0.95,
+                                     -forward * std::sin(yaw) + lateral * std::cos(yaw));
+  carry.hand_angles = {fallback.hand_angle};
+  const PickPlan plan = plan_grasp(_arm->config(), _geometry, carry, kStandingHipHeight);
+  return plan.ok ? plan.pose : fallback.pose;
+}
+
+BodyPose TaskController::homePose(double yaw) const {
+  BodyPose home = currentPose();
+  home.yaw = yaw;
+  home.hip_height = kStandingHipHeight;
+  home.hip_bend = 0.0;
+  if (!industrial() && home.arm.size() == 3) {
+    home.arm = {to_radians(-70.0), to_radians(65.0), to_radians(5.0)}; // the humanoid's relaxed ready pose
+    return home;
+  }
+  // A warehouse arm: tip tucked in front of the chest.
+  const Eigen::Vector3d point(0.30 * std::cos(yaw) + _geometry.shoulder_lateral * std::sin(yaw), 1.05,
+                              -0.30 * std::sin(yaw) + _geometry.shoulder_lateral * std::cos(yaw));
+  const PickPlan plan = plan_reach(_arm->config(), _geometry, point, home);
+  if (plan.ok) {
+    home.arm = plan.pose.arm;
+  }
+  return home;
+}
+
+bool TaskController::reachTo(double x, double y, double z) {
+  if (busy()) {
+    return false;
+  }
+  const PickPlan plan = plan_reach(_arm->config(), _geometry, Eigen::Vector3d(x, y, z), currentPose());
+  if (plan.pose.arm.size() == _arm->config().joints.size()) {
+    applyPose(plan.pose);
+  }
+  return plan.ok;
+}
+
+bool TaskController::useIndustrialArm() {
+  if (busy() || _heldId != -1) {
+    setStatus(QStringLiteral("Put the object down before changing the arm"));
+    return false;
+  }
+  _arm->convertToIndustrial();
+  _gripperWidth = kGripperOpen;
+  setStatus(QStringLiteral("Warehouse arm with a gripper - add joints in the Arm card"));
+  return true;
+}
+
+bool TaskController::useHumanoidArm() {
+  if (busy() || _heldId != -1) {
+    setStatus(QStringLiteral("Put the object down before changing the arm"));
+    return false;
+  }
+  if (!_arm->reloadInitialConfig()) {
+    return false;
+  }
+  applyPose(homePose(_pose.yaw));
+  _hand->playGesture(QStringLiteral("restPose"));
+  setStatus(QStringLiteral("Humanoid arm"));
+  return true;
 }
 
 BodyPose TaskController::sideOffPose(BodyPose pose, const Eigen::Vector3d &grip_point, double palmar_offset,
@@ -420,49 +546,66 @@ bool TaskController::pickUp(int id) {
     return false;
   }
 
-  const Shape shape = shapeOf(object->type, object->mass);
-  const Eigen::Vector3d grip = object->base + Eigen::Vector3d(0.0, shape.grip_height, 0.0);
-  GraspTarget target = graspTargetFor(*object, grip);
-
-  const PickPlan grasp = plan_grasp(_arm->config(), _geometry, target, _pose.hip_height);
+  // First grasp option that works.
+  GraspOption option;
+  PickPlan grasp;
+  QString reason;
+  for (const GraspOption &candidate : graspOptions(*object, object->base)) {
+    grasp = plan_grasp(_arm->config(), _geometry, candidate.target, _pose.hip_height);
+    if (grasp.ok) {
+      option = candidate;
+      break;
+    }
+    if (reason.isEmpty()) {
+      reason = QString::fromStdString(grasp.reason);
+    }
+  }
   if (!grasp.ok) {
-    setStatus(QStringLiteral("Can't pick up the %1: %2").arg(object->type, QString::fromStdString(grasp.reason)));
+    setStatus(QStringLiteral("Can't pick up the %1: %2").arg(object->type, reason));
     return false;
   }
+  option.target.hand_angles = {grasp.hand_angle}; // keep the hand the way it grasped from here on
 
-  target.grip_point.y() += kLiftHeight;
-  PickPlan lifted = plan_grasp(_arm->config(), _geometry, target, grasp.pose.hip_height);
+  GraspTarget raised = option.target;
+  raised.grip_point.y() += kLiftHeight;
+  PickPlan lifted = plan_grasp(_arm->config(), _geometry, raised, grasp.pose.hip_height);
   if (!lifted.ok) {
     lifted = grasp; // can't raise it any further - just hold it where it is
   }
 
+  const Shape shape = shapeOf(object->type, object->mass);
   const BodyPose start = currentPose();
-  const BodyPose approach = sideOffPose(grasp.pose, grip, target.palmar_offset, kApproachClearance);
+  const BodyPose approach = approachPose(option, grasp, kApproachClearance);
+  const BodyPose carry = carryPose(option, lifted);
   const double closure = gripClosure(shape.grip_radius);
+  const double closed_width = 2.0 * shape.grip_radius;
   const double mass = object->mass;
   const QString type = object->type;
+  const QString mode = option.mode;
+  const double height = option.height;
 
   _selectedId = id;
+  _gripperWidth = kGripperOpen;
   _arm->setGripperOpen(true);
   _hand->playGesture(QStringLiteral("openPalm"));
   setStatus(QStringLiteral("Reaching for the %1...").arg(type));
 
   queue(approach, stepDuration(start, approach));
-  queue(grasp.pose, 0.9, [this, closure]() { _hand->playGrasp(closure); });
-  queue(grasp.pose, 0.9, [this, id, mass]() {
+  queue(grasp.pose, 0.9, [this, closure, closed_width]() {
+    _hand->playGrasp(closure);
+    _gripperWidth = closed_width;
+    emit stateChanged();
+  });
+  queue(grasp.pose, 0.9, [this, id, mass, mode, height]() {
+    if (SceneObject *held = findObject(id)) {
+      held->grasp_mode = mode;
+      held->grasp_height = height;
+    }
     _heldId = id;
     _arm->setPayloadKg(mass);
     _arm->setGripperOpen(false);
     emit objectsChanged();
   });
-  // Then stand up and carry it at waist height: upper arm down, forearm
-  // forward, hand level (shoulder + elbow + wrist = 0) so an upright
-  // object stays upright.
-  BodyPose carry = lifted.pose;
-  carry.hip_height = kStandingHipHeight;
-  carry.hip_bend = 0.0;
-  carry.arm = {to_radians(-75.0), to_radians(80.0), to_radians(-5.0)};
-
   queue(lifted.pose, stepDuration(grasp.pose, lifted.pose));
   queue(carry, stepDuration(lifted.pose, carry), [this, type, mass]() {
     setStatus(QStringLiteral("Holding the %1 (%2)").arg(type, massText(mass)));
@@ -492,31 +635,28 @@ bool TaskController::putDown(double x, double z) {
     return false;
   }
 
-  const Eigen::Vector3d grip(x, support + shape.grip_height, z);
-  GraspTarget target = graspTargetFor(*object, grip);
-  const PickPlan place = plan_grasp(_arm->config(), _geometry, target, _pose.hip_height);
+  // Put it down the same way it's held.
+  const Eigen::Vector3d base(x, support, z);
+  GraspOption option = graspOption(*object, base, object->grasp_mode.isEmpty() ? QStringLiteral("hand")
+                                                                               : object->grasp_mode,
+                                   object->grasp_mode.isEmpty() ? shape.grip_height : object->grasp_height);
+  const PickPlan place = plan_grasp(_arm->config(), _geometry, option.target, _pose.hip_height);
   if (!place.ok) {
     setStatus(QStringLiteral("Can't put the %1 there: %2").arg(object->type, QString::fromStdString(place.reason)));
     return false;
   }
-  target.grip_point.y() += kLiftHeight;
-  PickPlan above = plan_grasp(_arm->config(), _geometry, target, place.pose.hip_height);
+  option.target.hand_angles = {place.hand_angle};
+  GraspTarget raised = option.target;
+  raised.grip_point.y() += kLiftHeight;
+  PickPlan above = plan_grasp(_arm->config(), _geometry, raised, place.pose.hip_height);
   if (!above.ok) {
     above = place;
   }
 
   const BodyPose start = currentPose();
-  const BodyPose retreat = sideOffPose(place.pose, grip, target.palmar_offset, kApproachClearance);
-  // Then back to standing, facing forward, arm in the relaxed ready pose.
-  BodyPose home = retreat;
-  home.yaw = 0.0;
-  home.hip_height = kStandingHipHeight;
-  home.hip_bend = 0.0;
-  home.arm = {to_radians(-70.0), to_radians(65.0), to_radians(5.0)};
-
+  const BodyPose retreat = approachPose(option, place, kApproachClearance);
   const int id = object->id;
   const QString type = object->type;
-  const Eigen::Vector3d base(x, support, z);
   setStatus(QStringLiteral("Putting the %1 down...").arg(type));
 
   queue(above.pose, stepDuration(start, above.pose));
@@ -524,18 +664,24 @@ bool TaskController::putDown(double x, double z) {
     // Let go: the object now stands where the hand put it.
     if (SceneObject *placed = findObject(id)) {
       placed->base = base;
+      placed->grasp_mode.clear();
     }
     _heldId = -1;
+    _gripperWidth = kGripperOpen;
     _arm->setPayloadKg(0.0);
     _arm->setGripperOpen(true);
     _hand->playGesture(QStringLiteral("openPalm"));
     emit objectsChanged();
+    emit stateChanged();
   });
   queue(place.pose, 0.6);
-  queue(retreat, 0.9);
-  queue(home, stepDuration(retreat, home), [this, type]() {
-    _hand->playGesture(QStringLiteral("restPose"));
-    setStatus(QStringLiteral("Put the %1 down").arg(type));
+  queue(retreat, 0.9, [this, type]() {
+    // Home is computed now, from wherever the arm actually ended up.
+    const BodyPose home = homePose(0.0);
+    queue(home, stepDuration(currentPose(), home), [this, type]() {
+      _hand->playGesture(QStringLiteral("restPose"));
+      setStatus(QStringLiteral("Put the %1 down").arg(type));
+    });
   });
   return true;
 }

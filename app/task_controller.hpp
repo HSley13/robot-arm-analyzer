@@ -59,6 +59,9 @@ class TaskController : public QObject {
   Q_PROPERTY(QVariantMap body READ body CONSTANT)
   // The table: {x0, x1, z0, z1, height}.
   Q_PROPERTY(QVariantMap table READ table CONSTANT)
+  // Distance between the industrial gripper's fingers (m): wide open, or
+  // closed onto whatever it's holding.
+  Q_PROPERTY(double gripperWidth READ gripperWidth NOTIFY stateChanged)
 
 public:
   TaskController(ArmController *arm, HandController *hand, QObject *parent = nullptr);
@@ -87,6 +90,21 @@ public:
   void setHipBendDegrees(double degrees);
   QVariantMap body() const;
   QVariantMap table() const;
+  double gripperWidth() const { return _gripperWidth; }
+
+  // Moves the body and arm so the arm's end-effector point is at the world
+  // point (x, y, z), changing the pose as little as possible (plan_reach).
+  // Instant, no animation - it's what dragging the hand calls on every
+  // mouse move. Returns false if the point is out of reach (the hand then
+  // stops at the closest point it can get to). Ignored while a pick /
+  // put-down sequence is running.
+  Q_INVOKABLE bool reachTo(double x, double y, double z);
+
+  // Switches the arm between the humanoid (shoulder / elbow / wrist +
+  // hand) and an industrial warehouse arm (+ parallel gripper). Not while
+  // holding something or mid-sequence.
+  Q_INVOKABLE bool useHumanoidArm();
+  Q_INVOKABLE bool useIndustrialArm();
 
   // Adds an object standing at (x, z) on whatever surface is there; its
   // mass defaults to the type's typical mass when massKg <= 0. Returns the
@@ -129,6 +147,18 @@ private:
     QString type;
     double mass = 0.0;
     Eigen::Vector3d base = Eigen::Vector3d::Zero(); // bottom center, world
+    // How it's being held (while held): "hand", "top" (gripper from above)
+    // or "side" (gripper level), and at what height above its base.
+    QString grasp_mode;
+    double grasp_height = 0.0;
+  };
+
+  // One way of grasping an object: the planner target, which mode it is,
+  // and where on the object the grip is.
+  struct GraspOption {
+    GraspTarget target;
+    QString mode;
+    double height = 0.0;
   };
 
   // Size/shape facts a planner and a renderer both need.
@@ -160,7 +190,21 @@ private:
   bool spotIsFree(double x, double z, double footprint, int ignore_id) const;
   QVariantMap toVariant(const SceneObject &object) const;
 
-  GraspTarget graspTargetFor(const SceneObject &object, const Eigen::Vector3d &grip_point) const;
+  bool industrial() const;
+  // The ways this arm can grasp `object` standing with its base at `base`,
+  // most preferred first (the hand: from the side; a gripper: from above,
+  // then from the side).
+  std::vector<GraspOption> graspOptions(const SceneObject &object, const Eigen::Vector3d &base) const;
+  // The same grasp, `mode` and height fixed (for putting down what's held).
+  GraspOption graspOption(const SceneObject &object, const Eigen::Vector3d &base, const QString &mode,
+                          double height) const;
+  // A pose `distance` back along the approach direction of `option` - the
+  // hand slides in palm-first, the gripper comes down from above or in
+  // along its own fingers.
+  BodyPose approachPose(const GraspOption &option, const PickPlan &at, double distance) const;
+  // Standing pose holding the hand / gripper in front of the body.
+  BodyPose carryPose(const GraspOption &option, const PickPlan &fallback) const;
+  BodyPose homePose(double yaw) const;
   // The current body pose with the arm's live joint values.
   BodyPose currentPose() const;
   // The same pose with the waist turned so the hand sits `clearance`
@@ -192,6 +236,7 @@ private:
   QString _status;
   QString _clickMode;
   QString _placeType = QStringLiteral("bottle");
+  double _gripperWidth = 0.11;
   double _placeMassKg = 1.0;
 
   // The table, in front and to the robot's left.
