@@ -257,7 +257,10 @@ Node {
             id: rightArmMount
             position: Qt.vector3d(0, root.hipToShoulder, root.shoulderLateral)
 
-            HumanoidArm3D {}
+            // The humanoid arm + hand, or - once joints are added or removed -
+            // the warehouse arm with a gripper.
+            HumanoidArm3D { visible: armController.armStyle !== "industrial" }
+            IndustrialArm3D { visible: armController.armStyle === "industrial" }
         }
     }
 }
