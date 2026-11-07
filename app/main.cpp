@@ -10,15 +10,12 @@
 #include <QUrl>
 #include <QVariantMap>
 #include <QVector3D>
-#include <QtQml/qqml.h>
 #include <QtQml/qqmlextensionplugin.h>
 
 #include <algorithm>
 #include <cstdio>
 
 #include "arm_controller.hpp"
-#include "geometry/rounded_box_geometry.hpp"
-#include "geometry/tube_geometry.hpp"
 #include "hand_controller.hpp"
 #include "qml_hot_reloader.hpp"
 #include "task_controller.hpp"
@@ -87,9 +84,6 @@ int main(int argc, char *argv[]) {
                      industrialOption, tableOption, addOption});
   parser.process(app);
 
-  // Lets QML say `Model { geometry: RoundedBoxGeometry { ... } }`.
-  qmlRegisterType<robotarm::RoundedBoxGeometry>("Humanoid.Geometry", 1, 0, "RoundedBoxGeometry");
-  qmlRegisterType<robotarm::TubeGeometry>("Humanoid.Geometry", 1, 0, "TubeGeometry");
 
   robotarm::ArmController controller(std::string(PROJECT_ROOT_DIR) + "/config/humanoid_arm.json",
                                      std::string(PROJECT_ROOT_DIR) + "/ml/models/humanoid_arm.surrogate.json",

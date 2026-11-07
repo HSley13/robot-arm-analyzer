@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QQuick3DGeometry>
+#include <QtQml/qqmlregistration.h>
 #include <QVector3D>
 
 namespace robotarm {
@@ -33,6 +34,7 @@ namespace robotarm {
 // at +Y - a finger segment or a forearm that narrows toward its far end.
 class RoundedBoxGeometry : public QQuick3DGeometry {
   Q_OBJECT
+  QML_ELEMENT // `import Humanoid.Geometry`, then `geometry: RoundedBoxGeometry { ... }`
   Q_PROPERTY(QVector3D size READ size WRITE setSize NOTIFY sizeChanged)
   Q_PROPERTY(float radius READ radius WRITE setRadius NOTIFY radiusChanged)
   Q_PROPERTY(float taper READ taper WRITE setTaper NOTIFY taperChanged)

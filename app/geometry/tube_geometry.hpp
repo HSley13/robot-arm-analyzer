@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QQuick3DGeometry>
+#include <QtQml/qqmlregistration.h>
 #include <QVariantList>
 
 namespace robotarm {
@@ -21,6 +22,7 @@ namespace robotarm {
 // `closed: true` joins the last point back to the first (a ring).
 class TubeGeometry : public QQuick3DGeometry {
   Q_OBJECT
+  QML_ELEMENT // `import Humanoid.Geometry`, then `geometry: TubeGeometry { ... }`
   Q_PROPERTY(QVariantList points READ points WRITE setPoints NOTIFY pointsChanged)
   Q_PROPERTY(float radius READ radius WRITE setRadius NOTIFY radiusChanged)
   Q_PROPERTY(int radialSegments READ radialSegments WRITE setRadialSegments NOTIFY radialSegmentsChanged)

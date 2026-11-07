@@ -53,6 +53,18 @@ qt_add_executable(robotarm_app
 )
 set_target_properties(robotarm_app PROPERTIES AUTOMOC ON)
 
+# The procedural meshes are the QML module `Humanoid.Geometry` (classes
+# marked QML_ELEMENT). The program itself backs it, so its types are
+# registered just by being linked in - no qmlRegisterType() calls.
+qt_add_qml_module(robotarm_app
+    URI Humanoid.Geometry
+    VERSION 1.0
+    RESOURCE_PREFIX /qt/qml
+    OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/qml/Humanoid/Geometry
+)
+# (The generated registration code includes the headers by bare name.)
+target_include_directories(robotarm_app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/geometry)
+
 target_link_libraries(robotarm_app PRIVATE
     robotarm_app_coreplugin
     Qt6::Qml
