@@ -107,6 +107,21 @@ flowchart LR
 - **PyTorch** (training) + a hand-written C++ inference class (runtime) for the AI surrogate
 - **CMake** build system
 
+### How C++ meets QML
+
+The C++ side is two QML modules built with `qt_add_qml_module`, so QML imports real types instead of names injected at runtime:
+
+| Module | Types | Used in QML as |
+| --- | --- | --- |
+| `Humanoid.Backend` (library `robotarm_app_core`) | `ArmController`, `HandController`, `TaskController` - `QML_ELEMENT` + `QML_SINGLETON` | `ArmController.jointCount`, `TaskController.pickUp(id)`, `Connections { target: TaskController; function onTablesChanged() {} }` |
+| `Humanoid.Geometry` (the executable) | `RoundedBoxGeometry`, `TubeGeometry` - `QML_ELEMENT` | `Model { geometry: RoundedBoxGeometry { size: ... } }` |
+
+- **Properties** (`Q_PROPERTY` with `NOTIFY`) are what QML binds to; **signals** can be handled in QML with `Connections`.
+- **Actions** (`addJoint`, `pickUp`, `reachTo`, `playGesture`, ...) are `public slots`: callable from QML like functions, and connectable from C++. Read-only queries that return a value stay `Q_INVOKABLE`.
+- **One shared instance.** The controllers need their config files and each other, so `main()` builds them and registers each with `setQmlInstance()`; the singleton's static `create()` hands QML that instance (`app/qml_singleton.hpp`).
+- **Hot reload.** Only C++ types are in the modules; the UI's `.qml` files are loaded from `app/qml` on disk, and `QmlHotReloader` reloads the window when one is saved. The C++ state (pose, objects, tables) survives a reload.
+- **Editor support.** The build writes the modules' type info to `build/qml/`. For QML completion and diagnostics in an editor through `qmlls`, run it with `-b build` (or set `buildDir` in a `.qmlls.ini`) so it finds `Humanoid.Backend` and `Humanoid.Geometry`.
+
 ## Building and running
 
 Requires Qt 6.5+ (Quick 3D + Quick Dialogs 2), Eigen3, and nlohmann-json on your system.
