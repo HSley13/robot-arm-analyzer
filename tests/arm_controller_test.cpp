@@ -928,3 +928,43 @@ TEST(ArmController, HumanoidAiScanStaysCloseToTheExactScan) {
     EXPECT_NEAR(ai[i].toDouble(), exact[i].toDouble(), 2.0) << "sample " << i;
   }
 }
+
+TEST(ArmController, HumanoidConfigCarriesItsStyle) {
+  ArmController controller(humanoid_config_path(), "/nonexistent/weights.json");
+  EXPECT_EQ(controller.armStyle(), QString("humanoid"));
+}
+
+TEST(ArmController, AddingAJointTurnsTheHumanoidArmIndustrial) {
+  ArmController controller(humanoid_config_path(), "/nonexistent/weights.json");
+  controller.addJoint();
+  EXPECT_EQ(controller.armStyle(), QString("industrial"));
+  EXPECT_EQ(controller.jointCount(), 4);
+  // Anatomical names no longer apply.
+  EXPECT_EQ(controller.jointNames(), QStringList({"Joint 1", "Joint 2", "Joint 3", "Joint 4"}));
+  // ... and neither does the elbow's one-way travel.
+  for (int i = 0; i < 4; i++) {
+    EXPECT_DOUBLE_EQ(controller.jointMinDegrees()[i].toDouble(), -170.0);
+    EXPECT_DOUBLE_EQ(controller.jointMaxDegrees()[i].toDouble(), 170.0);
+  }
+  controller.setJointAngleDegrees(1, -60.0); // an "elbow" bending backwards is fine now
+  EXPECT_NEAR(controller.jointAnglesDegrees()[1].toDouble(), -60.0, 1e-9);
+}
+
+TEST(ArmController, ConvertingKeepsLengthsMassesAndLimits) {
+  ArmController controller(humanoid_config_path(), "/nonexistent/weights.json");
+  const QVariantList lengths = controller.linkLengths();
+  const QVariantList masses = controller.jointMassesKg();
+  controller.convertToIndustrial();
+  EXPECT_EQ(controller.armStyle(), QString("industrial"));
+  EXPECT_EQ(controller.jointCount(), 3);
+  EXPECT_EQ(controller.linkLengths(), lengths);
+  EXPECT_EQ(controller.jointMassesKg(), masses);
+}
+
+TEST(ArmController, TheHumanoidSurrogateDoesntApplyToAnIndustrialArm) {
+  ArmController controller(humanoid_config_path(),
+                           std::string(PROJECT_ROOT_DIR) + "/ml/models/humanoid_arm.surrogate.json");
+  ASSERT_TRUE(controller.aiModeAvailable());
+  controller.convertToIndustrial();
+  EXPECT_FALSE(controller.aiModeAvailable());
+}

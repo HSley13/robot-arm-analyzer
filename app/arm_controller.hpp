@@ -27,6 +27,9 @@ namespace robotarm {
 class ArmController : public QObject {
   Q_OBJECT
   Q_PROPERTY(QString armName READ armName NOTIFY resultsChanged)
+  // "humanoid", "industrial" or "" - see ArmConfig::style. Adding or
+  // removing a joint turns a humanoid arm into an industrial one.
+  Q_PROPERTY(QString armStyle READ armStyle NOTIFY resultsChanged)
   Q_PROPERTY(int jointCount READ jointCount NOTIFY resultsChanged)
   Q_PROPERTY(bool aiModeAvailable READ aiModeAvailable NOTIFY resultsChanged)
   Q_PROPERTY(QVector3D canvasCenter READ canvasCenter NOTIFY resultsChanged)
@@ -89,6 +92,7 @@ public:
                           const std::filesystem::path &dynamic_surrogate_path = {}, QObject *parent = nullptr);
 
   QString armName() const;
+  QString armStyle() const { return QString::fromStdString(_config.style); }
   int jointCount() const { return static_cast<int>(_arm.num_joints()); }
   bool aiModeAvailable() const;
   QVector3D canvasCenter() const { return _canvasCenter; }
@@ -170,8 +174,17 @@ public:
   // surrogate's training data baked in the original masses.
   Q_INVOKABLE void setJointMass(int index, double kg);
 
+  // Both turn a humanoid arm into an industrial one first (see
+  // convertToIndustrial()) - a fourth joint has no anatomical name.
   Q_INVOKABLE void addJoint();
   Q_INVOKABLE void removeLastJoint();
+
+  // Re-labels the arm as a warehouse/industrial arm: style "industrial",
+  // generic joint names, and every joint's travel widened to +-170 degrees
+  // (the humanoid's elbow-only-bends-one-way limits don't apply to a
+  // machine). Lengths, masses and torque limits are kept. No-op if the
+  // arm is already industrial.
+  Q_INVOKABLE void convertToIndustrial();
 
   QString configMessage() const { return _configMessage; }
 

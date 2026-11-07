@@ -78,7 +78,9 @@ QString ArmController::armName() const { return QString::fromStdString(_config.n
 
 bool ArmController::aiModeAvailable() const {
   const Surrogate *surrogate = _dynamicMode ? _dynamicSurrogate.get() : _surrogate.get();
-  return surrogate != nullptr && surrogate->num_joints() == _arm.num_joints();
+  // The shipped surrogates learned the humanoid arm; once it's been turned
+  // into an industrial one they no longer describe it.
+  return surrogate != nullptr && surrogate->num_joints() == _arm.num_joints() && _config.style != "industrial";
 }
 
 void ArmController::setPayloadKg(double kg) {
@@ -265,9 +267,26 @@ void ArmController::setJointMass(int index, double kg) {
   recompute();
 }
 
+void ArmController::convertToIndustrial() {
+  if (_config.style == "industrial") {
+    return;
+  }
+  _config.style = "industrial";
+  _config.name = "Warehouse arm";
+  for (JointConfig &joint : _config.joints) {
+    joint.name.clear();
+    joint.min_degrees = -170.0;
+    joint.max_degrees = 170.0;
+  }
+  _aiMode = false;
+  recompute();
+}
+
 void ArmController::addJoint() {
+  convertToIndustrial();
   JointConfig joint;
-  joint.name = "Joint " + std::to_string(_config.joints.size() + 1);
+  joint.min_degrees = -170.0;
+  joint.max_degrees = 170.0;
   joint.dh.type = JointType::Revolute;
   joint.dh.alpha = 0.0;
   joint.dh.d = 0.0;
@@ -306,6 +325,7 @@ void ArmController::addJoint() {
 
 void ArmController::removeLastJoint() {
   if (_config.joints.size() <= 1) return;
+  convertToIndustrial();
 
   _config.joints.pop_back();
 
