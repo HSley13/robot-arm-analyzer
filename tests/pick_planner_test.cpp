@@ -290,6 +290,24 @@ TEST(ReachPlanner, StopsShortButStillGivesAPoseWhenOutOfReach) {
   EXPECT_EQ(plan.pose.arm.size(), 3u);
 }
 
+TEST(ReachPlanner, OutOfReachPosturesDontFlipAsTheTargetCreeps) {
+  // Dragging the hand beyond reach: each small step of the target should
+  // only nudge the pose, never swap to a different way of leaning.
+  const ArmConfig config = humanoid_arm();
+  const BodyGeometry body;
+  robotarm::BodyPose pose = standing_pose();
+  for (int i = 0; i < 20; i++) {
+    const Eigen::Vector3d point(1.3 + 0.01 * i, 0.4 + 0.01 * i, 0.2);
+    const PickPlan plan = robotarm::plan_reach(config, body, point, pose);
+    ASSERT_FALSE(plan.ok);
+    if (i > 0) {
+      EXPECT_LT(std::abs(plan.pose.hip_height - pose.hip_height), 0.11) << "step " << i;
+      EXPECT_LT(std::abs(plan.pose.hip_bend - pose.hip_bend), robotarm::to_radians(16.0)) << "step " << i;
+    }
+    pose = plan.pose;
+  }
+}
+
 TEST(ReachPlanner, WorksForAFiveJointArm) {
   const ArmConfig config = five_joint_arm();
   robotarm::BodyPose start = standing_pose();

@@ -386,7 +386,8 @@ PickPlan plan_reach(const ArmConfig &config, const BodyGeometry &body, const Eig
     return candidate;
   };
 
-  constexpr double kReached = 1e-3; // m
+  constexpr double kReached = 1e-3;              // m
+  constexpr double kOutOfReachCostWeight = 0.03; // m of shortfall per unit of posture change
   // 1. Common case: the arm alone (plus the waist) can follow.
   Candidate best = solve_at(current.hip_height, current.hip_bend);
   if (best.error > kReached) {
@@ -396,8 +397,12 @@ PickPlan plan_reach(const ArmConfig &config, const BodyGeometry &body, const Eig
         const Candidate candidate = solve_at(hip, to_radians(bend_degrees));
         const bool reached = candidate.error <= kReached;
         const bool best_reached = best.error <= kReached;
+        // Out of reach, "closest" alone flips between very different
+        // postures as the target creeps along (many of them stop about
+        // equally short), so how far the body has to move counts too.
+        const auto shortfall = [](const Candidate &c) { return c.error + kOutOfReachCostWeight * c.cost; };
         if ((reached && (!best_reached || candidate.cost < best.cost)) ||
-            (!reached && !best_reached && candidate.error < best.error)) {
+            (!reached && !best_reached && shortfall(candidate) < shortfall(best))) {
           best = candidate;
         }
       }
