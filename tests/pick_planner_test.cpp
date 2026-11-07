@@ -188,7 +188,55 @@ TEST(PickPlanner, MayTiltTheHandForObjectsThatDontNeedToStayUpright) {
 
 TEST(PickPlanner, RejectsArmsItCantPlanFor) {
   ArmConfig config = humanoid_arm();
-  config.joints.pop_back();
+  config.joints[1].dh.alpha = 1.0; // out of plane
   const PickPlan plan = robotarm::plan_grasp(config, BodyGeometry(), GraspTarget(), 1.0);
   EXPECT_FALSE(plan.ok);
+}
+
+namespace {
+// A five-joint warehouse-style arm with wide joint travel.
+ArmConfig five_joint_arm() {
+  ArmConfig config = humanoid_arm();
+  config.joints.clear();
+  const double lengths[] = {0.22, 0.20, 0.16, 0.12, 0.08};
+  for (const double a : lengths) {
+    robotarm::JointConfig joint;
+    joint.dh = robotarm::DHParameter(a);
+    joint.min_degrees = -170.0;
+    joint.max_degrees = 170.0;
+    joint.mass = 0.8;
+    joint.torque_limit = 80.0;
+    config.joints.push_back(joint);
+  }
+  return config;
+}
+} // namespace
+
+TEST(PickPlanner, PlansForArmsWithMoreJointsToo) {
+  const ArmConfig config = five_joint_arm();
+  const BodyGeometry body;
+  GraspTarget box;
+  box.grip_point = Eigen::Vector3d(0.60, 0.20, 0.20);
+  box.palmar_offset = 0.0;
+  box.forward_offset = 0.06;
+  box.mass = 1.0;
+  box.hand_angles = {-kPi / 2.0}; // gripper straight down, from above
+
+  const PickPlan plan = robotarm::plan_grasp(config, body, box, 0.8);
+  ASSERT_TRUE(plan.ok) << plan.reason;
+  EXPECT_EQ(plan.pose.arm.size(), 5u);
+  EXPECT_NEAR(plan.hand_angle, -kPi / 2.0, 1e-12);
+  EXPECT_LT((grip_point_of(config, body, plan, box) - box.grip_point).norm(), 1e-3);
+}
+
+TEST(PickPlanner, ExplicitHandAnglesOverrideTheLevelRule) {
+  GraspTarget can;
+  can.grip_point = Eigen::Vector3d(0.55, 0.20, 0.25);
+  can.palmar_offset = 0.04;
+  can.mass = 0.3;
+  can.keep_hand_level = true;
+  can.hand_angles = {-kPi / 4.0};
+  const PickPlan plan = robotarm::plan_grasp(humanoid_arm(), BodyGeometry(), can, 0.8);
+  ASSERT_TRUE(plan.ok) << plan.reason;
+  EXPECT_NEAR(plan.hand_angle, -kPi / 4.0, 1e-12);
 }

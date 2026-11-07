@@ -70,6 +70,11 @@ struct GraspTarget {
   // the hand level - thumb straight up - or they'd tip in the hand. A ball
   // doesn't care, so the planner may tilt the hand to reach it.
   bool keep_hand_level = true;
+  // Explicit world hand angles to try (radians, 0 = level, -pi/2 = pointing
+  // straight down), most preferred first. Overrides keep_hand_level when
+  // non-empty - e.g. a parallel gripper can take an upright object either
+  // from above or from the side.
+  std::vector<double> hand_angles;
 };
 
 struct PickPlan {
@@ -105,9 +110,14 @@ std::vector<std::vector<double>> planar_3r_ik(double a1, double a2, double a3, c
 // is closer to the waist axis than |plane_offset| (inside the body).
 std::optional<double> yaw_to_place_point_in_plane(const Eigen::Vector3d &point, double plane_offset, double &forward);
 
-// True if `config` is the kind of arm this planner handles: exactly three
-// revolute joints, all in one plane (alpha = 0, d = 0).
+// True if `config` is exactly three revolute joints, all in one plane
+// (alpha = 0, d = 0) - the case with a closed-form solution.
 bool is_planar_3r(const ArmConfig &config);
+
+// True if every joint is revolute and in one plane, any number of joints -
+// the arms plan_grasp() handles (three joints in closed form, others with
+// solve_planar_ik()).
+bool is_planar_revolute(const ArmConfig &config);
 
 // Finds a body pose that puts the hand around `target`.
 //
