@@ -1,5 +1,25 @@
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Quick3D QuickControls2 QuickDialogs2)
 
+# Workaround for Qt 6.10.0 and 6.10.1 (fixed in 6.10.2): qt_add_qml_module
+# schedules a call on the build directory without quoting its path, so a
+# build folder whose path has a space in it - like
+# ".../Robot Arm Load Analyzer/build" - fails to configure with
+#     cmake_language DEFER DIRECTORY: /Users/.../Robot is not known.
+# Qt skips scheduling that call if one with the same ID already exists, so
+# schedule the very same call first, with the path quoted (a [==[ ]==]
+# bracket argument). The values are baked in now, as Qt does: deferred
+# arguments are otherwise only read when the call runs, at the project
+# root, where the Qt namespace variable isn't set.
+if(Qt6_VERSION VERSION_GREATER_EQUAL 6.10.0 AND Qt6_VERSION VERSION_LESS 6.10.2
+   AND COMMAND _qt_internal_write_deferred_qmlls_build_ini_file)
+  cmake_language(DEFER DIRECTORY "${CMAKE_BINARY_DIR}" GET_CALL qmlls_build_ini_generation_id _qmlls_call)
+  if("${_qmlls_call}" STREQUAL "")
+    cmake_language(EVAL CODE
+      "cmake_language(DEFER DIRECTORY [==[${CMAKE_BINARY_DIR}]==] ID qmlls_build_ini_generation_id
+                      CALL _qt_internal_write_deferred_qmlls_build_ini_file [==[${QT_CMAKE_EXPORT_NAMESPACE}]==])")
+  endif()
+endif()
+
 # Split out from the executable so the controllers (arm, hand, task)
 # are testable with plain GTest, without a window.
 add_library(robotarm_app_core STATIC
