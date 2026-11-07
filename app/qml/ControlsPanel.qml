@@ -189,6 +189,7 @@ Rectangle {
                         model: [
                             ["Drag the hand", "the body follows"],
                             ["Drag a joint or limb", "swing that joint"],
+                            ["Drag the torso / column / base", "lean / lift / turn the waist"],
                             ["Drag an object", "move it"],
                             ["Drag a table", "move it, and what's on it"],
                             ["Click an object", "pick up · move · mass · delete"],

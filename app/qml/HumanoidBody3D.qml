@@ -25,8 +25,10 @@ Node {
     readonly property real shoulderLateral: taskController.body.shoulderLateral
     readonly property real bend: taskController.hipBendDegrees
 
-    // Exposed so ArmView3D can project the arm's joints to the screen.
+    // Exposed so ArmView3D can project the arm's joints and the torso to
+    // the screen (and grab them with the mouse).
     property alias armNode: rightArmMount
+    property alias torsoNode: torso
 
     position: Qt.vector3d(0, taskController.hipHeight, 0)
     eulerRotation.y: taskController.waistYawDegrees
