@@ -326,4 +326,94 @@ PickPlan plan_grasp(const ArmConfig &config, const BodyGeometry &body, const Gra
   return best_overloaded;
 }
 
+PickPlan plan_reach(const ArmConfig &config, const BodyGeometry &body, const Eigen::Vector3d &point,
+                    const BodyPose &current) {
+  PickPlan plan;
+  plan.pose = current;
+  if (!is_planar_revolute(config) || current.arm.size() != config.joints.size()) {
+    plan.reason = "needs an arm whose joints all turn in one plane";
+    return plan;
+  }
+
+  // Turn the waist so the point lies in the arm's plane.
+  double forward = 0.0;
+  const std::optional<double> yaw = yaw_to_place_point_in_plane(point, body.shoulder_lateral, forward);
+  if (!yaw.has_value()) {
+    plan.reason = "too close to the body";
+    return plan;
+  }
+  const double clamped_yaw =
+      std::clamp(*yaw, to_radians(body.min_yaw_degrees), to_radians(body.max_yaw_degrees));
+  if (clamped_yaw != *yaw) {
+    plan.reason = "behind the robot - outside the waist's turning range";
+    return plan;
+  }
+
+  const ArmModel arm = to_arm_model(config);
+  const std::vector<JointLimit> limits = limits_of(config);
+  constexpr double kMinClearance = 0.03;
+
+  struct Candidate {
+    BodyPose pose;
+    double error = std::numeric_limits<double>::infinity();
+    double cost = std::numeric_limits<double>::infinity();
+  };
+
+  auto solve_at = [&](double hip, double bend) {
+    Candidate candidate;
+    const Eigen::Vector2d shoulder = shoulder_in_plane(body, hip, bend);
+    const Eigen::Vector2d tip_arm = Eigen::Rotation2Dd(bend) * (Eigen::Vector2d(forward, point.y()) - shoulder);
+    const PlanarIkResult result = solve_planar_ik(arm, current.arm, tip_arm, nullptr, limits, 60);
+
+    std::vector<double> q_world = result.joint_values;
+    q_world[0] -= bend;
+    for (const Eigen::Matrix4d &frame : arm.forward_kinematics(q_world)) {
+      if (shoulder.y() + frame(1, 3) < kMinClearance) {
+        return candidate; // through the floor - not a candidate at all
+      }
+    }
+
+    candidate.pose.yaw = *yaw;
+    candidate.pose.hip_height = hip;
+    candidate.pose.hip_bend = bend;
+    candidate.pose.arm = result.joint_values;
+    candidate.error = result.position_error;
+    candidate.cost = 0.5 * std::abs(normalize_angle(*yaw - current.yaw)) + 3.0 * std::abs(hip - current.hip_height) +
+                     1.0 * std::abs(bend - current.hip_bend);
+    for (size_t i = 0; i < current.arm.size(); i++) {
+      candidate.cost += std::abs(result.joint_values[i] - current.arm[i]);
+    }
+    return candidate;
+  };
+
+  constexpr double kReached = 1e-3; // m
+  // 1. Common case: the arm alone (plus the waist) can follow.
+  Candidate best = solve_at(current.hip_height, current.hip_bend);
+  if (best.error > kReached) {
+    // 2. Bring the lift and the hip lean in, preferring small changes.
+    for (double hip = body.min_hip_height; hip <= body.max_hip_height + 1e-9; hip += 0.05) {
+      for (double bend_degrees = 0.0; bend_degrees <= body.max_hip_bend_degrees + 1e-9; bend_degrees += 7.5) {
+        const Candidate candidate = solve_at(hip, to_radians(bend_degrees));
+        const bool reached = candidate.error <= kReached;
+        const bool best_reached = best.error <= kReached;
+        if ((reached && (!best_reached || candidate.cost < best.cost)) ||
+            (!reached && !best_reached && candidate.error < best.error)) {
+          best = candidate;
+        }
+      }
+    }
+  }
+
+  if (!std::isfinite(best.error)) {
+    plan.reason = "out of reach";
+    return plan;
+  }
+  plan.pose = best.pose;
+  plan.ok = best.error <= kReached;
+  if (!plan.ok) {
+    plan.reason = "out of reach";
+  }
+  return plan;
+}
+
 } // namespace robotarm

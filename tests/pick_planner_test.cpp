@@ -240,3 +240,62 @@ TEST(PickPlanner, ExplicitHandAnglesOverrideTheLevelRule) {
   ASSERT_TRUE(plan.ok) << plan.reason;
   EXPECT_NEAR(plan.hand_angle, -kPi / 4.0, 1e-12);
 }
+
+namespace {
+robotarm::BodyPose standing_pose() {
+  robotarm::BodyPose pose;
+  pose.yaw = 0.0;
+  pose.hip_height = 0.8;
+  pose.hip_bend = 0.0;
+  pose.arm = {robotarm::to_radians(-70.0), robotarm::to_radians(65.0), robotarm::to_radians(5.0)};
+  return pose;
+}
+
+Eigen::Vector3d tip_point_of(const ArmConfig &config, const BodyGeometry &body, const robotarm::BodyPose &pose) {
+  const ArmModel arm = robotarm::to_arm_model(config);
+  const Eigen::Matrix4d tip = arm.forward_kinematics(pose.arm).back();
+  const Eigen::Vector2d plane = Eigen::Rotation2Dd(-pose.hip_bend) * Eigen::Vector2d(tip(0, 3), tip(1, 3)) +
+                                robotarm::shoulder_in_plane(body, pose.hip_height, pose.hip_bend);
+  const double c = std::cos(pose.yaw);
+  const double s = std::sin(pose.yaw);
+  return {plane.x() * c + body.shoulder_lateral * s, plane.y(), -plane.x() * s + body.shoulder_lateral * c};
+}
+} // namespace
+
+TEST(ReachPlanner, FollowsANearbyPointWithTheArmAlone) {
+  const ArmConfig config = humanoid_arm();
+  const BodyGeometry body;
+  const robotarm::BodyPose start = standing_pose();
+  const Eigen::Vector3d point(0.40, 1.05, 0.30);
+  const PickPlan plan = robotarm::plan_reach(config, body, point, start);
+  ASSERT_TRUE(plan.ok) << plan.reason;
+  EXPECT_DOUBLE_EQ(plan.pose.hip_height, start.hip_height); // body didn't have to move
+  EXPECT_DOUBLE_EQ(plan.pose.hip_bend, start.hip_bend);
+  EXPECT_LT((tip_point_of(config, body, plan.pose) - point).norm(), 1e-3);
+}
+
+TEST(ReachPlanner, CrouchesAndLeansForAPointNearTheFloor) {
+  const ArmConfig config = humanoid_arm();
+  const BodyGeometry body;
+  const Eigen::Vector3d point(0.55, 0.10, -0.20);
+  const PickPlan plan = robotarm::plan_reach(config, body, point, standing_pose());
+  ASSERT_TRUE(plan.ok) << plan.reason;
+  EXPECT_LT((tip_point_of(config, body, plan.pose) - point).norm(), 1e-3);
+}
+
+TEST(ReachPlanner, StopsShortButStillGivesAPoseWhenOutOfReach) {
+  const ArmConfig config = humanoid_arm();
+  const PickPlan plan = robotarm::plan_reach(config, BodyGeometry(), Eigen::Vector3d(2.5, 1.0, 0.0), standing_pose());
+  EXPECT_FALSE(plan.ok);
+  EXPECT_EQ(plan.pose.arm.size(), 3u);
+}
+
+TEST(ReachPlanner, WorksForAFiveJointArm) {
+  const ArmConfig config = five_joint_arm();
+  robotarm::BodyPose start = standing_pose();
+  start.arm = {-0.6, 1.0, -0.8, 0.6, 0.2};
+  const Eigen::Vector3d point(0.50, 0.90, -0.30);
+  const PickPlan plan = robotarm::plan_reach(config, BodyGeometry(), point, start);
+  ASSERT_TRUE(plan.ok) << plan.reason;
+  EXPECT_LT((tip_point_of(config, BodyGeometry(), plan.pose) - point).norm(), 1e-3);
+}

@@ -133,4 +133,20 @@ PickPlan plan_grasp(const ArmConfig &config, const BodyGeometry &body, const Gra
                     double current_hip_height,
                     const Eigen::Vector3d &gravity = Eigen::Vector3d(0.0, -9.81, 0.0));
 
+// Where to put the body and arm so the arm's end-effector point reaches a
+// world point - what dragging the hand around with the mouse asks for.
+//
+// Unlike plan_grasp() this isn't looking for the least-loaded pose, it's
+// looking for the SMALLEST CHANGE from `current`, so the robot follows the
+// cursor smoothly instead of jumping between equally valid poses: first it
+// tries only turning the waist and moving the arm (the common case, one
+// warm-started IK solve); only if the arm can't get there does it also
+// sweep the lift and the hip lean, scoring each solution by how far every
+// joint would have to move. The hand's direction is left free.
+//
+// If nothing reaches the point exactly, ok is false and `pose` is the
+// closest approach found (still a valid pose - the hand just stops short).
+PickPlan plan_reach(const ArmConfig &config, const BodyGeometry &body, const Eigen::Vector3d &point,
+                    const BodyPose &current);
+
 } // namespace robotarm
