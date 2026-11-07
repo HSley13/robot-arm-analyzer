@@ -14,6 +14,7 @@
 #include <QVector3D>
 #include <QtQml/qqml.h>
 
+#include <algorithm>
 #include <cstdio>
 
 #include "arm_controller.hpp"
@@ -73,8 +74,10 @@ int main(int argc, char *argv[]) {
   const QCommandLineOption atOption("at", "Stop the --pick/--put motion this many seconds in (default: run it to the end).",
                                     "seconds");
   const QCommandLineOption sizeOption("size", "Window size, e.g. 1600x1000.", "WxH");
+  const QCommandLineOption industrialOption("industrial", "Start with the warehouse arm with N joints.", "N");
   parser.addOptions({poseOption, payloadOption, openHandOption, cameraOption, focusOption, screenshotOption,
-                     delayOption, scanOption, pickOption, putOption, atOption, sizeOption});
+                     delayOption, scanOption, pickOption, putOption, atOption, sizeOption,
+                     industrialOption});
   parser.process(app);
 
   // Lets QML say `Model { geometry: RoundedBoxGeometry { ... } }`.
@@ -86,6 +89,13 @@ int main(int argc, char *argv[]) {
                                      std::string(PROJECT_ROOT_DIR) + "/ml/models/humanoid_arm_dynamic.surrogate.json");
 
   robotarm::HandController handController(std::string(PROJECT_ROOT_DIR) + "/config/humanoid_hand.json");
+
+  if (parser.isSet(industrialOption)) {
+    controller.convertToIndustrial();
+    const int joints = std::max(1, parser.value(industrialOption).toInt());
+    while (controller.jointCount() < joints) controller.addJoint();
+    while (controller.jointCount() > joints) controller.removeLastJoint();
+  }
 
   // Start in a relaxed ready pose (upper arm down, forearm forward) rather
   // than the arm stuck straight out; --pose overrides it.
