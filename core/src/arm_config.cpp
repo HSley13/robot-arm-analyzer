@@ -85,6 +85,12 @@ ArmConfig parse_arm_config(const nlohmann::json &document) {
 
   ArmConfig config;
   config.name = document.value("name", std::string());
+  if (document.contains("style")) {
+    if (!document.at("style").is_string()) {
+      throw std::runtime_error("arm config: field 'style' must be a string");
+    }
+    config.style = document.at("style").get<std::string>();
+  }
 
   for (size_t i = 0; i < joints_json.size(); i++) {
     const nlohmann::json &joint_json = joints_json.at(i);
@@ -181,6 +187,9 @@ std::vector<LinkInertial> to_link_inertials(const ArmConfig &config) {
 nlohmann::json to_json(const ArmConfig &config) {
   nlohmann::json document;
   document["name"] = config.name;
+  if (!config.style.empty()) {
+    document["style"] = config.style;
+  }
   document["joints"] = nlohmann::json::array();
 
   for (const JointConfig &joint : config.joints) {

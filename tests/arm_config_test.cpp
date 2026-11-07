@@ -301,3 +301,16 @@ TEST(ArmConfig, NameAndLimitsRoundTripThroughJson) {
     EXPECT_DOUBLE_EQ(reparsed.joints[i].max_degrees, original.joints[i].max_degrees);
   }
 }
+
+TEST(ArmConfig, StyleIsOptionalAndRoundTrips) {
+  EXPECT_TRUE(parse_arm_config(two_link_planar_json()).style.empty());
+  const ArmConfig humanoid = load_arm_config(std::string(PROJECT_ROOT_DIR) + "/config/humanoid_arm.json");
+  EXPECT_EQ(humanoid.style, "humanoid");
+  EXPECT_EQ(parse_arm_config(to_json(humanoid)).style, "humanoid");
+}
+
+TEST(ArmConfig, RejectsNonStringStyle) {
+  nlohmann::json doc = two_link_planar_json();
+  doc["style"] = 3;
+  EXPECT_THROW(parse_arm_config(doc), std::runtime_error);
+}

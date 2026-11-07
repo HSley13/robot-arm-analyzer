@@ -45,8 +45,14 @@ struct JointConfig {
 
 // A full serial-link arm definition, loaded from JSON so the tool works for
 // any arm instead of one hardcoded one (the project's core generality goal).
+//
+// `style` (JSON "style", optional) says how the arm is meant to be shown
+// and used: "humanoid" (shoulder / elbow / wrist with a hand),
+// "industrial" (any number of joints with a parallel gripper), or empty
+// when the config doesn't say.
 struct ArmConfig {
   std::string name;
+  std::string style;
   std::vector<JointConfig> joints;
 };
 
