@@ -183,6 +183,22 @@ Item {
         const t = point.minus(a).dotProduct(n) / denom
         return a.plus(dir.times(t))
     }
+    // Where the mouse ray crosses the horizontal plane at height h, or null.
+    function rayOnPlaneY(x, y, h) {
+        const a = view3D.mapTo3DScene(Qt.vector3d(x, y, 0))
+        const b = view3D.mapTo3DScene(Qt.vector3d(x, y, 1))
+        const dir = b.minus(a)
+        if (Math.abs(dir.y) < 1e-9) return null
+        const t = (h - a.y) / dir.y
+        return t > 0 ? a.plus(dir.times(t)) : null
+    }
+    function tableById(id) {
+        const list = taskController.tables
+        for (let i = 0; i < list.length; i++) {
+            if (list[i].id === id) return list[i]
+        }
+        return null
+    }
     function distanceToSegment(p, a, b) {
         const abx = b.x - a.x, aby = b.y - a.y
         const len2 = abx * abx + aby * aby
@@ -196,6 +212,17 @@ Item {
         for (let i = 0; i < hits.length; i++) {
             const name = hits[i].objectHit ? hits[i].objectHit.objectName : ""
             if (name === "floor" || name === "table") return hits[i].scenePosition
+        }
+        return null
+    }
+    // The table whose top is under the mouse: {id, point} or null.
+    function tableAt(x, y) {
+        const hits = view3D.pickAll(x, y)
+        for (let i = 0; i < hits.length; i++) {
+            for (let node = hits[i].objectHit; node; node = node.parent) {
+                if (node.tableId !== undefined) return { id: node.tableId, point: hits[i].scenePosition }
+                if (node.objectId !== undefined) break // an object standing on it is in front
+            }
         }
         return null
     }
@@ -216,7 +243,7 @@ Item {
 
     // What's under the mouse, most specific first:
     //   {kind: "hand"} / {kind: "joint", index} / {kind: "object", id} /
-    //   {kind: "surface", point} / {kind: "none"}
+    //   {kind: "table", id, point} / {kind: "surface", point} / {kind: "none"}
     function hitTest(x, y) {
         const p = Qt.point(x, y)
         const n = armController.jointCount
@@ -242,6 +269,8 @@ Item {
                 }
             }
         }
+        const table = tableAt(x, y)
+        if (table !== null) return { kind: "table", id: table.id, point: table.point }
         const surface = surfaceAt(x, y)
         return surface !== null ? { kind: "surface", point: surface } : { kind: "none" }
     }
@@ -288,12 +317,14 @@ Item {
         // Hand drag: the plane it moves in (planning a reach takes a few
         // milliseconds, so every mouse move goes straight to the planner).
         property vector3d handPlanePoint
+        // Table drag: grab offset from its center, in its top's plane.
+        property vector2d tableOffset
         // Joint drag: screen angle around the joint at the last move.
         property real lastScreenAngle: 0
         property real jointSign: 1
 
         cursorShape: dragging && grab.kind !== "none" && grab.kind !== "surface" ? Qt.ClosedHandCursor
-                   : hover.kind === "hand" || hover.kind === "joint" ? Qt.OpenHandCursor
+                   : hover.kind === "hand" || hover.kind === "joint" || hover.kind === "table" ? Qt.OpenHandCursor
                    : hover.kind === "object" ? Qt.PointingHandCursor
                    : Qt.ArrowCursor
 
@@ -305,6 +336,9 @@ Item {
             grab = event.button === Qt.LeftButton ? root.hitTest(event.x, event.y) : { kind: "none" }
             if (grab.kind === "hand") {
                 handPlanePoint = root.armToScene(armController.jointPositions[armController.jointCount])
+            } else if (grab.kind === "table") {
+                const table = root.tableById(grab.id)
+                tableOffset = Qt.vector2d(table.x - grab.point.x, table.z - grab.point.z)
             } else if (grab.kind === "joint") {
                 taskController.cancelReach() // the joint is yours now, not the hand goal's
                 const c = root.jointScreen(grab.index)
@@ -341,6 +375,10 @@ Item {
                 lastScreenAngle = angle
                 const current = armController.jointAnglesDegrees[grab.index]
                 armController.setJointAngleDegrees(grab.index, current + jointSign * delta * 180 / Math.PI)
+            } else if (grab.kind === "table") {
+                const table = root.tableById(grab.id)
+                const p = table !== null ? root.rayOnPlaneY(event.x, event.y, table.height) : null
+                if (p !== null) taskController.moveTable(grab.id, p.x + tableOffset.x, p.z + tableOffset.y)
             } else if (grab.kind === "object") {
                 const spot = root.surfaceAt(event.x, event.y)
                 if (spot !== null) taskController.moveObject(grab.id, spot.x, spot.z)
@@ -373,14 +411,16 @@ Item {
     signal clicked(real x, real y, int button)
     onClicked: (x, y, button) => {
         const hit = hitTest(x, y)
-        if (taskController.clickMode !== "" && hit.kind === "surface") {
+        if (taskController.clickMode !== "" && (hit.kind === "surface" || hit.kind === "table")) {
             // An armed click mode from the panel still works.
             taskController.handleClick(hit.point.x, hit.point.z)
         } else if (hit.kind === "object") {
             taskController.selectedId = hit.id
             objectMenu.openFor(hit.id, x, y)
+        } else if (hit.kind === "table") {
+            spotMenu.openAt(hit.point, x, y, hit.id)
         } else if (hit.kind === "surface") {
-            spotMenu.openAt(hit.point, x, y)
+            spotMenu.openAt(hit.point, x, y, -1)
         } else {
             taskController.selectedId = -1
         }

@@ -190,8 +190,9 @@ Rectangle {
                             ["Drag the hand", "the body follows"],
                             ["Drag a joint or limb", "swing that joint"],
                             ["Drag an object", "move it"],
+                            ["Drag a table", "move it, and what's on it"],
                             ["Click an object", "pick up · move · mass · delete"],
-                            ["Click the floor / table", "put down · reach · add"],
+                            ["Click the floor / table", "put down · reach · add objects or furniture"],
                             ["Drag empty space", "orbit · right-drag pans · wheel zooms"]
                         ]
                         Label {
