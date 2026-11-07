@@ -20,9 +20,12 @@ This project removes that barrier: the arm's own geometry, mass, and payload are
 - **A humanoid, not a crane.** Human proportions (0.30 m upper arm, 0.27 m forearm), human-like joint travel (an elbow that can't bend backwards, enforced everywhere including IK), and a 17-joint, five-finger hand modeled as a kinematic *tree* — every finger hangs off the wrist, the thumb sits on its own opposable base.
 - **An AI surrogate that's measured, not just claimed.** A small PyTorch-trained MLP approximates the same torque function and runs through a dependency-free, hand-written C++ forward pass. Every payload scan reports real, measured timing for both paths side by side.
 - **A detailed 3D model generated from the kinematics.** Every phalanx shell, hinge pin and limb housing is placed from forward kinematics — change a finger length in the config and the hand re-renders correctly. The molded shells, seal bands, rings and objects are procedural meshes (`RoundedBoxGeometry`, `TubeGeometry`) written in C++ against `QQuick3DGeometry`.
-- **Pick and place, planned with the physics.** Drop a bottle, can, box, ball or dumbbell on the floor or the table (click, or type coordinates) and ask the robot to pick it up. A closed-form planner turns the waist toward it, lowers the lift and leans at the hip as needed, solves the arm's inverse kinematics *with the hand's orientation* (upright objects stay upright), and picks the pose that loads the joints least — or refuses with the reason ("too heavy - Shoulder would need 112 N·m (limit 90)"). While it's held, the object's mass is the arm's payload, so the gauges show what the robot is really carrying.
+- **Driven with the mouse.** Grab the hand and drag it anywhere: the waist turns, the lift rises or sinks and the torso leans so the hand follows the cursor (a whole-body reach planner, a few milliseconds per mouse move). Grab a joint or a limb to swing just that joint, drag objects across the floor and the table, click an object for *pick up · move · mass · delete*, click the floor for *put down here · reach here · add an object*.
+- **Pick and place, planned with the physics.** Put a bottle, can, box, ball or dumbbell on the floor or the table and ask the robot to pick it up. A closed-form planner turns the waist toward it, lowers the lift and leans at the hip as needed, solves the arm's inverse kinematics *with the hand's orientation* (upright objects stay upright), and picks the pose that loads the joints least — or refuses with the reason ("too heavy - Shoulder would need 112 N·m (limit 90)"). While it's held, the object's mass is the arm's payload, so the gauges show what the robot is really carrying.
 - **The body moves without breaking the physics.** Turning about the vertical axis and lifting are pure rigid motions that don't change gravity torques; leaning at the hip tilts the arm *within its own plane*, which for a planar arm is exactly a shift of the shoulder angle — so the analyzer just turns gravity in the arm's frame and every number stays exact.
-- **The hand grips what it carries.** Each object size gets its own finger closure; the demo dumbbell in the Payload card gets a power grip. Actuator status rings glow green/amber/red with each joint's load.
+- **The hand grips what it carries.** Each object size gets its own finger closure; the demo dumbbell in the Payload card gets a power grip.
+- **Load you can see.** Actuator housings and status rings glow green/amber/red with each joint's load, and the limb a struggling joint drives washes amber or red.
+- **Or make it a warehouse arm.** Add or remove a joint (or press *Warehouse*) and the right arm becomes an industrial arm with any number of servo joints and a parallel two-finger gripper; it picks from above when it can, from the side otherwise. *Humanoid* brings the human arm and hand back.
 
 ## See it in action
 
@@ -30,6 +33,7 @@ This project removes that barrier: the arm's own geometry, mass, and payload are
 | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | ![Pick and place](image/03-pick-and-place.png) Pick and place: crouch and lean to reach a bottle on the floor, carry it, lean over the table, set it down upright. | ![The hand](image/02-hand.png) The five-finger hand carrying the bottle: molded shells, hinge gaps, screw heads, fingertip pads and nail plates. |
 | ![Overload](image/04-overload.png) Arm held straight out with a heavy dumbbell — every joint trips into OVERLOAD.                                                  | ![Payload scan](image/05-payload-scan.png) A payload-capacity scan from fully extended to folded, exact engine vs. AI surrogate.                   |
+| ![Drag the hand](image/06-drag-the-hand.png) Dragging the hand down to the ball: the waist turns, the lift lowers and the torso leans to follow. | ![Warehouse arm](image/07-warehouse-arm.png) The five-joint warehouse arm holding a can it picked from above with its gripper. |
 
 ## Architecture
 
@@ -69,10 +73,12 @@ flowchart LR
 | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`config/humanoid_arm.json`](config/humanoid_arm.json)   | Shoulder / elbow / wrist: DH geometry, link masses, actuator torque limits, named joints with travel limits (`min_deg`/`max_deg`).                                         |
 | [`config/humanoid_hand.json`](config/humanoid_hand.json) | A wrist chain (roll + deviation) and five finger chains. Each chain's `origin` (`xyz` + `rpy_deg`, URDF-style) places its base in the palm — something pure DH can't express for an off-axis thumb. |
-| [`core/.../pick_planner.hpp`](core/include/robotarm/pick_planner.hpp) | Grasp planning: waist yaw that puts the object beside the palm, closed-form planar 3R IK with hand orientation, a sweep over lift height x hip lean, torque-aware choice. |
+| [`core/.../pick_planner.hpp`](core/include/robotarm/pick_planner.hpp) | Grasp planning: waist yaw that puts the object beside the palm, closed-form planar 3R IK with hand orientation (numeric IK for any other joint count), a sweep over lift height x hip lean, torque-aware choice; `plan_reach` for dragging the hand (the smallest whole-body change that gets there). |
 | [`app/task_controller.hpp`](app/task_controller.hpp)     | Objects on the floor/table, the body's own joints, animated pick-up / put-down sequences that drive the arm, the hand and the payload.                                     |
 | [`app/qml/HumanoidBody3D.qml`](app/qml/HumanoidBody3D.qml) | Pelvis and hip joint, segmented abdomen, chest, head, a passive left arm, and the right arm's mount.                                                                     |
 | [`app/qml/HumanoidArm3D.qml`](app/qml/HumanoidArm3D.qml) | Actuators with status rings, deltoid cap, tapered limb shells, seal bands, service panels, the wrist housing.                                                             |
+| [`app/qml/IndustrialArm3D.qml`](app/qml/IndustrialArm3D.qml) | The warehouse arm: a servo drum with a load band per joint, box links, tool flange and a parallel gripper. |
+| [`app/qml/ArmView3D.qml`](app/qml/ArmView3D.qml), [`ObjectMenu.qml`](app/qml/ObjectMenu.qml), [`SpotMenu.qml`](app/qml/SpotMenu.qml) | The scene and all mouse handling: what a press grabbed (hand, joint, limb, object, nothing) and the click menus. |
 | [`app/qml/Hand3D.qml`](app/qml/Hand3D.qml)               | Palm shell, phalanges, hinge pins, fingertip pads, thumb base, and whatever the hand is holding — all placed from `HandController`'s forward kinematics.                  |
 | [`app/qml/LiftBase3D.qml`](app/qml/LiftBase3D.qml), [`SceneObject3D.qml`](app/qml/SceneObject3D.qml) | The mobile base with its telescoping column; the pickable objects.                                                                |
 
@@ -116,6 +122,7 @@ Useful flags (all optional — mainly for reproducible screenshots):
 ./build/bin/robotarm_app --pose -35,80,-10 --payload 6        # shoulder,elbow,wrist degrees; kg in hand
 ./build/bin/robotarm_app --camera 40,-12,0.9 --focus 0.3,0.95,0.15
 ./build/bin/robotarm_app --pick 1 --put 0.6,-0.62 --at 9        # scripted pick + put-down, stopped 9 s in
+./build/bin/robotarm_app --industrial 5 --pick 3                # start as a 5-joint warehouse arm, pick the can
 ./build/bin/robotarm_app --scan 40 --screenshot shot.png      # run a payload scan, save a PNG, quit
 ```
 
