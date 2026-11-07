@@ -11,6 +11,7 @@
 #include <QVariantMap>
 #include <QVector3D>
 #include <QtQml/qqml.h>
+#include <QtQml/qqmlextensionplugin.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -28,6 +29,10 @@
 #ifndef PROJECT_ROOT_DIR
 #error "PROJECT_ROOT_DIR must be defined by the build"
 #endif
+
+// The controllers' QML module (Humanoid.Backend) is a static library:
+// this links in its type registrations.
+Q_IMPORT_QML_PLUGIN(Humanoid_BackendPlugin)
 
 namespace {
 
@@ -182,7 +187,14 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  // QML reaches these three as singletons of `import Humanoid.Backend`
+  // (ArmController, HandController, TaskController) - these instances.
+  robotarm::ArmController::setQmlInstance(&controller);
+  robotarm::HandController::setQmlInstance(&handController);
+  robotarm::TaskController::setQmlInstance(&taskController);
+
   QQmlApplicationEngine engine;
+  engine.addImportPath(QStringLiteral("qrc:/qt/qml")); // the default from Qt 6.5 on
   engine.rootContext()->setContextProperty("armController", &controller);
   engine.rootContext()->setContextProperty("handController", &handController);
   engine.rootContext()->setContextProperty("taskController", &taskController);

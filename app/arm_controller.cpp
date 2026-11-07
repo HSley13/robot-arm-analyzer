@@ -1,5 +1,7 @@
 #include "arm_controller.hpp"
 
+#include "qml_singleton.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -11,6 +13,8 @@
 #include "robotarm/units.hpp"
 
 namespace robotarm {
+
+ArmController *ArmController::create(QQmlEngine *, QJSEngine *) { return existingQmlSingleton(s_qmlInstance); }
 
 namespace {
 

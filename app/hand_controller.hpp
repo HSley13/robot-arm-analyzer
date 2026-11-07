@@ -9,6 +9,7 @@
 #include <Eigen/Dense>
 #include <QElapsedTimer>
 #include <QObject>
+#include <QtQml/qqmlregistration.h>
 #include <QQuaternion>
 #include <QString>
 #include <QStringList>
@@ -20,6 +21,9 @@
 #include "robotarm/hand_gestures.hpp"
 #include "robotarm/kinematic_tree.hpp"
 #include "robotarm/recorded_trajectory.hpp"
+
+class QQmlEngine;
+class QJSEngine;
 
 namespace robotarm {
 
@@ -36,6 +40,10 @@ namespace robotarm {
 // here needs to change if the arm's own pose representation ever does.
 class HandController : public QObject {
   Q_OBJECT
+  // QML: `import Humanoid.Backend`, then use HandController.<property> - one
+  // shared instance (the one main() made, see qml_singleton.hpp).
+  QML_ELEMENT
+  QML_SINGLETON
   Q_PROPERTY(QString handName READ handName CONSTANT)
   Q_PROPERTY(QStringList chainNames READ chainNames CONSTANT)
   Q_PROPERTY(QString currentGesture READ currentGesture NOTIFY resultsChanged)
@@ -56,6 +64,10 @@ class HandController : public QObject {
   Q_PROPERTY(QQuaternion palmRotation READ palmRotation NOTIFY resultsChanged)
 
 public:
+  // The instance QML gets (see qml_singleton.hpp).
+  static HandController *create(QQmlEngine *, QJSEngine *);
+  static void setQmlInstance(HandController *instance) { s_qmlInstance = instance; }
+
   explicit HandController(const std::filesystem::path &hand_config_path, QObject *parent = nullptr);
 
   QString handName() const;
@@ -175,6 +187,8 @@ private:
   QTimer _animationTicker;
   QString _currentGesture = QStringLiteral("restPose");
   int _revision = 0;
+
+  static inline HandController *s_qmlInstance = nullptr;
 };
 
 } // namespace robotarm

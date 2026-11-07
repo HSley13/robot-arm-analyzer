@@ -5,6 +5,7 @@
 #include <vector>
 
 #include <QObject>
+#include <QtQml/qqmlregistration.h>
 #include <QString>
 #include <QStringList>
 #include <QElapsedTimer>
@@ -13,6 +14,9 @@
 #include <QVariantMap>
 
 #include "robotarm/pick_planner.hpp"
+
+class QQmlEngine;
+class QJSEngine;
 
 namespace robotarm {
 
@@ -37,6 +41,10 @@ class HandController;
 // waist axis through the origin, the robot facing +X at yaw 0.
 class TaskController : public QObject {
   Q_OBJECT
+  // QML: `import Humanoid.Backend`, then use TaskController.<property> - one
+  // shared instance (the one main() made, see qml_singleton.hpp).
+  QML_ELEMENT
+  QML_SINGLETON
   Q_PROPERTY(QVariantList objects READ objects NOTIFY objectsChanged)
   Q_PROPERTY(QStringList objectTypes READ objectTypes CONSTANT)
   Q_PROPERTY(int selectedId READ selectedId WRITE selectObject NOTIFY objectsChanged)
@@ -68,6 +76,10 @@ class TaskController : public QObject {
   Q_PROPERTY(double gripperWidth READ gripperWidth NOTIFY stateChanged)
 
 public:
+  // The instance QML gets (see qml_singleton.hpp).
+  static TaskController *create(QQmlEngine *, QJSEngine *);
+  static void setQmlInstance(TaskController *instance) { s_qmlInstance = instance; }
+
   TaskController(ArmController *arm, HandController *hand, QObject *parent = nullptr);
 
   QVariantList objects() const;
@@ -288,6 +300,8 @@ private:
   double _placeMassKg = 1.0;
 
   static constexpr double kBaseRadius = 0.32; // the robot's mobile base
+
+  static inline TaskController *s_qmlInstance = nullptr;
 };
 
 } // namespace robotarm

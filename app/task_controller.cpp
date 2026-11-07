@@ -1,5 +1,7 @@
 #include "task_controller.hpp"
 
+#include "qml_singleton.hpp"
+
 #include <algorithm>
 #include <cmath>
 
@@ -8,6 +10,8 @@
 #include "robotarm/units.hpp"
 
 namespace robotarm {
+
+TaskController *TaskController::create(QQmlEngine *, QJSEngine *) { return existingQmlSingleton(s_qmlInstance); }
 
 namespace {
 

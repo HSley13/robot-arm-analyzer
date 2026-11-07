@@ -5,6 +5,7 @@
 #include <vector>
 
 #include <QObject>
+#include <QtQml/qqmlregistration.h>
 #include <QQuaternion>
 #include <QString>
 #include <QStringList>
@@ -19,6 +20,9 @@
 #include "robotarm/surrogate.hpp"
 #include "robotarm/trajectory.hpp"
 
+class QQmlEngine;
+class QJSEngine;
+
 namespace robotarm {
 
 // QML-facing backend: owns one ArmModel/LinkMass config, current pose/
@@ -26,6 +30,10 @@ namespace robotarm {
 // exposes plain Qt types to QML, never the core/ml C++ types directly.
 class ArmController : public QObject {
   Q_OBJECT
+  // QML: `import Humanoid.Backend`, then use ArmController.<property> - one
+  // shared instance (the one main() made, see qml_singleton.hpp).
+  QML_ELEMENT
+  QML_SINGLETON
   Q_PROPERTY(QString armName READ armName NOTIFY resultsChanged)
   // "humanoid", "industrial" or "" - see ArmConfig::style. Adding or
   // removing a joint turns a humanoid arm into an industrial one.
@@ -88,6 +96,10 @@ class ArmController : public QObject {
   Q_PROPERTY(int scanSampleCount READ scanSampleCount NOTIFY resultsChanged)
 
 public:
+  // The instance QML gets (see qml_singleton.hpp).
+  static ArmController *create(QQmlEngine *, QJSEngine *);
+  static void setQmlInstance(ArmController *instance) { s_qmlInstance = instance; }
+
   explicit ArmController(const std::filesystem::path &config_path, const std::filesystem::path &surrogate_path,
                           const std::filesystem::path &dynamic_surrogate_path = {}, QObject *parent = nullptr);
 
@@ -251,6 +263,8 @@ private:
   double _scanExactMilliseconds = 0.0;
   double _scanAiMilliseconds = 0.0;
   bool _scanAiAvailable = false;
+
+  static inline ArmController *s_qmlInstance = nullptr;
 };
 
 } // namespace robotarm

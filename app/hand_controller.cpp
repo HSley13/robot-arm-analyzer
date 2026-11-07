@@ -1,5 +1,7 @@
 #include "hand_controller.hpp"
 
+#include "qml_singleton.hpp"
+
 #include <algorithm>
 
 #include <QDebug>
@@ -7,6 +9,8 @@
 #include "robotarm/units.hpp"
 
 namespace robotarm {
+
+HandController *HandController::create(QQmlEngine *, QJSEngine *) { return existingQmlSingleton(s_qmlInstance); }
 
 namespace {
 QVector3D to_qvector3d(const Eigen::Vector3d &v) {
