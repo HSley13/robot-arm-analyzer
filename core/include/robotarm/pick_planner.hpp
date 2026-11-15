@@ -146,6 +146,14 @@ PickPlan plan_grasp(const ArmConfig &config, const BodyGeometry &body, const Gra
 //
 // If nothing reaches the point exactly, ok is false and `pose` is the
 // closest approach found (still a valid pose - the hand just stops short).
+// The forward counterpart of plan_grasp: where a grasped object's grip
+// center is in the world for this body pose - `forward_offset` past the
+// arm's end-effector point along the hand, `palmar_offset` out of the arm's
+// plane toward the body. Used to find what the hand is touching when it
+// closes (webcam control), and to check plan_grasp.
+Eigen::Vector3d grip_point_in_world(const ArmConfig &config, const BodyGeometry &body, const BodyPose &pose,
+                                    double palmar_offset, double forward_offset);
+
 PickPlan plan_reach(const ArmConfig &config, const BodyGeometry &body, const Eigen::Vector3d &point,
                     const BodyPose &current);
 

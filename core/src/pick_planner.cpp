@@ -326,6 +326,27 @@ PickPlan plan_grasp(const ArmConfig &config, const BodyGeometry &body, const Gra
   return best_overloaded;
 }
 
+Eigen::Vector3d grip_point_in_world(const ArmConfig &config, const BodyGeometry &body, const BodyPose &pose,
+                                    double palmar_offset, double forward_offset) {
+  // The arm seen in gravity's frame (shoulder angle minus the lean, as in
+  // plan_grasp): its frames are then directly in the waist's vertical plane,
+  // x forward and y up, relative to the shoulder.
+  std::vector<double> q_world = pose.arm;
+  if (!q_world.empty()) {
+    q_world[0] -= pose.hip_bend;
+  }
+  const Eigen::Matrix4d tip = to_arm_model(config).end_effector_pose(q_world);
+  const Eigen::Vector2d along = Eigen::Vector2d(tip(0, 0), tip(1, 0)).normalized(); // the hand's direction
+  const Eigen::Vector2d in_plane = shoulder_in_plane(body, pose.hip_height, pose.hip_bend) +
+                                   Eigen::Vector2d(tip(0, 3), tip(1, 3)) + forward_offset * along;
+
+  // Out of the plane, then turned by the waist (as yaw_to_place_point_in_plane).
+  const double lateral = body.shoulder_lateral - palmar_offset;
+  const double c = std::cos(pose.yaw);
+  const double s = std::sin(pose.yaw);
+  return {in_plane.x() * c + lateral * s, in_plane.y(), -in_plane.x() * s + lateral * c};
+}
+
 PickPlan plan_reach(const ArmConfig &config, const BodyGeometry &body, const Eigen::Vector3d &point,
                     const BodyPose &current) {
   PickPlan plan;

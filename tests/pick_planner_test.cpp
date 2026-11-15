@@ -317,3 +317,31 @@ TEST(ReachPlanner, WorksForAFiveJointArm) {
   ASSERT_TRUE(plan.ok) << plan.reason;
   EXPECT_LT((tip_point_of(config, BodyGeometry(), plan.pose) - point).norm(), 1e-3);
 }
+
+// grip_point_in_world is plan_grasp run forward: the planned pose must put
+// the grip center exactly where the plan was asked to put it.
+TEST(GripPoint, IsWherePlanGraspPutsTheObject) {
+  struct Case {
+    ArmConfig config;
+    Eigen::Vector3d point;
+    double palmar;
+    double forward;
+  };
+  const std::vector<Case> cases = {
+      {humanoid_arm(), {0.62, 0.10, 0.30}, 0.05, 0.004},  // low, beside the robot: crouch + lean
+      {humanoid_arm(), {0.45, 0.80, -0.40}, 0.05, 0.004}, // table height, waist turned the other way
+      {five_joint_arm(), {0.55, 0.40, 0.35}, 0.0, 0.075}, // a warehouse arm with a gripper
+  };
+  for (const Case &c : cases) {
+    GraspTarget target;
+    target.grip_point = c.point;
+    target.palmar_offset = c.palmar;
+    target.forward_offset = c.forward;
+    target.keep_hand_level = true;
+    const PickPlan plan = robotarm::plan_grasp(c.config, BodyGeometry(), target, 0.8);
+    ASSERT_TRUE(plan.ok) << plan.reason;
+    const Eigen::Vector3d grip =
+        robotarm::grip_point_in_world(c.config, BodyGeometry(), plan.pose, c.palmar, c.forward);
+    EXPECT_LT((grip - c.point).norm(), 2e-3) << "got " << grip.transpose() << ", wanted " << c.point.transpose();
+  }
+}
