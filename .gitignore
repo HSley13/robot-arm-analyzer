@@ -24,3 +24,6 @@ archive/industrial_arm/python_data/
 .vscode/
 .idea/
 .cache/
+graphify-out/
+.claude/
+CLAUDE.md

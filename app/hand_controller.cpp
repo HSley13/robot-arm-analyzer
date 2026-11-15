@@ -47,8 +47,7 @@ QQuaternion link_frame(const Eigen::Vector3d &along, const Eigen::Vector3d &hing
 } // namespace
 
 HandController::HandController(const std::filesystem::path &hand_config_path, QObject *parent)
-    : QObject(parent), _config(load_hand_config(hand_config_path)), _tree(to_kinematic_tree(_config)),
-      _gestures(_config) {
+    : QObject(parent), _config(load_hand_config(hand_config_path)), _tree(to_kinematic_tree(_config)), _gestures(_config) {
   for (const KinematicChain &chain : _tree.chains()) _chainOrder.push_back(chain.name);
 
   _jointAnglesRadians = _gestures.restPose();
@@ -286,7 +285,7 @@ std::map<std::string, std::vector<double>> HandController::unflatten(const std::
   for (const std::string &name : _chainOrder) {
     const size_t count = _tree.chain(name).joints.size();
     pose[name] = std::vector<double>(flat.begin() + static_cast<long>(offset),
-                                      flat.begin() + static_cast<long>(offset + count));
+                                     flat.begin() + static_cast<long>(offset + count));
     offset += count;
   }
   return pose;

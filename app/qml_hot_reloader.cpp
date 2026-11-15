@@ -9,8 +9,7 @@
 
 namespace robotarm {
 
-QmlHotReloader::QmlHotReloader(QQmlApplicationEngine *engine, const QString &qmlDir, const QUrl &mainQml,
-                               QObject *parent)
+QmlHotReloader::QmlHotReloader(QQmlApplicationEngine *engine, const QString &qmlDir, const QUrl &mainQml, QObject *parent)
     : QObject(parent), _engine(engine), _qmlDir(qmlDir), _mainQml(mainQml) {
   _debounce.setSingleShot(true);
   _debounce.setInterval(150);

@@ -52,8 +52,7 @@ QVariantList to_variant_list(const Eigen::VectorXd &values) {
 
 } // namespace
 
-ArmController::ArmController(const std::filesystem::path &config_path, const std::filesystem::path &surrogate_path,
-                              const std::filesystem::path &dynamic_surrogate_path, QObject *parent)
+ArmController::ArmController(const std::filesystem::path &config_path, const std::filesystem::path &surrogate_path, const std::filesystem::path &dynamic_surrogate_path, QObject *parent)
     : QObject(parent), _config(load_arm_config(config_path)), _arm(to_arm_model(_config)),
       _links(to_link_masses(_config)), _inertialLinks(to_link_inertials(_config)),
       _jointAnglesRadians(_arm.num_joints(), 0.0), _jointVelocitiesRadians(_arm.num_joints(), 0.0),
@@ -566,7 +565,7 @@ void ArmController::recompute() {
   auto exact_evaluator = [&](double candidate_payload) -> Eigen::VectorXd {
     if (_dynamicMode) {
       return inverse_dynamics(_arm, positions, velocities, accelerations, _inertialLinks, candidate_payload,
-                               gravity());
+                              gravity());
     }
     return static_joint_torques(_arm, positions, _links, candidate_payload, gravity());
   };

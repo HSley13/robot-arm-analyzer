@@ -101,7 +101,7 @@ public:
   static void setQmlInstance(ArmController *instance) { s_qmlInstance = instance; }
 
   explicit ArmController(const std::filesystem::path &config_path, const std::filesystem::path &surrogate_path,
-                          const std::filesystem::path &dynamic_surrogate_path = {}, QObject *parent = nullptr);
+                         const std::filesystem::path &dynamic_surrogate_path = {}, QObject *parent = nullptr);
 
   QString armName() const;
   QString armStyle() const { return QString::fromStdString(_config.style); }
