@@ -2,7 +2,7 @@
 
 **Can this robot hold that weight, in that pose, without overloading a joint, and can it go and pick the object up?**
 
-A humanoid robot on a mobile lift base, simulated in real time. You put objects on the floor and on tables, drag the robot around with the mouse, and ask it to pick things up. Every joint's load is computed live: by an exact physics engine, or by a **neural network trained to imitate it**.
+A humanoid robot on a mobile lift base, simulated in real time. You put objects on the floor and on tables, drag the robot around with the mouse (or **move it with your own arm through the webcam**), and ask it to pick things up. Every joint's load is computed live: by an exact physics engine, or by a **neural network trained to imitate it**.
 
 > **Midterm project, Introduction to Artificial Intelligence**, by **HSley13**
 
@@ -16,6 +16,7 @@ A humanoid robot on a mobile lift base, simulated in real time. You put objects 
 - [Where the AI is](#where-the-ai-is)
 - [How it works](#how-it-works)
 - [Using it](#using-it)
+- [Webcam control](#webcam-control)
 - [Tech stack](#tech-stack)
 - [Building and running](#building-and-running)
 - [Tests](#tests)
@@ -58,6 +59,10 @@ Click an object or a spot to get a menu:
 
 ![Click menus](image/08-click-menus.png)
 
+### Controlled with your own arm, through the webcam
+
+Stand in front of the webcam and the robot copies your right arm. Raise your hand and its hand rises; reach toward the screen and it reaches forward; reach low and it crouches and leans to follow. Close your hand near an object to grab it, and open it to set the object down on whatever is below. Step out of view and the robot holds still. A pre-trained vision network tracks your arm and hand, and the robot's own planner still moves the body, so it stays smooth and the load analysis keeps running on whatever it carries. See [Webcam control](#webcam-control).
+
 ### A five-finger hand, or a warehouse gripper
 
 The hand has 17 joints and closes its fingers to fit each object's size.
@@ -85,7 +90,7 @@ This project touches several of the main ideas of an introductory AI course.
 | **Performance** | Reach the goal (grasp the object, put it where asked) without exceeding any joint's torque limit or its range of motion |
 | **Environment** | Floor, tables, coffee tables, counters and objects of different shapes and masses, all placed by the user                   |
 | **Actuators**   | Waist (turn), lift (up/down), hip (lean), arm joints, 17 finger joints or a gripper                                     |
-| **Sensors**     | Object positions and sizes, the robot's own joint angles, and the torque each joint must produce                        |
+| **Sensors**     | Object positions and sizes, the robot's own joint angles, the torque each joint must produce, and a webcam watching the person who controls it |
 
 Each request is a **perceive → plan → act** cycle. The robot reads where the object is, plans a sequence of poses, then executes them with smooth, speed-limited motion. If the plan fails, it reports the reason instead of acting.
 
@@ -126,7 +131,15 @@ flowchart LR
 - **Inverse kinematics** (which joint angles put the hand *here*?) minimizes the distance to the target with **damped least squares**, a Gauss-Newton / Levenberg-Marquardt step: Δq = Jᵀ(JJᵀ + λ²I)⁻¹ e. Joints that hit their limit are frozen and the rest re-solve (an active-set method).
 - For the humanoid's three-joint arm with the hand's angle fixed, there is also a **closed-form** solution. The planner uses it because it's exact and instant, and falls back to the numeric solver for any other joint count.
 
-### 5. Planning and acting
+### 5. Perception: computer vision for control
+
+Webcam control uses two **pre-trained convolutional networks** from Google's MediaPipe: a pose landmarker (33 body points, in metres) and a hand landmarker (21 points per hand). No training is needed; the project's work is turning what they see into commands (`tools/webcam_teleop/teleop_math.py`):
+
+- **Retargeting:** your wrist's position relative to your shoulder, scaled by *robot reach / your arm length*, becomes the robot hand's target. Copying your hand's *position* rather than your joint *angles* lets the robot's planner choose how to bend, so the safety checks still apply.
+- **Grip:** fingertip-to-wrist distance divided by palm length is about 2 for an open hand and about 1 for a fist, at any distance from the camera. Grabbing and releasing use two thresholds (0.7 and 0.3), so a half-closed hand doesn't flicker between them.
+- **Filtering:** tracking jitters by millimetres every frame. A **1€ filter** (a low-pass filter whose cutoff rises with speed) steadies it at rest without lagging when you move fast.
+
+### 6. Planning and acting
 
 A pick-up is a short plan of sub-goals: **approach → grasp → lift → carry**. A put-down is **move above → lower → release → retreat → home**. Each step is a target pose; the controller interpolates between them with eased motion, closes the hand or gripper at the right moment, and hands the object's mass to the physics as payload. Some steps are planned only when reached (the home pose is computed from wherever the arm actually ended up), which is a small form of replanning.
 
@@ -136,6 +149,9 @@ A pick-up is a short plan of sub-goals: **approach → grasp → lift → carry*
 
 ```mermaid
 flowchart LR
+    CAM(["Webcam"]) --> MP["webcam_teleop.py<br/>MediaPipe pose + hand,<br/>retarget · grip · 1€ filter"]
+    MP -->|"WebSocket, JSON"| BR["SensorBridgeServer"]
+    BR --> TC
     U(["Mouse · menus · panels"]) --> UI["Qt Quick 3D / QML interface"]
     UI --> TC["TaskController<br/>scene, body, pick / put-down, dragging"]
     UI --> AC["ArmController<br/>pose, payload, Exact / AI"]
@@ -192,6 +208,35 @@ The side panel switches **Humanoid / Warehouse**, adds or removes joints, and ha
 
 ---
 
+## Webcam control
+
+The app listens for outside control on port 8765 (on this computer only). The webcam program is a separate Python script that talks to it:
+
+```bash
+cd tools/webcam_teleop
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python3 webcam_teleop.py            # with the robot app already running
+```
+
+- **First run:** the two MediaPipe models (a few MB) download into `tools/webcam_teleop/models/`. On macOS, allow your terminal to use the camera when asked. If pip finds no MediaPipe for your Python version, create the venv with an older Python.
+- **Using it:** stand back far enough for the camera to see your shoulders and right arm. The preview window is a mirror showing your tracked arm, a grip bar and the connection state. **Space** pauses (the robot holds still) and **q** quits.
+- **If it mirrors you:** if the robot moves left when you move right, add `--mirror`.
+- **Without a camera:** `python3 webcam_teleop.py --demo` drives the robot with a scripted arm, to check the connection.
+
+**The protocol** (one JSON object per WebSocket message), so other programs can drive the robot too:
+
+| Message | Effect |
+| --- | --- |
+| `{"type": "reach", "x": 0.5, "y": 0.9, "z": 0.3}` | Move the hand there (metres, world frame); the body follows smoothly |
+| `{"type": "grip", "amount": 0.8}` | 0 = open … 1 = closed; closing near an object grabs it, opening sets it down |
+| `{"type": "hold"}` | Stop where it is |
+| `{"type": "ping"}` | Answered with `{"type": "pong"}` |
+
+On connecting, a client first receives `{"type": "hello", "robot": …, "shoulder": [x, y, z], "reach": …}`, which describes the robot so arms can be scaled to it. App flags: `--bridge-port N`, `--bridge-lan` (accept other computers on the network; there's no authentication, so trusted networks only) and `--no-bridge`. The bridge needs the Qt WebSockets module; without it, the app builds without webcam control.
+
+---
+
 ## Tech stack
 
 | Technology | Used for |
@@ -200,8 +245,10 @@ The side panel switches **Humanoid / Warehouse**, adds or removes joints, and ha
 | **Eigen** | linear algebra (transforms, Jacobians, least squares) |
 | **Qt 6 · Qt Quick 3D · QML** | real-time 3D interface, procedural meshes, image-based lighting |
 | **PyTorch · NumPy** | training the neural networks |
+| **MediaPipe · OpenCV** | webcam control: pose and hand tracking, camera and preview |
+| **Qt WebSockets** | the bridge that lets outside programs (the webcam control) drive the robot |
 | **nlohmann/json** | robot configs and network weights |
-| **GoogleTest** | 256 unit and integration tests |
+| **GoogleTest · unittest** | 290 unit and integration tests (C++ and Python) |
 | **CMake** | build (with `qt_add_qml_module`) |
 
 ---
@@ -234,7 +281,7 @@ Optional launch flags, mostly for reproducible scenes and screenshots:
 ctest --test-dir build
 ```
 
-256 tests in 20 suites cover every physics module (kinematics, kinematic trees, statics, dynamics, trajectories, inverse kinematics, payload capacity, grasp and reach planning, the neural-network surrogates, config parsing). They also cover the application layer, including whole pick-and-place sequences stepped in simulated time with both the hand and the gripper, for every object type, and QML loading the C++ module.
+290 tests in 22 suites cover every physics module (kinematics, kinematic trees, statics, dynamics, trajectories, inverse kinematics, payload capacity, grasp and reach planning, the neural-network surrogates, config parsing). They also cover the application layer, including whole pick-and-place sequences stepped in simulated time with both the hand and the gripper, for every object type, and QML loading the C++ module. The webcam path is covered too: grab and release, the bridge (including a real local WebSocket connection), and the Python retargeting, grip, filter and control rules.
 
 ## Retraining the neural network
 
@@ -255,7 +302,8 @@ core/       physics engine: kinematics, kinematic tree, statics, dynamics, IK, p
 ml/         neural-network inference (C++) + trained weights
 app/        Qt Quick 3D interface, the C++ controllers, procedural meshes (app/geometry/)
 config/     the robot's arm and hand
-tools/      training-data generators (call the physics engine), lighting generator
+tools/      training-data generators (call the physics engine), lighting generator,
+            webcam_teleop/ (webcam control: MediaPipe tracking -> robot commands)
 python/     PyTorch training scripts
 tests/      GoogleTest suites
 image/      screenshots used in this README
