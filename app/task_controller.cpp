@@ -554,6 +554,7 @@ QVariantMap TaskController::body() const {
   map["minYaw"] = _geometry.min_yaw_degrees;
   map["maxYaw"] = _geometry.max_yaw_degrees;
   map["baseRadius"] = kBaseRadius;
+  map["standingHipHeight"] = kStandingHipHeight;
   return map;
 }
 

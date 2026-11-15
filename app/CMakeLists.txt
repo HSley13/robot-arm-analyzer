@@ -38,6 +38,19 @@ target_link_libraries(robotarm_app_core PUBLIC
     robotarm_ml
 )
 
+# The sensor bridge (webcam control and other outside input) needs Qt
+# WebSockets. Without it the app still builds - just without the bridge.
+find_package(Qt6 QUIET COMPONENTS WebSockets)
+if(TARGET Qt6::WebSockets)
+  target_sources(robotarm_app_core PRIVATE sensor_bridge_server.cpp sensor_bridge_server.hpp)
+  target_link_libraries(robotarm_app_core PUBLIC Qt6::WebSockets)
+  target_compile_definitions(robotarm_app_core PUBLIC ROBOTARM_HAS_SENSOR_BRIDGE)
+  set(ROBOTARM_HAS_SENSOR_BRIDGE ON CACHE INTERNAL "Qt WebSockets found: build the sensor bridge")
+else()
+  message(STATUS "Qt WebSockets not found - building without the sensor bridge (no webcam control)")
+  set(ROBOTARM_HAS_SENSOR_BRIDGE OFF CACHE INTERNAL "Qt WebSockets found: build the sensor bridge")
+endif()
+
 # ...and they're the QML module `Humanoid.Backend`: every class marked
 # QML_ELEMENT (+ QML_SINGLETON) becomes a QML type - QML says
 # `import Humanoid.Backend` and uses `ArmController.jointCount`,

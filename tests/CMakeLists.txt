@@ -109,3 +109,11 @@ target_compile_definitions(qml_module_tests PRIVATE PROJECT_ROOT_DIR="${CMAKE_SO
 set_target_properties(qml_module_tests PROPERTIES AUTOMOC ON)
 
 add_test(NAME qml_module_tests COMMAND qml_module_tests)
+
+# The sensor bridge exists only when Qt WebSockets was found (app/CMakeLists.txt).
+if(ROBOTARM_HAS_SENSOR_BRIDGE)
+  add_executable(sensor_bridge_server_tests sensor_bridge_server_test.cpp)
+  target_link_libraries(sensor_bridge_server_tests PRIVATE robotarm_app_core gtest)
+  target_compile_definitions(sensor_bridge_server_tests PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
+  add_test(NAME sensor_bridge_server_tests COMMAND sensor_bridge_server_tests)
+endif()
