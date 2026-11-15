@@ -23,6 +23,13 @@ constexpr double kGripperReach = 0.075;     // m, gripper finger center past the
 constexpr double kGripperOpen = 0.11;       // m, gripper fingers wide open
 constexpr double kGripperShut = 0.01;       // m, gripper fingers closed on nothing
 
+// Live grip (setGrip): closing past kGrabAt grabs, opening below
+// kReleaseAt lets go. The gap keeps a half-closed, jittery hand from
+// flickering between the two.
+constexpr double kGrabAt = 0.7;
+constexpr double kReleaseAt = 0.3;
+constexpr double kGrabReach = 0.08; // m, hand to object's grip center, to grab it
+
 // Following a reachTo() goal: every degree of freedom closes the gap
 // exponentially (fast for small moves, so dragging feels direct), and no
 // faster than its top speed - all slowed together, so a big move is one
@@ -693,6 +700,17 @@ void TaskController::setGrip(double amount) {
   }
   _grip = std::clamp(amount, 0.0, 1.0);
 
+  if (!_gripClosed && _grip >= kGrabAt) {
+    _gripClosed = true;
+    if (_heldId == -1) {
+      grabNearHand();
+    }
+  } else if (_gripClosed && _grip <= kReleaseAt) {
+    // Not over a place it can go: keep holding, and try again on the next
+    // update - it lets go as soon as the hand moves somewhere it can.
+    _gripClosed = _heldId != -1 && !releaseUnderHand();
+  }
+
   // Holding something, the fingers stay wrapped around it (closing harder
   // can't go through it; letting go is a separate step). Empty, they
   // follow the grip.
@@ -704,6 +722,80 @@ void TaskController::setGrip(double amount) {
     _hand->setGrasp(held != nullptr ? gripClosure(shapeOf(held->type, held->mass).grip_radius) : _grip);
   }
   emit stateChanged();
+}
+
+Eigen::Vector3d TaskController::handGripPoint(double grip_radius) const {
+  const ArmConfig &config = _arm->config();
+  if (industrial()) {
+    return grip_point_in_world(config, _geometry, currentPose(), 0.0, kGripperReach);
+  }
+  const double hand_link = config.joints.empty() ? 0.0 : config.joints.back().dh.a;
+  return grip_point_in_world(config, _geometry, currentPose(), gripPalmar(grip_radius),
+                             gripForward(grip_radius) - hand_link);
+}
+
+bool TaskController::grabNearHand() {
+  // The object whose grip center is closest to where it would sit in the hand.
+  SceneObject *nearest = nullptr;
+  double nearest_distance = kGrabReach;
+  for (SceneObject &object : _objects) {
+    const Shape shape = shapeOf(object.type, object.mass);
+    const Eigen::Vector3d grip_center = object.base + Eigen::Vector3d(0.0, shape.grip_height, 0.0);
+    const double distance = (handGripPoint(shape.grip_radius) - grip_center).norm();
+    if (distance < nearest_distance) {
+      nearest = &object;
+      nearest_distance = distance;
+    }
+  }
+  if (nearest == nullptr) {
+    setStatus(QStringLiteral("Nothing in the hand to grab - bring it closer to an object"));
+    return false;
+  }
+
+  const Shape shape = shapeOf(nearest->type, nearest->mass);
+  nearest->grasp_mode = industrial() ? QStringLiteral("side") : QStringLiteral("hand");
+  nearest->grasp_height = shape.grip_height;
+  _heldId = nearest->id;
+  _arm->setPayloadKg(nearest->mass);
+  _arm->setGripperOpen(false);
+  if (industrial()) {
+    _gripperWidth = 2.0 * shape.grip_radius;
+  } else if (_hand != nullptr) {
+    _hand->setGrasp(gripClosure(shape.grip_radius));
+  }
+  setStatus(QStringLiteral("Holding the %1 (%2)").arg(nearest->type, massText(nearest->mass)));
+  emit objectsChanged();
+  emit stateChanged();
+  return true;
+}
+
+bool TaskController::releaseUnderHand() {
+  SceneObject *object = findObject(_heldId);
+  if (object == nullptr) {
+    return false;
+  }
+  // It goes straight down from where it is in the hand.
+  const Shape shape = shapeOf(object->type, object->mass);
+  const Eigen::Vector3d center = handGripPoint(shape.grip_radius);
+  const double support = supportHeightAt(center.x(), center.z(), shape.footprint);
+  if (support < 0.0) {
+    setStatus(QStringLiteral("Can't let go here - over a table edge or the robot's base"));
+    return false;
+  }
+  if (!spotIsFree(center.x(), center.z(), shape.footprint, object->id)) {
+    setStatus(QStringLiteral("Can't let go here - another object is right below"));
+    return false;
+  }
+
+  object->base = Eigen::Vector3d(center.x(), support, center.z());
+  object->grasp_mode.clear();
+  _heldId = -1;
+  _arm->setPayloadKg(0.0);
+  _arm->setGripperOpen(true);
+  setStatus(QStringLiteral("Put the %1 down").arg(object->type));
+  emit objectsChanged();
+  emit stateChanged();
+  return true;
 }
 
 void TaskController::cancelReach() {

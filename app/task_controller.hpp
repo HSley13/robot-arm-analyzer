@@ -130,7 +130,9 @@ public slots:
 
   // Live hand control (webcam): 0 = open .. 1 = closed. Closes the
   // humanoid's fingers or the warehouse gripper's jaws right away; while
-  // holding something they stay wrapped around it. Ignored during a
+  // holding something they stay wrapped around it. Closing (to 0.7 or more)
+  // grabs the object the hand is around; opening (to 0.3 or less) sets it
+  // down on the surface right below the hand. Ignored during a
   // pick / put-down.
   void setGrip(double amount);
 
@@ -259,6 +261,12 @@ private:
   QVariantMap toVariant(const SceneObject &object) const;
 
   bool industrial() const;
+  // Where an object of this grip radius would sit in the closed hand (or
+  // between the gripper's jaws), in the world, for the current pose.
+  Eigen::Vector3d handGripPoint(double grip_radius) const;
+  // setGrip's grab and release; false (with a status) if nothing happened.
+  bool grabNearHand();
+  bool releaseUnderHand();
   // The ways this arm can grasp `object` standing with its base at `base`,
   // most preferred first (the hand: from the side; a gripper: from above,
   // then from the side).
@@ -306,6 +314,9 @@ private:
   // reachTo()'s goal, while the body is still on its way there.
   BodyPose _goal;
   bool _following = false;
+  // Whether live input last closed the hand (past the grab threshold) -
+  // grab and release fire when this flips, not on every update.
+  bool _gripClosed = false;
   QTimer _ticker;
   QElapsedTimer _tickClock;
 

@@ -397,3 +397,86 @@ TEST(TaskController, GripIsIgnoredDuringAPickUp) {
   rig.task.setGrip(1.0);
   EXPECT_DOUBLE_EQ(rig.task.grip(), 0.0);
 }
+
+// Brings the hand to an object's grip center the way the webcam would:
+// by reaching there and letting the body move.
+void handTo(Rig &rig, double x, double y, double z) {
+  rig.task.reachTo(x, y, z);
+  rig.runToEnd();
+}
+
+TEST(TaskController, ClosingTheHandAroundAnObjectGrabsIt) {
+  Rig rig;
+  const int bottle = rig.task.addObject("bottle", 0.0, 0.62, 0.30); // grip center 10 cm up
+  handTo(rig, 0.62, 0.10, 0.30);
+  rig.task.setGrip(0.5);
+  EXPECT_EQ(rig.task.heldId(), -1); // half-closed: not yet
+  rig.task.setGrip(0.9);
+  EXPECT_EQ(rig.task.heldId(), bottle);
+  EXPECT_DOUBLE_EQ(rig.arm.payloadKg(), 1.0); // its mass is now on the arm
+}
+
+TEST(TaskController, ClosingTheHandOnNothingGrabsNothing) {
+  Rig rig;
+  rig.task.addObject("bottle", 0.0, 0.62, 0.30);
+  handTo(rig, 0.45, 0.60, 0.30); // half a meter above it
+  rig.task.setGrip(1.0);
+  EXPECT_EQ(rig.task.heldId(), -1);
+  EXPECT_TRUE(rig.task.status().contains("Nothing"));
+}
+
+TEST(TaskController, OpeningTheHandSetsTheObjectDownBelowIt) {
+  Rig rig;
+  const int bottle = rig.task.addObject("bottle", 0.0, 0.62, 0.30);
+  handTo(rig, 0.62, 0.10, 0.30);
+  rig.task.setGrip(1.0);
+  ASSERT_EQ(rig.task.heldId(), bottle);
+
+  // Carry it over the table and open the hand.
+  handTo(rig, 0.50, 0.85, -0.55);
+  rig.task.setGrip(0.5);
+  EXPECT_EQ(rig.task.heldId(), bottle); // between the thresholds: still held
+  rig.task.setGrip(0.1);
+  EXPECT_EQ(rig.task.heldId(), -1);
+  EXPECT_DOUBLE_EQ(rig.arm.payloadKg(), 0.0);
+  const QVariantMap placed = objectById(rig.task, bottle);
+  EXPECT_NEAR(placed["y"].toDouble(), 0.72, 1e-12); // standing on the table
+  EXPECT_NEAR(placed["x"].toDouble(), 0.50, 0.08);   // right below the hand
+  EXPECT_NEAR(placed["z"].toDouble(), -0.55, 0.08);
+}
+
+TEST(TaskController, KeepsHoldingOverABadSpotAndLetsGoOnceItsGood) {
+  Rig rig;
+  const int bottle = rig.task.addObject("bottle", 0.0, 0.62, 0.30);
+  rig.task.addObject("box", 0.0, 0.70, 0.10); // in the way, below where the hand goes next
+  handTo(rig, 0.62, 0.10, 0.30);
+  rig.task.setGrip(1.0);
+  ASSERT_EQ(rig.task.heldId(), bottle);
+
+  // Right over the box: there's no room to put the bottle down.
+  handTo(rig, 0.70, 0.45, 0.10);
+  rig.task.setGrip(0.0);
+  EXPECT_EQ(rig.task.heldId(), bottle);
+  EXPECT_TRUE(rig.task.status().contains("Can't let go")) << rig.task.status().toStdString();
+
+  // Hand still open, moved over clear floor: it lets go on the next update.
+  handTo(rig, 0.60, 0.40, -0.20);
+  rig.task.setGrip(0.0);
+  EXPECT_EQ(rig.task.heldId(), -1);
+  EXPECT_DOUBLE_EQ(objectById(rig.task, bottle)["y"].toDouble(), 0.0);
+}
+
+TEST(TaskController, TheWarehouseGripperGrabsAndReleasesToo) {
+  Rig rig;
+  ASSERT_TRUE(rig.task.useIndustrialArm());
+  rig.arm.addJoint();
+  const int can = rig.task.addObject("can", 0.0, 0.55, 0.35); // grip center ~6 cm up
+  // The gripper's grip point is 7.5 cm past the arm's tip: aim the tip short.
+  handTo(rig, 0.55, 0.06 + 0.075, 0.35);
+  rig.task.setGrip(1.0);
+  ASSERT_EQ(rig.task.heldId(), can) << rig.task.status().toStdString();
+  EXPECT_NEAR(rig.task.gripperWidth(), 0.066, 0.01); // closed on the can, not shut
+  handTo(rig, 0.70, 0.40, 0.0);
+  rig.task.setGrip(0.0);
+  EXPECT_EQ(rig.task.heldId(), -1);
+}
