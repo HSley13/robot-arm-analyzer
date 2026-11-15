@@ -117,3 +117,12 @@ if(ROBOTARM_HAS_SENSOR_BRIDGE)
   target_compile_definitions(sensor_bridge_server_tests PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
   add_test(NAME sensor_bridge_server_tests COMMAND sensor_bridge_server_tests)
 endif()
+
+# The webcam control's Python logic (tools/webcam_teleop) - plain unittest,
+# no camera or MediaPipe needed. Skipped if there's no Python 3.10+.
+find_package(Python3 3.10 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME webcam_teleop_tests
+           COMMAND ${Python3_EXECUTABLE} -B -m unittest
+           WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/tools/webcam_teleop)
+endif()
