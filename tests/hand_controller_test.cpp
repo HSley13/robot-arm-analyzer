@@ -11,6 +11,9 @@
 #include <QVector3D>
 
 #include "hand_controller.hpp"
+#include "robotarm/hand_config.hpp"
+#include "robotarm/hand_gestures.hpp"
+#include "robotarm/units.hpp"
 
 using robotarm::HandController;
 
@@ -232,4 +235,32 @@ TEST(HandController, PowerGripIsAKnownGesture) {
   hand.playGesture("powerGrip");
   EXPECT_TRUE(hand.animating());
   EXPECT_EQ(hand.currentGesture(), QString("powerGrip"));
+}
+
+TEST(HandController, SetGraspIsInstantAndMatchesTheGestureLibrary) {
+  // The pose playGrasp(0.6) animates toward, straight from the gesture library.
+  const robotarm::HandGestures gestures(robotarm::load_hand_config(hand_config_path()));
+  const auto expected = gestures.graspAtFraction(0.6);
+
+  HandController hand(hand_config_path());
+  hand.setJointAngleDegrees("index", 1, 40.0); // whatever pose it was in before
+  hand.setGrasp(0.6);
+
+  EXPECT_FALSE(hand.animating()); // in one step, no animation
+  EXPECT_EQ(hand.currentGesture(), QString("grasp"));
+  for (const auto &[chain, angles] : expected) {
+    for (size_t i = 0; i < angles.size(); i++) {
+      EXPECT_NEAR(hand.jointAngleDegrees(QString::fromStdString(chain), static_cast<int>(i)),
+                  robotarm::to_degrees(angles[i]), 1e-9)
+          << chain << " joint " << i;
+    }
+  }
+}
+
+TEST(HandController, SetGraspClampsTheClosure) {
+  HandController over(hand_config_path());
+  HandController fist(hand_config_path());
+  over.setGrasp(3.0);
+  fist.setGrasp(1.0);
+  EXPECT_NEAR(over.jointAngleDegrees("index", 1), fist.jointAngleDegrees("index", 1), 1e-9);
 }

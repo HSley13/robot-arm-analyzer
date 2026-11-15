@@ -328,6 +328,21 @@ void HandController::playGrasp(double closure) {
   emit resultsChanged();
 }
 
+void HandController::setGrasp(double closure) {
+  // Exactly the pose playGrasp() animates toward (fingers closed, the hand's
+  // wrist chain at rest), chain by chain.
+  for (const auto &[name, angles] : _gestures.graspAtFraction(std::clamp(closure, 0.0, 1.0))) {
+    _jointAnglesRadians[name] = angles;
+  }
+  // Live input replaces whatever gesture was playing.
+  _animation.reset();
+  _animationTicker.stop();
+  _currentGesture = QStringLiteral("grasp");
+
+  recompute();
+  emit resultsChanged();
+}
+
 void HandController::advanceAnimation() {
   if (!_animation) {
     _animationTicker.stop();

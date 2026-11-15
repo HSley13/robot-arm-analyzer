@@ -148,6 +148,11 @@ public slots:
   // like a gesture - used to grasp objects of different sizes.
   void playGrasp(double closure);
 
+  // The same grasp, instantly - for live input (webcam control) that sends
+  // a new closure many times a second, where restarting an animation each
+  // time would never let it arrive. 0 = open, 1 = fist; clamped.
+  void setGrasp(double closure);
+
 signals:
   void resultsChanged();
 
