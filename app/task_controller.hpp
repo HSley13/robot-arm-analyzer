@@ -128,6 +128,10 @@ public slots:
   // Stops moving toward the reachTo() goal, wherever the body is now.
   void cancelReach();
 
+  // Shows a message in the status line - for events from outside the
+  // controller (a webcam connecting...).
+  void notify(const QString &message) { setStatus(message); }
+
   // Live hand control (webcam): 0 = open .. 1 = closed. Closes the
   // humanoid's fingers or the warehouse gripper's jaws right away; while
   // holding something they stay wrapped around it. Closing (to 0.7 or more)

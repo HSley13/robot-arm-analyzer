@@ -18,6 +18,9 @@
 #include "arm_controller.hpp"
 #include "hand_controller.hpp"
 #include "qml_hot_reloader.hpp"
+#ifdef ROBOTARM_HAS_SENSOR_BRIDGE
+#include "sensor_bridge_server.hpp"
+#endif
 #include "task_controller.hpp"
 
 #ifndef APP_QML_DIR
@@ -79,9 +82,18 @@ int main(int argc, char *argv[]) {
   const QCommandLineOption tableOption("table", "Add a table: kind,x,z (kind: table, coffee table, counter). Repeatable.",
                                        "kind,x,z");
   const QCommandLineOption addOption("add", "Add an object: type,x,z (on the floor or a table). Repeatable.", "type,x,z");
+  // The sensor bridge: outside programs (tools/webcam_teleop) drive the
+  // robot over a WebSocket on this port.
+  const QCommandLineOption bridgePortOption("bridge-port", "Port for outside control, e.g. the webcam (default 8765).",
+                                            "port", "8765");
+  const QCommandLineOption bridgeLanOption("bridge-lan",
+                                           "Accept outside control from other computers on the network, not just "
+                                           "this one (no authentication: trusted networks only).");
+  const QCommandLineOption noBridgeOption("no-bridge", "Don't accept outside control at all.");
   parser.addOptions({poseOption, payloadOption, openHandOption, cameraOption, focusOption, screenshotOption,
                      delayOption, scanOption, pickOption, putOption, atOption, sizeOption,
-                     industrialOption, tableOption, addOption});
+                     industrialOption, tableOption, addOption, bridgePortOption,
+                     bridgeLanOption, noBridgeOption});
   parser.process(app);
 
 
@@ -186,6 +198,20 @@ int main(int argc, char *argv[]) {
   robotarm::ArmController::setQmlInstance(&controller);
   robotarm::HandController::setQmlInstance(&handController);
   robotarm::TaskController::setQmlInstance(&taskController);
+
+#ifdef ROBOTARM_HAS_SENSOR_BRIDGE
+  // Outside control (the webcam program, scripts...) - see sensor_bridge_server.hpp.
+  robotarm::SensorBridgeServer sensorBridge(&taskController, &controller,
+                                            static_cast<quint16>(parser.value(bridgePortOption).toUInt()));
+  if (!parser.isSet(noBridgeOption) && sensorBridge.start(parser.isSet(bridgeLanOption))) {
+    QObject::connect(&sensorBridge, &robotarm::SensorBridgeServer::clientCountChanged, &taskController,
+                     [&sensorBridge, &taskController]() {
+                       taskController.notify(sensorBridge.clientCount() > 0
+                                                 ? QStringLiteral("Outside control connected (webcam)")
+                                                 : QStringLiteral("Outside control disconnected"));
+                     });
+  }
+#endif
 
   QQmlApplicationEngine engine;
   engine.addImportPath(QStringLiteral("qrc:/qt/qml")); // the default from Qt 6.5 on
