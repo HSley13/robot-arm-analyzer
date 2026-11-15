@@ -21,6 +21,7 @@ constexpr double kTickSeconds = 1.0 / 60.0;
 constexpr double kStandingHipHeight = 0.80; // m, the lift's normal standing height
 constexpr double kGripperReach = 0.075;     // m, gripper finger center past the arm's flange
 constexpr double kGripperOpen = 0.11;       // m, gripper fingers wide open
+constexpr double kGripperShut = 0.01;       // m, gripper fingers closed on nothing
 
 // Following a reachTo() goal: every degree of freedom closes the gap
 // exponentially (fast for small moves, so dragging feels direct), and no
@@ -684,6 +685,25 @@ bool TaskController::reachTo(double x, double y, double z) {
     startTicker();
   }
   return plan.ok;
+}
+
+void TaskController::setGrip(double amount) {
+  if (busy()) {
+    return;
+  }
+  _grip = std::clamp(amount, 0.0, 1.0);
+
+  // Holding something, the fingers stay wrapped around it (closing harder
+  // can't go through it; letting go is a separate step). Empty, they
+  // follow the grip.
+  const SceneObject *held = findObject(_heldId);
+  if (industrial()) {
+    _gripperWidth = held != nullptr ? 2.0 * shapeOf(held->type, held->mass).grip_radius
+                                    : kGripperOpen - _grip * (kGripperOpen - kGripperShut);
+  } else if (_hand != nullptr) {
+    _hand->setGrasp(held != nullptr ? gripClosure(shapeOf(held->type, held->mass).grip_radius) : _grip);
+  }
+  emit stateChanged();
 }
 
 void TaskController::cancelReach() {

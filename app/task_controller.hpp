@@ -74,6 +74,9 @@ class TaskController : public QObject {
   // Distance between the industrial gripper's fingers (m): wide open, or
   // closed onto whatever it's holding.
   Q_PROPERTY(double gripperWidth READ gripperWidth NOTIFY stateChanged)
+  // How closed the hand (or gripper) is being asked to be by live input,
+  // 0 = open .. 1 = closed (see setGrip).
+  Q_PROPERTY(double grip READ grip NOTIFY stateChanged)
 
 public:
   // The instance QML gets (see qml_singleton.hpp).
@@ -109,6 +112,7 @@ public:
   QVariantList tables() const;
   QStringList tableKinds() const;
   double gripperWidth() const { return _gripperWidth; }
+  double grip() const { return _grip; }
 
   // Actions. Slots, so QML calls them like functions
   // (TaskController.pickUp(id)) and C++ can connect signals to them.
@@ -123,6 +127,12 @@ public slots:
   bool reachTo(double x, double y, double z);
   // Stops moving toward the reachTo() goal, wherever the body is now.
   void cancelReach();
+
+  // Live hand control (webcam): 0 = open .. 1 = closed. Closes the
+  // humanoid's fingers or the warehouse gripper's jaws right away; while
+  // holding something they stay wrapped around it. Ignored during a
+  // pick / put-down.
+  void setGrip(double amount);
 
   // Switches the arm between the humanoid (shoulder / elbow / wrist +
   // hand) and an industrial warehouse arm (+ parallel gripper). Not while
@@ -303,6 +313,7 @@ private:
   QString _clickMode;
   QString _placeType = QStringLiteral("bottle");
   double _gripperWidth = 0.11;
+  double _grip = 0.0;
   double _placeMassKg = 1.0;
 
   static constexpr double kBaseRadius = 0.32; // the robot's mobile base

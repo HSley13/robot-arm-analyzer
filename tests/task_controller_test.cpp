@@ -352,3 +352,48 @@ TEST(TaskController, TheWarehouseGripperHandlesEveryObjectType) {
     EXPECT_EQ(rig.task.heldId(), -1) << type.toStdString();
   }
 }
+
+TEST(TaskController, GripClosesTheHandRightAway) {
+  Rig rig;
+  rig.task.setGrip(1.0);
+  EXPECT_DOUBLE_EQ(rig.task.grip(), 1.0);
+  EXPECT_FALSE(rig.hand.animating()); // instant, not an animation
+  const double closed = rig.hand.jointAngleDegrees("index", 1);
+  rig.task.setGrip(0.0);
+  const double open = rig.hand.jointAngleDegrees("index", 1);
+  EXPECT_GT(std::abs(closed - open), 20.0); // the finger really moved
+
+  rig.task.setGrip(7.0); // clamped
+  EXPECT_DOUBLE_EQ(rig.task.grip(), 1.0);
+}
+
+TEST(TaskController, GripClosesTheWarehouseGripper) {
+  Rig rig;
+  ASSERT_TRUE(rig.task.useIndustrialArm());
+  rig.task.setGrip(0.0);
+  EXPECT_NEAR(rig.task.gripperWidth(), 0.11, 1e-12);
+  rig.task.setGrip(1.0);
+  EXPECT_NEAR(rig.task.gripperWidth(), 0.01, 1e-12);
+  rig.task.setGrip(0.5);
+  EXPECT_NEAR(rig.task.gripperWidth(), 0.06, 1e-12);
+}
+
+TEST(TaskController, GripNeverSqueezesThroughAHeldObject) {
+  Rig rig;
+  ASSERT_TRUE(rig.task.useIndustrialArm());
+  const int can = rig.task.addObject("can", 0.0, 0.55, 0.35);
+  ASSERT_TRUE(rig.task.pickUp(can));
+  rig.runToEnd();
+  ASSERT_EQ(rig.task.heldId(), can);
+  const double held_width = rig.task.gripperWidth();
+  rig.task.setGrip(1.0);
+  EXPECT_DOUBLE_EQ(rig.task.gripperWidth(), held_width);
+}
+
+TEST(TaskController, GripIsIgnoredDuringAPickUp) {
+  Rig rig;
+  const int bottle = rig.task.addObject("bottle", 0.0, 0.62, 0.30);
+  ASSERT_TRUE(rig.task.pickUp(bottle));
+  rig.task.setGrip(1.0);
+  EXPECT_DOUBLE_EQ(rig.task.grip(), 0.0);
+}
