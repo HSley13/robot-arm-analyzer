@@ -1,0 +1,4 @@
+# Webcam control (webcam_teleop.py). The math module and its tests need none of these.
+mediapipe>=0.10.14
+opencv-python>=4.8
+websockets>=12.0

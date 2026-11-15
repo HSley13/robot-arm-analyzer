@@ -27,3 +27,6 @@ archive/industrial_arm/python_data/
 graphify-out/
 .claude/
 CLAUDE.md
+
+# Webcam control: MediaPipe models, downloaded on first run
+tools/webcam_teleop/models/
