@@ -153,7 +153,7 @@ A pick-up is a short plan of sub-goals: **approach → grasp → lift → carry*
 
 ```mermaid
 flowchart LR
-    CAM(["Webcam"]) --> MP["webcam_teleop.py<br/>MediaPipe pose + hand,<br/>retarget · grip · 1€ filter"]
+    CAM(["Webcam"]) --> MP["webcam_teleop.py<br/>MediaPipe pose + hand,<br/>retarget · hand tilt / twist ·<br/>grip · 1€ filter"]
     MP -->|"WebSocket, JSON"| BR["SensorBridgeServer"]
     BR --> TC
     U(["Mouse · menus · panels"]) --> UI["Qt Quick 3D / QML interface"]
@@ -286,7 +286,7 @@ Optional launch flags, mostly for reproducible scenes and screenshots:
 ctest --test-dir build
 ```
 
-290 tests in 22 suites cover every physics module (kinematics, kinematic trees, statics, dynamics, trajectories, inverse kinematics, payload capacity, grasp and reach planning, the neural-network surrogates, config parsing). They also cover the application layer, including whole pick-and-place sequences stepped in simulated time with both the hand and the gripper, for every object type, and QML loading the C++ module. The webcam path is covered too: grab and release, the bridge (including a real local WebSocket connection), and the Python retargeting, grip, filter and control rules.
+334 tests in 22 suites cover every physics module (kinematics, kinematic trees, statics, dynamics, trajectories, inverse kinematics, payload capacity, grasp and reach planning, the neural-network surrogates, config parsing). They also cover the application layer, including whole pick-and-place sequences stepped in simulated time with both the hand and the gripper, for every object type, and QML loading the C++ module. The webcam path is covered too: grab and release, the bridge (including a real local WebSocket connection), hand tilt and twist, and the Python retargeting, steady waist, hand twist, grip and its gate, filter, zoomed-in hand search and control rules.
 
 ## Retraining the neural network
 
