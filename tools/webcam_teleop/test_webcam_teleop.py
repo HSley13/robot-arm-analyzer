@@ -5,6 +5,7 @@ import unittest
 from types import SimpleNamespace
 
 from teleop_math import P
+from test_teleop_math import curled_hand
 from webcam_teleop import Controller, right_hand
 
 
@@ -55,11 +56,7 @@ class ControllerRules(unittest.TestCase):
 
     def test_a_hand_sends_its_grip(self):
         robot = FakeRobot()
-        hand = [P(0, 0, 0) for _ in range(21)]
-        hand[9] = P(0, -0.09, 0)
-        for tip in (8, 12, 16, 20):
-            hand[tip] = P(0, -0.09, 0)  # fingertips folded back to the knuckles: a fist
-        Controller(robot, mirror=False).hand(hand, 0.0)
+        Controller(robot, mirror=False).hand(curled_hand(1.5, 1.7, 1.0), 0.0)  # a fist
         self.assertEqual(robot.types(), ["grip"])
         self.assertEqual(robot.sent[0]["amount"], 1.0)
 

@@ -1,14 +1,22 @@
 """The math of webcam control, kept apart from the camera so it can be tested.
 
-Three steps turn what MediaPipe sees into robot commands:
+These steps turn what MediaPipe sees into robot commands:
 
-1. ``arm_target``    - your wrist relative to your shoulder, scaled from your
-                       arm's length to the robot's, becomes the point the
-                       robot's hand reaches for.
-2. ``grip_amount``   - how far your fingertips are from your wrist, relative to
-                       your palm's size, becomes 0 (open) .. 1 (fist).
-3. ``OneEuroFilter`` - removes the frame-to-frame jitter of the tracking
-                       without making the robot lag when you move quickly.
+1. ``arm_target``     - your wrist relative to your shoulder, scaled from your
+                        arm's length to the robot's, becomes the point the
+                        robot's wrist goes to.
+2. ``steady_heading`` - keeps the robot's waist from spinning when your hand
+                        is close to your body, where the direction to it is
+                        mostly tracking noise.
+3. ``hand_pitch``     - how far your hand is tipped up or down; ``hand_tip``
+                        then puts the robot's hand on its wrist, tipped the
+                        same way.
+4. ``grip_amount``    - how bent your fingers are, and how far their tips are
+                        from your wrist, becomes 0 (open) .. 1 (fist);
+                        ``GripGate`` only lets it grab or let go once a few
+                        frames in a row agree.
+5. ``OneEuroFilter``  - removes the frame-to-frame jitter of the tracking
+                        without making the robot lag when you move quickly.
 """
 
 from __future__ import annotations
@@ -39,6 +47,22 @@ def distance(a: Point, b: Point) -> float:
     return math.dist((a.x, a.y, a.z), (b.x, b.y, b.z))
 
 
+def to_robot(dx: float, dy: float, dz: float, mirror: bool = False) -> tuple[float, float, float]:
+    """A direction seen by the camera as the robot's (forward, up, outward).
+
+    MediaPipe's world landmarks have x toward the image's right, y down and z
+    away from the camera. The robot faces +X with +Y up and its right arm on
+    the +Z side, so, for a person facing the camera:
+
+    * toward the camera (z decreasing)         -> forward (+X)
+    * up (y decreasing)                        -> up (+Y)
+    * out to your right, which is the image's
+      left in an unmirrored frame              -> out to the robot's right (+Z)
+    """
+    outward = -dx
+    return -dz, -dy, -outward if mirror else outward
+
+
 def arm_target(
     shoulder: Point,
     elbow: Point,
@@ -47,46 +71,122 @@ def arm_target(
     robot_reach: float,
     arm_length: float | None = None,
     mirror: bool = False,
+    robot_hand: float = 0.0,
 ) -> tuple[float, float, float]:
-    """Where the robot's hand should go, in the app's world (metres).
+    """Where the robot's wrist should go, in the app's world (metres).
 
-    The inputs are MediaPipe *world* landmarks of your right arm: metres,
-    centred between your hips, x toward the image's right, y down, z away from
-    the camera. The robot faces +X with +Y up and its right arm on the +Z side,
-    so, for a person facing the camera:
+    The inputs are MediaPipe *world* landmarks of your right arm (metres,
+    centred between your hips; see ``to_robot`` for the directions).
 
-    * reaching toward the camera (z decreasing)  -> robot reaches forward (+X)
-    * raising the hand (y decreasing)            -> robot raises its hand (+Y)
-    * moving the hand out to your right, which is
-      the image's left in an unmirrored frame    -> robot moves out to its right (+Z)
-
-    Your arm is scaled to the robot's (``robot_reach`` / your arm length), so a
-    fully stretched arm asks for the robot's full reach whatever your size.
-    ``arm_length`` lets the caller pass a steadier (averaged) length than one
-    frame's; ``mirror`` flips left/right if the camera image is mirrored.
+    Your arm is scaled to the robot's - shoulder to wrist, without the hand
+    (``robot_reach`` less ``robot_hand``) - so a fully stretched arm asks for
+    the robot's full reach whatever your size. ``arm_length`` lets the caller
+    pass a steadier (averaged) length than one frame's; ``mirror`` flips
+    left/right if the camera image is mirrored.
     """
     length = arm_length if arm_length else distance(shoulder, elbow) + distance(elbow, wrist)
-    scale = robot_reach / max(length, 1e-6)
-    forward = -(wrist.z - shoulder.z) * scale
-    up = -(wrist.y - shoulder.y) * scale
-    outward = -(wrist.x - shoulder.x) * scale
-    if mirror:
-        outward = -outward
+    scale = (robot_reach - robot_hand) / max(length, 1e-6)
+    forward, up, outward = to_robot(wrist.x - shoulder.x, wrist.y - shoulder.y, wrist.z - shoulder.z, mirror)
     return (
-        robot_shoulder[0] + forward,
-        robot_shoulder[1] + up,
-        robot_shoulder[2] + outward,
+        robot_shoulder[0] + forward * scale,
+        robot_shoulder[1] + up * scale,
+        robot_shoulder[2] + outward * scale,
     )
+
+
+def steady_heading(
+    forward: float, outward: float, heading: tuple[float, float], min_radius: float = 0.12
+) -> tuple[float, float, tuple[float, float]]:
+    """Keep the robot's waist still when the hand is close to the body.
+
+    The robot's arm only bends in one plane, so its waist turns to face the
+    hand: the waist's angle is the direction of the hand's horizontal offset
+    (``forward``, ``outward``) from the shoulder. Near the body that offset is
+    a few centimetres and mostly tracking noise - its direction swings wildly,
+    and so would the waist. Inside ``min_radius`` (m) the offset keeps the
+    last good direction, ``heading`` (a unit (forward, outward)), at
+    ``min_radius``: the waist holds still and the hand stays just in front of
+    it. Returns the offset to use and the heading to keep for next time.
+    """
+    radius = math.hypot(forward, outward)
+    if radius >= min_radius:
+        heading = (forward / radius, outward / radius)
+        return forward, outward, heading
+    return heading[0] * min_radius, heading[1] * min_radius, heading
 
 
 # MediaPipe hand landmark indices.
 WRIST = 0
 MIDDLE_KNUCKLE = 9
 FINGERTIPS = (8, 12, 16, 20)  # index, middle, ring, pinky
+# Each finger's knuckle, middle joint, last joint and tip.
+FINGERS = ((5, 6, 7, 8), (9, 10, 11, 12), (13, 14, 15, 16), (17, 18, 19, 20))
 
 
-def grip_amount(hand: Sequence[Point], open_ratio: float = 1.9, closed_ratio: float = 1.1) -> float:
-    """0 = open hand .. 1 = fist.
+def hand_direction(hand: Sequence[Point], mirror: bool = False) -> tuple[float, float, float]:
+    """Which way the hand points - wrist to the middle knuckle, so the same
+    open or closed - as the robot's (forward, up, outward)."""
+    w, k = hand[WRIST], hand[MIDDLE_KNUCKLE]
+    return to_robot(k.x - w.x, k.y - w.y, k.z - w.z, mirror)
+
+
+def hand_pitch(direction: Sequence[float], heading: tuple[float, float]) -> float:
+    """How far the hand is tipped up from level (radians, + up), in the
+    vertical plane the robot's arm moves in (the one facing ``heading``).
+
+    0 is level and pointing away from the body, +pi/2 straight up, -pi/2
+    straight down; past that it's bent back toward the body.
+    """
+    forward, up, outward = direction
+    along = forward * heading[0] + outward * heading[1]
+    return math.atan2(up, along)
+
+
+def hand_tip(
+    wrist: Sequence[float], heading: tuple[float, float], pitch: float, robot_hand: float
+) -> tuple[float, float, float]:
+    """The robot's end-effector point: ``robot_hand`` (m) out from its wrist,
+    tipped ``pitch`` up from level, in the plane facing ``heading``."""
+    level = robot_hand * math.cos(pitch)
+    return (
+        wrist[0] + level * heading[0],
+        wrist[1] + robot_hand * math.sin(pitch),
+        wrist[2] + level * heading[1],
+    )
+
+
+def _clamp01(value: float) -> float:
+    return min(1.0, max(0.0, value))
+
+
+def _bend(a: Point, b: Point, c: Point) -> float:
+    """How far the bone b->c turns away from a->b (radians, 0 = straight)."""
+    u = (b.x - a.x, b.y - a.y, b.z - a.z)
+    v = (c.x - b.x, c.y - b.y, c.z - b.z)
+    nu, nv = math.hypot(*u), math.hypot(*v)
+    if nu < 1e-9 or nv < 1e-9:
+        return 0.0
+    cos = sum(p * q for p, q in zip(u, v)) / (nu * nv)
+    return math.acos(min(1.0, max(-1.0, cos)))
+
+
+def finger_curl(hand: Sequence[Point], open_bend: float = 0.6, closed_bend: float = 2.6) -> float:
+    """0 = straight fingers .. 1 = curled into a fist, from the joint angles.
+
+    Each finger's bend at its knuckle plus at its middle joint (Maestro's
+    joint-angle features): about 0.3 rad straight, about 3 rad in a fist.
+    Angles don't change with distance from the camera or with which way the
+    hand faces, where fingertip distances alone can be fooled by a hand seen
+    edge-on.
+    """
+    total = 0.0
+    for knuckle, middle, last, _tip in FINGERS:
+        total += _bend(hand[WRIST], hand[knuckle], hand[middle]) + _bend(hand[knuckle], hand[middle], hand[last])
+    return _clamp01((total / len(FINGERS) - open_bend) / (closed_bend - open_bend))
+
+
+def fingertip_spread(hand: Sequence[Point], open_ratio: float = 1.9, closed_ratio: float = 1.1) -> float:
+    """0 = open hand .. 1 = fist, from how far the fingertips are from the wrist.
 
     Fingertip-to-wrist distance divided by the palm's length (wrist to the
     middle knuckle): about 2 for an open hand, about 1 for a fist - the same at
@@ -94,8 +194,44 @@ def grip_amount(hand: Sequence[Point], open_ratio: float = 1.9, closed_ratio: fl
     """
     palm = max(distance(hand[WRIST], hand[MIDDLE_KNUCKLE]), 1e-6)
     spread = sum(distance(hand[tip], hand[WRIST]) for tip in FINGERTIPS) / (len(FINGERTIPS) * palm)
-    amount = (open_ratio - spread) / (open_ratio - closed_ratio)
-    return min(1.0, max(0.0, amount))
+    return _clamp01((open_ratio - spread) / (open_ratio - closed_ratio))
+
+
+def grip_amount(hand: Sequence[Point]) -> float:
+    """0 = open hand .. 1 = fist: the finger joints' bend and the fingertips'
+    distance from the wrist, averaged - each covers for the other's bad
+    angles (a hand seen edge-on, a joint the tracker guessed wrong)."""
+    return 0.5 * (finger_curl(hand) + fingertip_spread(hand))
+
+
+class GripGate:
+    """Grab and let go only when the hand clearly means it.
+
+    The app grabs when the grip reaches ``grab_at`` and lets go when it drops
+    to ``release_at``. A tracker glitch can cross either for a frame, so - like
+    Maestro's temporal voting, which accepts a gesture only once several
+    frames in a row agree - the grip may only cross after ``frames``
+    consecutive frames past it; until then it is held just short. Between the
+    two, it passes straight through, so the fingers still follow your hand.
+    """
+
+    def __init__(self, grab_at: float = 0.7, release_at: float = 0.3, frames: int = 3) -> None:
+        self.grab_at = grab_at
+        self.release_at = release_at
+        self.frames = frames
+        self.closed = False
+        self._agreeing = 0
+
+    def __call__(self, amount: float) -> float:
+        crossing = amount <= self.release_at if self.closed else amount >= self.grab_at
+        self._agreeing = self._agreeing + 1 if crossing else 0
+        if crossing and self._agreeing >= self.frames:
+            self.closed = not self.closed
+            self._agreeing = 0
+            return amount
+        if self.closed:
+            return max(amount, self.release_at + 0.01)
+        return min(amount, self.grab_at - 0.01)
 
 
 class OneEuroFilter:
