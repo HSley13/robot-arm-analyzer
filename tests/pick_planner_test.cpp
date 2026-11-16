@@ -308,6 +308,33 @@ TEST(ReachPlanner, OutOfReachPosturesDontFlipAsTheTargetCreeps) {
   }
 }
 
+TEST(ReachPlanner, PointsTheHandTheWayItIsAsked) {
+  const ArmConfig config = humanoid_arm();
+  const BodyGeometry body;
+  const Eigen::Vector3d point(0.40, 1.05, 0.30);
+  for (const double degrees : {-30.0, 0.0, 25.0}) {
+    const double angle = robotarm::to_radians(degrees);
+    const PickPlan plan = robotarm::plan_reach(config, body, point, standing_pose(), &angle);
+    ASSERT_TRUE(plan.ok) << plan.reason;
+    EXPECT_LT((tip_point_of(config, body, plan.pose) - point).norm(), 1e-3);
+    // The hand's direction in the world: the joint angles' sum, less the lean.
+    const double hand = plan.pose.arm[0] + plan.pose.arm[1] + plan.pose.arm[2] - plan.pose.hip_bend;
+    EXPECT_NEAR(hand, angle, robotarm::to_radians(1.0)) << degrees << " deg";
+  }
+}
+
+TEST(ReachPlanner, ReachesThePointEvenWhenTheWristCantPointThatWay) {
+  // Straight up is far past the wrist's travel at this point: the hand
+  // still gets there, just not pointing straight up.
+  const ArmConfig config = humanoid_arm();
+  const BodyGeometry body;
+  const Eigen::Vector3d point(0.55, 1.00, 0.25);
+  const double up = robotarm::to_radians(90.0);
+  const PickPlan plan = robotarm::plan_reach(config, body, point, standing_pose(), &up);
+  ASSERT_TRUE(plan.ok) << plan.reason;
+  EXPECT_LT((tip_point_of(config, body, plan.pose) - point).norm(), 1e-3);
+}
+
 TEST(ReachPlanner, WorksForAFiveJointArm) {
   const ArmConfig config = five_joint_arm();
   robotarm::BodyPose start = standing_pose();

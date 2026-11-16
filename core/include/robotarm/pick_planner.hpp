@@ -142,10 +142,20 @@ PickPlan plan_grasp(const ArmConfig &config, const BodyGeometry &body, const Gra
 // tries only turning the waist and moving the arm (the common case, one
 // warm-started IK solve); only if the arm can't get there does it also
 // sweep the lift and the hip lean, scoring each solution by how far every
-// joint would have to move. The hand's direction is left free.
+// joint would have to move.
+//
+// The hand's direction is left free unless `hand_angle` is given: then the
+// hand also points that way (radians in the arm's plane, like
+// plan_grasp's hand angles: 0 = level and forward, + = tipped up) - the
+// webcam copies the tilt of a person's hand with it. Position comes first:
+// a direction the wrist can't make there is matched as closely as it
+// allows, never at the cost of missing the point.
 //
 // If nothing reaches the point exactly, ok is false and `pose` is the
 // closest approach found (still a valid pose - the hand just stops short).
+PickPlan plan_reach(const ArmConfig &config, const BodyGeometry &body, const Eigen::Vector3d &point,
+                    const BodyPose &current, const double *hand_angle = nullptr);
+
 // The forward counterpart of plan_grasp: where a grasped object's grip
 // center is in the world for this body pose - `forward_offset` past the
 // arm's end-effector point along the hand, `palmar_offset` out of the arm's
@@ -153,8 +163,5 @@ PickPlan plan_grasp(const ArmConfig &config, const BodyGeometry &body, const Gra
 // closes (webcam control), and to check plan_grasp.
 Eigen::Vector3d grip_point_in_world(const ArmConfig &config, const BodyGeometry &body, const BodyPose &pose,
                                     double palmar_offset, double forward_offset);
-
-PickPlan plan_reach(const ArmConfig &config, const BodyGeometry &body, const Eigen::Vector3d &point,
-                    const BodyPose &current);
 
 } // namespace robotarm

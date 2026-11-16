@@ -348,7 +348,7 @@ Eigen::Vector3d grip_point_in_world(const ArmConfig &config, const BodyGeometry 
 }
 
 PickPlan plan_reach(const ArmConfig &config, const BodyGeometry &body, const Eigen::Vector3d &point,
-                    const BodyPose &current) {
+                    const BodyPose &current, const double *hand_angle) {
   PickPlan plan;
   plan.pose = current;
   if (!is_planar_revolute(config) || current.arm.size() != config.joints.size()) {
@@ -373,6 +373,7 @@ PickPlan plan_reach(const ArmConfig &config, const BodyGeometry &body, const Eig
   const ArmModel arm = to_arm_model(config);
   const std::vector<JointLimit> limits = limits_of(config);
   constexpr double kMinClearance = 0.03;
+  constexpr double kReached = 1e-3; // m
 
   struct Candidate {
     BodyPose pose;
@@ -384,7 +385,20 @@ PickPlan plan_reach(const ArmConfig &config, const BodyGeometry &body, const Eig
     Candidate candidate;
     const Eigen::Vector2d shoulder = shoulder_in_plane(body, hip, bend);
     const Eigen::Vector2d tip_arm = Eigen::Rotation2Dd(bend) * (Eigen::Vector2d(forward, point.y()) - shoulder);
-    const PlanarIkResult result = solve_planar_ik(arm, current.arm, tip_arm, nullptr, limits, 60);
+    PlanarIkResult result;
+    if (hand_angle != nullptr) {
+      // World -> arm frame is a turn by +bend (see plan_grasp).
+      const double phi_arm = *hand_angle + bend;
+      result = solve_planar_ik(arm, current.arm, tip_arm, &phi_arm, limits, 60);
+      if (result.position_error > kReached) {
+        // The wrist can't point that way there: reach the point anyway,
+        // starting from the closest try so the hand stays as near the
+        // asked-for direction as the joints allow.
+        result = solve_planar_ik(arm, result.joint_values, tip_arm, nullptr, limits, 60);
+      }
+    } else {
+      result = solve_planar_ik(arm, current.arm, tip_arm, nullptr, limits, 60);
+    }
 
     std::vector<double> q_world = result.joint_values;
     q_world[0] -= bend;
@@ -407,7 +421,6 @@ PickPlan plan_reach(const ArmConfig &config, const BodyGeometry &body, const Eig
     return candidate;
   };
 
-  constexpr double kReached = 1e-3;              // m
   constexpr double kOutOfReachCostWeight = 0.03; // m of shortfall per unit of posture change
   // 1. Common case: the arm alone (plus the waist) can follow.
   Candidate best = solve_at(current.hip_height, current.hip_bend);
