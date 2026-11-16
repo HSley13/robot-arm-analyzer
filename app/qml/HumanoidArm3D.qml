@@ -340,16 +340,25 @@ Node {
         position: ArmController.jointPositions.length > 2 ? ArmController.jointPositions[2] : Qt.vector3d(0, 0, 0)
         rotation: ArmController.frameRotations.length > 3 ? ArmController.frameRotations[3] : Qt.quaternion(1, 0, 0, 0)
 
-        // Arm frame -> hand frame: fingers along the hand link (+X), palm
-        // facing the body (-Z), thumb up (+Y). That's a -90 degree turn
-        // about X.
-        Hand3D {
-            eulerRotation.x: -90
-            // The demo dumbbell from the Payload card - hidden while the hand
-            // is carrying one of the scene's objects instead.
-            holdingPayload: !ArmController.gripperOpen && TaskController.heldId < 0
-            payloadKg: ArmController.payloadKg
-            heldObject: TaskController.heldObject
+        // The forearm's twist: the hand turned about its own axis (+X, the
+        // hand link), + turning the palm from the body toward +Y (up, for a
+        // level hand) - as grip_point_in_world has it, so what the hand
+        // holds is drawn where the controller thinks it is.
+        Node {
+            readonly property real halfRoll: TaskController.handRollDegrees * Math.PI / 360.0
+            rotation: Qt.quaternion(Math.cos(halfRoll), Math.sin(halfRoll), 0, 0)
+
+            // Arm frame -> hand frame: fingers along the hand link (+X), palm
+            // facing the body (-Z), thumb up (+Y). That's a -90 degree turn
+            // about X.
+            Hand3D {
+                eulerRotation.x: -90
+                // The demo dumbbell from the Payload card - hidden while the hand
+                // is carrying one of the scene's objects instead.
+                holdingPayload: !ArmController.gripperOpen && TaskController.heldId < 0
+                payloadKg: ArmController.payloadKg
+                heldObject: TaskController.heldObject
+            }
         }
     }
 }
