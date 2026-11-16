@@ -54,6 +54,18 @@ TEST(SensorBridge, ReachSetsAHandGoal) {
   EXPECT_TRUE(rig.task.reaching());
 }
 
+TEST(SensorBridge, ReachCanAlsoPointTheHand) {
+  Rig rig;
+  rig.bridge.handleMessage(R"({"type": "reach", "x": 0.5, "y": 0.9, "z": 0.3, "pitch": -0.4})");
+  EXPECT_TRUE(rig.task.reaching());
+}
+
+TEST(SensorBridge, AReachWithABadPitchIsIgnored) {
+  Rig rig;
+  rig.bridge.handleMessage(R"({"type": "reach", "x": 0.5, "y": 0.9, "z": 0.3, "pitch": "up"})");
+  EXPECT_FALSE(rig.task.reaching());
+}
+
 TEST(SensorBridge, GripClosesTheHand) {
   Rig rig;
   rig.bridge.handleMessage(R"({"type": "grip", "amount": 0.6})");
@@ -96,6 +108,7 @@ TEST(SensorBridge, HelloDescribesTheRobot) {
   // Upper arm + forearm + hand link, measured joint to joint (the links'
   // small offsets make it a few mm more than 0.30 + 0.27 + 0.09).
   EXPECT_NEAR(hello["reach"].toDouble(), 0.66, 0.01);
+  EXPECT_NEAR(hello["hand"].toDouble(), 0.095, 0.01); // the hand link alone
 }
 
 TEST(SensorBridge, WorksOverARealWebSocket) {

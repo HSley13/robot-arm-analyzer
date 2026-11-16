@@ -70,13 +70,16 @@ QJsonObject SensorBridgeServer::hello() const {
   const QVariantMap body = _task->body();
   const double shoulderY = body["standingHipHeight"].toDouble() + body["hipToShoulder"].toDouble();
   double reach = 0.0;
+  double hand = 0.0; // the last link: wrist to the hand's end-effector point
   for (const QVariant &length : _arm->linkLengths()) {
     reach += std::abs(length.toDouble());
+    hand = std::abs(length.toDouble());
   }
   return {{"type", "hello"},
           {"robot", _arm->armStyle().isEmpty() ? QStringLiteral("humanoid") : _arm->armStyle()},
           {"shoulder", QJsonArray{0.0, shoulderY, body["shoulderLateral"].toDouble()}},
-          {"reach", reach}};
+          {"reach", reach},
+          {"hand", hand}};
 }
 
 QString SensorBridgeServer::handleMessage(const QString &text) {
@@ -95,7 +98,14 @@ QString SensorBridgeServer::handleMessage(const QString &text) {
       qWarning() << "SensorBridgeServer: reach needs numbers x, y, z";
       return {};
     }
-    _task->reachTo(xyz[0], xyz[1], xyz[2]);
+    double pitch = 0.0;
+    if (!message.contains(QStringLiteral("pitch"))) {
+      _task->reachTo(xyz[0], xyz[1], xyz[2]);
+    } else if (readNumbers(message, {"pitch"}, &pitch)) {
+      _task->reachToPointing(xyz[0], xyz[1], xyz[2], pitch);
+    } else {
+      qWarning() << "SensorBridgeServer: reach's pitch must be a number";
+    }
   } else if (type == QStringLiteral("grip")) {
     double amount = 0.0;
     if (!readNumbers(message, {"amount"}, &amount)) {

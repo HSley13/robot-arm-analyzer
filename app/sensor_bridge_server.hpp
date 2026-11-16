@@ -21,6 +21,9 @@ class TaskController;
 //   {"type": "reach", "x": <m>, "y": <m>, "z": <m>}  move the hand there
 //                                                     (TaskController::reachTo:
 //                                                     planned, smooth, safe)
+//     + "pitch": <rad>                                 optional: and point it
+//                                                     that far up from level
+//                                                     (reachToPointing)
 //   {"type": "grip", "amount": <0..1>}                close / open the hand,
 //                                                     grabbing and letting go
 //                                                     (TaskController::setGrip)
@@ -28,8 +31,8 @@ class TaskController;
 //   {"type": "ping"}                                  answered with {"type": "pong"}
 //
 // On connecting, a client gets {"type": "hello", ...} describing the robot
-// (its standing shoulder position and the arm's reach) so it can scale a
-// person's arm to the robot's. Malformed messages and unknown types are
+// (its standing shoulder position, the arm's reach and how much of that
+// is the hand) so it can scale a person's arm to the robot's. Malformed messages and unknown types are
 // logged and ignored, never fatal: a flaky sensor link should degrade to
 // "nothing happens", not crash the app.
 class SensorBridgeServer : public QObject {
