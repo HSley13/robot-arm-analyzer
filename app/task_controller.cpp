@@ -677,13 +677,21 @@ BodyPose TaskController::homePose(double yaw) const {
 }
 
 bool TaskController::reachTo(double x, double y, double z) {
+  return reachToward(Eigen::Vector3d(x, y, z), nullptr);
+}
+
+bool TaskController::reachToPointing(double x, double y, double z, double handAngleRadians) {
+  return reachToward(Eigen::Vector3d(x, y, z), &handAngleRadians);
+}
+
+bool TaskController::reachToward(const Eigen::Vector3d &point, const double *hand_angle) {
   if (busy()) {
     return false;
   }
   // Plan from the previous goal, not from where the body happens to be
   // mid-motion, so successive goals of one drag stay consistent.
   const BodyPose from = _following ? _goal : currentPose();
-  const PickPlan plan = plan_reach(_arm->config(), _geometry, Eigen::Vector3d(x, y, z), from);
+  const PickPlan plan = plan_reach(_arm->config(), _geometry, point, from, hand_angle);
   if (plan.pose.arm.size() == _arm->config().joints.size()) {
     _goal = plan.pose;
     if (!_following) {

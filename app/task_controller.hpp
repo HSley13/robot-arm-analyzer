@@ -125,6 +125,10 @@ public slots:
   // false if the point is out of reach (the hand then goes to the closest
   // point it can get to). Ignored while a pick / put-down sequence runs.
   bool reachTo(double x, double y, double z);
+  // The same, with the hand also pointing `handAngleRadians` up from level
+  // in the arm's plane (as far as the wrist goes there) - the webcam copies
+  // the tilt of a person's hand with it.
+  bool reachToPointing(double x, double y, double z, double handAngleRadians);
   // Stops moving toward the reachTo() goal, wherever the body is now.
   void cancelReach();
 
@@ -293,6 +297,7 @@ private:
   BodyPose sideOffPose(BodyPose pose, const Eigen::Vector3d &grip_point, double palmar_offset, double clearance) const;
   double stepDuration(const BodyPose &from, const BodyPose &to) const;
   void applyPose(const BodyPose &pose);
+  bool reachToward(const Eigen::Vector3d &point, const double *hand_angle);
   // One time step of moving toward _goal (see reachTo).
   void followGoal(double seconds);
   void startTicker();
