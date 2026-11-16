@@ -61,7 +61,7 @@ Click an object or a spot to get a menu:
 
 ### Controlled with your own arm, through the webcam
 
-Stand in front of the webcam and the robot copies your right arm. Raise your hand and its hand rises; reach toward the screen and it reaches forward; reach low and it crouches and leans to follow; tip your hand up or down and its hand tips the same way. Close your hand near an object to grab it, and open it to set the object down on whatever is below. Step out of view and the robot holds still. A pre-trained vision network tracks your arm and hand, and the robot's own planner still moves the body, so it stays smooth and the load analysis keeps running on whatever it carries. See [Webcam control](#webcam-control).
+Stand in front of the webcam and the robot copies your right arm. Raise your hand and its hand rises; reach toward the screen and it reaches forward; reach low and it crouches and leans to follow; tip your hand up or down, or turn your palm over, and its hand does the same. Close your hand near an object to grab it, and open it to set the object down on whatever is below. Step out of view and the robot holds still. A pre-trained vision network tracks your arm and hand, and the robot's own planner still moves the body, so it stays smooth and the load analysis keeps running on whatever it carries. See [Webcam control](#webcam-control).
 
 ### A five-finger hand, or a warehouse gripper
 
@@ -137,6 +137,8 @@ Webcam control uses two **pre-trained convolutional networks** from Google's Med
 
 - **Retargeting:** your wrist's position relative to your shoulder, scaled by *robot arm / your arm length*, becomes the robot's wrist target. Copying your hand's *position* rather than your joint *angles* lets the robot's planner choose how to bend, so the safety checks still apply.
 - **Hand tilt:** the direction from your wrist to your middle knuckle, measured in the vertical plane the robot's arm moves in, sets the angle of the robot's hand on its wrist. The planner matches it as closely as the wrist's travel allows, but always reaches the point first.
+- **Palm twist:** the line across your knuckles, from pinky to index, shows how far your palm is turned. The robot's hand turns about its own axis to match, from palm down to palm up (±90°). Anything it holds turns with it.
+- **Keeping hold of a turned hand:** the hand tracker has to see a palm to *find* a hand, but not to keep *following* one, so it is set to rarely let go of a hand it already has. If the whole frame misses your hand, it looks again in a zoomed-in crop around where the body tracker places your hand (MediaPipe Holistic finds hands the same way). If that misses too, the body tracker's own rough hand points keep steering the tilt and twist, and the grip stays as it was.
 - **Steady waist:** the robot's arm bends in one plane, so its waist turns to face your hand. When your hand is close to your body, the direction to it is mostly tracking noise, so inside 12 cm the waist keeps its last heading instead of spinning.
 - **Grip:** two measures averaged. One is how much the finger joints bend (about 0.3 rad straight, about 3 rad in a fist), which stays the same whichever way the hand faces. The other is fingertip-to-wrist distance divided by palm length (about 2 open, about 1 in a fist). Grabbing and releasing use two thresholds (0.7 and 0.3), so a half-closed hand doesn't flicker between them. A threshold only counts once three frames in a row are past it, so a single misread frame can't drop what you're holding.
 - **Filtering:** tracking jitters by millimetres every frame. A **1€ filter** (a low-pass filter whose cutoff rises with speed) steadies it at rest without lagging when you move fast.
@@ -224,14 +226,14 @@ python3 webcam_teleop.py            # with the robot app already running
 - **First run:** the two MediaPipe models (a few MB) download into `tools/webcam_teleop/models/`. On macOS, allow your terminal to use the camera when asked. If pip finds no MediaPipe for your Python version, create the venv with an older Python.
 - **Using it:** stand back far enough for the camera to see your shoulders and right arm. The preview window is a mirror showing your tracked arm, a grip bar and the connection state. **Space** pauses (the robot holds still) and **q** quits.
 - **If it mirrors you:** if the robot moves left when you move right, add `--mirror`.
-- **Options:** `--no-wrist` leaves the robot's wrist angle to its planner. `--pose-model lite|full|heavy` trades speed for better depth judgement (default `full`).
+- **Options:** `--no-wrist` leaves the robot's wrist tilt and twist alone. `--pose-model lite|full|heavy` trades speed for better depth judgement (default `full`).
 - **Without a camera:** `python3 webcam_teleop.py --demo` drives the robot with a scripted arm, to check the connection.
 
 **The protocol** (one JSON object per WebSocket message), so other programs can drive the robot too:
 
 | Message | Effect |
 | --- | --- |
-| `{"type": "reach", "x": 0.5, "y": 0.9, "z": 0.3}` | Move the hand there (metres, world frame); the body follows smoothly. An optional `"pitch"` (radians, + up from level) also points the hand that way |
+| `{"type": "reach", "x": 0.5, "y": 0.9, "z": 0.3}` | Move the hand there (metres, world frame); the body follows smoothly. An optional `"pitch"` (radians, + up from level) also points the hand that way, and an optional `"roll"` (radians, 0 = thumb up, + palm up) turns it about its own axis |
 | `{"type": "grip", "amount": 0.8}` | 0 = open … 1 = closed; closing near an object grabs it, opening sets it down |
 | `{"type": "hold"}` | Stop where it is |
 | `{"type": "ping"}` | Answered with `{"type": "pong"}` |
