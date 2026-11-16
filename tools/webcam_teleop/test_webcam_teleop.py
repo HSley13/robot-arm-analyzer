@@ -7,8 +7,10 @@ from types import SimpleNamespace
 import math
 
 from teleop_math import P
-from test_teleop_math import curled_hand
-from webcam_teleop import Controller, right_hand
+import numpy as np
+
+from test_teleop_math import curled_hand, turned_hand
+from webcam_teleop import RIGHT_INDEX, RIGHT_PINKY, RIGHT_WRIST, Controller, find_hand, right_hand
 
 
 class FakeRobot:
@@ -52,6 +54,24 @@ class ControllerRules(unittest.TestCase):
         # The robot's wrist where yours is, its hand tipped up from there.
         self.assertAlmostEqual(reach["x"], 0.57 + 0.095 * math.cos(math.pi / 4))
         self.assertAlmostEqual(reach["y"], 1.25 + 0.095 * math.sin(math.pi / 4))
+
+    def test_a_turned_palm_twists_the_robots_hand(self):
+        robot = FakeRobot()
+        control = Controller(robot, mirror=False)
+        control.hand(turned_hand(-1, 0, 0), 0.0)  # palm up
+        control.arm(SHOULDER, ELBOW, WRIST, 0.0)
+        self.assertAlmostEqual(robot.sent[-1]["roll"], math.pi / 2)
+
+    def test_when_the_hand_tracker_loses_it_the_body_tracker_steers(self):
+        robot = FakeRobot()
+        control = Controller(robot, mirror=False)
+        # Index above pinky, both ahead of the wrist: level, thumb up.
+        control.body_hand(P(0, 0, -0.6), P(0.0, -0.04, -0.69), P(0.0, 0.04, -0.69), 0.0)
+        control.arm(SHOULDER, ELBOW, WRIST, 0.0)
+        self.assertEqual(robot.types(), ["reach"])  # no grip: it can't tell
+        self.assertAlmostEqual(robot.sent[-1]["pitch"], 0.0)
+        self.assertAlmostEqual(robot.sent[-1]["roll"], 0.0)
+        self.assertEqual(control.hand_source, "body")
 
     def test_a_hand_not_seen_lately_stops_steering_the_wrist(self):
         robot = FakeRobot()
@@ -99,6 +119,72 @@ class ControllerRules(unittest.TestCase):
 
 def label(name):
     return [SimpleNamespace(category_name=name)]
+
+
+class FakeDetector:
+    """A hand landmarker that finds `found` (or nothing) and records the
+    images it was given."""
+
+    def __init__(self, found=None):
+        self.found = found
+        self.images = []
+
+    def _result(self, image):
+        self.images.append(image)
+        if self.found is None:
+            return SimpleNamespace(hand_landmarks=[], hand_world_landmarks=[], handedness=[])
+        return SimpleNamespace(hand_landmarks=[self.found], hand_world_landmarks=["world"], handedness=[])
+
+    def detect_for_video(self, image, stamp):
+        return self._result(image)
+
+    def detect(self, image):
+        return self._result(image)
+
+
+class FakeCv2:
+    @staticmethod
+    def resize(patch, size):
+        return np.zeros((size[1], size[0], 3), dtype=np.uint8)
+
+
+class FakeMp:
+    class ImageFormat:
+        SRGB = "srgb"
+
+    @staticmethod
+    def Image(image_format, data):
+        return data
+
+
+class FindHand(unittest.TestCase):
+    # The body tracker's hand points in a 640x480 frame, near the middle.
+    seen = {
+        RIGHT_WRIST: SimpleNamespace(x=0.50, y=0.50),
+        RIGHT_INDEX: SimpleNamespace(x=0.55, y=0.42),
+        RIGHT_PINKY: SimpleNamespace(x=0.52, y=0.42),
+    }
+    rgb = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    def test_the_whole_frame_first(self):
+        whole = FakeDetector([SimpleNamespace(x=0.5, y=0.5)])
+        zoomed = FakeDetector()
+        _, world, source = find_hand(FakeMp, FakeCv2, whole, zoomed, self.rgb, "frame", 0, self.seen, False)
+        self.assertEqual((world, source), ("world", "hand"))
+        self.assertEqual(zoomed.images, [])  # no second look needed
+
+    def test_a_second_look_zoomed_in_maps_back_to_the_frame(self):
+        # The zoomed look finds the hand's wrist at the crop's centre.
+        zoomed = FakeDetector([SimpleNamespace(x=0.5, y=0.5)])
+        image, world, source = find_hand(FakeMp, FakeCv2, FakeDetector(), zoomed, self.rgb, "frame", 0, self.seen, False)
+        self.assertEqual((world, source), ("world", "zoomed"))
+        self.assertEqual(zoomed.images[0].shape, (256, 256, 3))
+        # Back in whole-frame terms: near the body tracker's hand.
+        self.assertLess(math.dist((image[0].x, image[0].y), (0.52, 0.45)), 0.05)
+
+    def test_nothing_either_way(self):
+        found = find_hand(FakeMp, FakeCv2, FakeDetector(), FakeDetector(), self.rgb, "frame", 0, self.seen, False)
+        self.assertEqual(found, (None, None, None))
 
 
 class RightHand(unittest.TestCase):

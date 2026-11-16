@@ -8,8 +8,8 @@ then:
 
 Stand facing the camera, far enough back that it sees your shoulders and
 your right arm. Move your right hand and the robot's hand follows - tip
-your hand up or down and the robot's tips with it; close your hand near an
-object to grab it, open it to let go. Step out of view and the robot holds
+your hand up or down, or turn your palm, and the robot's hand does the
+same; close your hand near an object to grab it, open it to let go. Step out of view and the robot holds
 still.
 
 Keys in the preview window: space pauses / resumes, q or Esc quits.
@@ -32,6 +32,7 @@ import time
 import urllib.request
 from contextlib import ExitStack
 from pathlib import Path
+from types import SimpleNamespace
 
 from teleop_math import (
     P,
@@ -39,14 +40,20 @@ from teleop_math import (
     OneEuroFilter,
     arm_target,
     grip_amount,
+    body_hand_frame,
+    hand_across,
+    hand_crop,
     hand_direction,
     hand_pitch,
+    hand_roll,
     hand_tip,
     steady_heading,
 )
 
-# MediaPipe pose landmark indices: the right arm, as the person sees it.
+# MediaPipe pose landmark indices: the right arm, as the person sees it,
+# and the body tracker's own rough points on that hand.
 RIGHT_SHOULDER, RIGHT_ELBOW, RIGHT_WRIST = 12, 14, 16
+RIGHT_PINKY, RIGHT_INDEX = 18, 20
 
 MODELS = {
     **{
@@ -158,23 +165,37 @@ def make_trackers(pose_model: str):
             min_tracking_confidence=0.6,
         )
     )
-    # Maestro's settings: sure of a hand before taking it (0.7), then keep
-    # following it through quick moves (0.5).
+    # Finding a hand needs a palm in view; following one it already has
+    # doesn't. So: a normal bar to find it, and a low one to keep it - a hand
+    # turning edge-on, or moving fast, stays tracked instead of being dropped
+    # and searched for again. (Picking *your* hand is right_hand's job.)
     hands = vision.HandLandmarker.create_from_options(
         vision.HandLandmarkerOptions(
             base_options=BaseOptions(model_asset_path=model_path("hand_landmarker.task")),
             running_mode=vision.RunningMode.VIDEO,
             num_hands=2,
-            min_hand_detection_confidence=0.7,
-            min_tracking_confidence=0.5,
+            min_hand_detection_confidence=0.5,
+            min_hand_presence_confidence=0.3,
+            min_tracking_confidence=0.3,
         )
     )
-    return mp, pose, hands
+    # For a second look, zoomed in on the hand, when the whole frame misses
+    # it: one still image at a time (crops jump around, so no tracking).
+    zoomed = vision.HandLandmarker.create_from_options(
+        vision.HandLandmarkerOptions(
+            base_options=BaseOptions(model_asset_path=model_path("hand_landmarker.task")),
+            running_mode=vision.RunningMode.IMAGE,
+            num_hands=1,
+            min_hand_detection_confidence=0.4,
+            min_hand_presence_confidence=0.3,
+        )
+    )
+    return mp, pose, hands, zoomed
 
 
 # A hand whose wrist is farther than this from the arm's wrist (fraction of
 # the image) is someone else's, or the other hand.
-HAND_NEAR_WRIST = 0.15
+HAND_NEAR_WRIST = 0.2
 
 
 def right_hand(hand_result, pose_wrist, mirror: bool = False):
@@ -200,15 +221,45 @@ def right_hand(hand_result, pose_wrist, mirror: bool = False):
     return hand_result.hand_landmarks[best], hand_result.hand_world_landmarks[best]
 
 
+def find_hand(mp, cv2, hands, zoomed, rgb, image, stamp, seen, mirror):
+    """Your right hand this frame: (image landmarks, world landmarks, where
+    from) - "hand" from the whole frame, "zoomed" from a second look at a
+    crop around where the body tracker puts the hand, or (None, None, None).
+    """
+    hand_image, hand_world = right_hand(hands.detect_for_video(image, stamp), seen[RIGHT_WRIST], mirror)
+    if hand_world is not None:
+        return hand_image, hand_world, "hand"
+    height, width = rgb.shape[:2]
+    crop = hand_crop(seen[RIGHT_WRIST], seen[RIGHT_INDEX], seen[RIGHT_PINKY], width, height)
+    if crop is None:
+        return None, None, None
+    left, top, side = crop
+    patch = cv2.resize(rgb[top : top + side, left : left + side], (256, 256))
+    result = zoomed.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=patch))
+    if not result.hand_landmarks:
+        return None, None, None
+    # Back to whole-frame coordinates (world landmarks don't change: they're
+    # in metres around the hand, wherever it is in the picture).
+    points = [
+        SimpleNamespace(x=(left + p.x * side) / width, y=(top + p.y * side) / height) for p in result.hand_landmarks[0]
+    ]
+    mapped = SimpleNamespace(hand_landmarks=[points], hand_world_landmarks=result.hand_world_landmarks,
+                             handedness=result.handedness)
+    hand_image, hand_world = right_hand(mapped, seen[RIGHT_WRIST], mirror)
+    return (hand_image, hand_world, "zoomed") if hand_world is not None else (None, None, None)
+
+
 # ---- the main loop --------------------------------------------------------
 
 
 class Controller:
     """Smoothing, arm-length averaging and the pause / lost-tracking rules.
 
-    Each frame: ``hand()`` first (if a hand is seen) - the grip, and which way
-    the hand points - then ``arm()``, which sends the reach, with the hand's
-    tilt when a hand was seen lately.
+    Each frame: ``hand()`` first (if the hand tracker sees it) - the grip,
+    and which way the hand points and is turned - or else ``body_hand()``
+    (the body tracker's rougher idea of the hand: which way, but no grip);
+    then ``arm()``, which sends the reach, with the hand's tilt and twist
+    when a hand was seen lately.
     """
 
     def __init__(self, robot: Robot, mirror: bool, follow_wrist: bool = True) -> None:
@@ -219,6 +270,7 @@ class Controller:
         # open right up for a quick move, so the robot doesn't trail it.
         self.filters = [OneEuroFilter(min_cutoff=1.0, beta=1.5) for _ in range(3)]
         self.pitch_filter = OneEuroFilter(min_cutoff=1.0, beta=0.5)
+        self.roll_filter = OneEuroFilter(min_cutoff=1.0, beta=0.5)
         self.grip_filter = OneEuroFilter(min_cutoff=1.5, beta=0.5)
         self.grip_gate = GripGate()
         self.arm_length: float | None = None
@@ -227,7 +279,10 @@ class Controller:
         self.tracking = False
         self.grip = 0.0
         self.pitch: float | None = None  # the robot hand's tilt, None = left to the planner
+        self.roll: float | None = None  # and its twist, None = left as it is
+        self.hand_source: str | None = None  # where the hand's direction came from, for the preview
         self._hand_direction = None
+        self._hand_across = None
         self._hand_seen = -math.inf
 
     def arm(self, shoulder, elbow, wrist, now: float) -> None:
@@ -250,17 +305,20 @@ class Controller:
         # The robot's hand on its wrist: tipped like yours if your hand was
         # seen lately, else straight on along the arm (as before there was a
         # wrist to steer).
-        if self.follow_wrist and self._hand_direction is not None and now - self._hand_seen <= HAND_TIMEOUT:
-            raw = hand_pitch(self._hand_direction, self.heading)
-            if self.pitch is not None:  # unwrap, so the filter never sees a 2*pi jump
-                raw += 2 * math.pi * round((self.pitch - raw) / (2 * math.pi))
-            self.pitch = self.pitch_filter(raw, now)
+        fresh = self.follow_wrist and self._hand_direction is not None and now - self._hand_seen <= HAND_TIMEOUT
+        if fresh:
+            self.pitch = self._smooth(self.pitch_filter, self.pitch, hand_pitch(self._hand_direction, self.heading), now)
         else:
             self.pitch = None
             self.pitch_filter.reset()
         pitch = self.pitch
         if pitch is None:
             pitch = math.atan2(wrist_target[1] - self.robot.shoulder[1], math.hypot(forward, outward))
+        if fresh:
+            self.roll = self._smooth(self.roll_filter, self.roll, hand_roll(self._hand_across, self.heading, pitch), now)
+        else:
+            self.roll = None  # the robot's hand stays turned as it was
+            self.roll_filter.reset()
         tip = hand_tip(wrist_target, self.heading, pitch, hand)
 
         self.tracking = True
@@ -268,14 +326,34 @@ class Controller:
             message = {"type": "reach", "x": tip[0], "y": tip[1], "z": tip[2]}
             if self.pitch is not None:
                 message["pitch"] = math.remainder(self.pitch, 2 * math.pi)
+            if self.roll is not None:
+                message["roll"] = math.remainder(self.roll, 2 * math.pi)
             self.robot.send(message)
 
-    def hand(self, landmarks, now: float) -> None:
+    @staticmethod
+    def _smooth(f: OneEuroFilter, last: float | None, angle: float, now: float) -> float:
+        """An angle through its filter, unwrapped first, so the filter never
+        sees a 2*pi jump (from +179 to -179 degrees, say)."""
+        if last is not None:
+            angle += 2 * math.pi * round((last - angle) / (2 * math.pi))
+        return f(angle, now)
+
+    def hand(self, landmarks, now: float, source: str = "hand") -> None:
         self._hand_direction = hand_direction(landmarks, self.mirror)
+        self._hand_across = hand_across(landmarks, self.mirror)
         self._hand_seen = now
+        self.hand_source = source
         self.grip = self.grip_gate(self.grip_filter(grip_amount(landmarks), now))
         if not self.paused:
             self.robot.send({"type": "grip", "amount": self.grip})
+
+    def body_hand(self, wrist, index, pinky, now: float) -> None:
+        """The hand tracker lost the hand, but the body tracker still has a
+        rough idea of it: keep steering the tilt and twist from that. The
+        grip stays as it was - three points can't tell open from closed."""
+        self._hand_direction, self._hand_across = body_hand_frame(wrist, index, pinky, self.mirror)
+        self._hand_seen = now
+        self.hand_source = "body"
 
     def lost(self) -> None:
         """Out of view: stop where it is (once), and start smoothing afresh."""
@@ -284,7 +362,9 @@ class Controller:
             for f in self.filters:
                 f.reset()
             self.pitch_filter.reset()
+            self.roll_filter.reset()
             self.pitch = None
+            self.roll = None
         self.tracking = False
 
     def toggle_pause(self) -> None:
@@ -296,7 +376,7 @@ class Controller:
 def run_camera(args, robot: Robot) -> None:
     import cv2
 
-    mp, pose, hands = make_trackers(args.pose_model)
+    mp, pose, hands, zoomed = make_trackers(args.pose_model)
     camera = cv2.VideoCapture(args.camera)
     if not camera.isOpened():
         sys.exit(f"can't open camera {args.camera} (on macOS, allow the terminal to use the camera)")
@@ -310,7 +390,8 @@ def run_camera(args, robot: Robot) -> None:
             break
         robot.ensure_connected()
         now = time.monotonic() - start
-        image = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
         # VIDEO mode refuses a timestamp that doesn't move forward.
         stamp = max(int(now * 1000), stamp + 1)
         body = pose.detect_for_video(image, stamp)
@@ -321,9 +402,11 @@ def run_camera(args, robot: Robot) -> None:
             # Only steer from a clearly visible arm.
             found = min(seen[i].visibility for i in (RIGHT_SHOULDER, RIGHT_ELBOW, RIGHT_WRIST)) > 0.5
         if found:
-            hand_image, hand_world = right_hand(hands.detect_for_video(image, stamp), seen[RIGHT_WRIST], args.mirror)
+            hand_image, hand_world, source = find_hand(mp, cv2, hands, zoomed, rgb, image, stamp, seen, args.mirror)
             if hand_world is not None:
-                control.hand(hand_world, now)
+                control.hand(hand_world, now, source)
+            elif min(seen[i].visibility for i in (RIGHT_INDEX, RIGHT_PINKY)) > 0.5:
+                control.body_hand(world[RIGHT_WRIST], world[RIGHT_INDEX], world[RIGHT_PINKY], now)
             control.arm(world[RIGHT_SHOULDER], world[RIGHT_ELBOW], world[RIGHT_WRIST], now)
         else:
             control.lost()
@@ -367,9 +450,11 @@ def draw_preview(cv2, frame, pose_landmarks, hand_landmarks, control: Controller
     grip_text = "grip: CLOSED" if control.grip_gate.closed else "grip: open"
     cv2.putText(view, grip_text, (230, height - 23), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
     if control.pitch is not None:
-        tilt = f"hand tilt {math.degrees(control.pitch):+.0f} deg"
+        sources = {"hand": "", "zoomed": " (zoomed in)", "body": " (body tracker: no grip)"}
+        tilt = f"hand tilt {math.degrees(control.pitch):+.0f}, twist {math.degrees(control.roll or 0.0):+.0f} deg"
+        tilt += sources.get(control.hand_source, "")
     else:
-        tilt = "hand tilt: free (show your hand)" if control.follow_wrist else "hand tilt: off"
+        tilt = "hand tilt / twist: free (show your hand)" if control.follow_wrist else "hand tilt / twist: off"
     cv2.putText(view, tilt, (20, height - 56), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
     if not control.robot.connected:
@@ -411,7 +496,7 @@ def main() -> None:
     parser.add_argument("--mirror", action="store_true", help="flip left/right if the robot mirrors you the wrong way")
     parser.add_argument("--no-preview", action="store_true", help="don't show the camera window")
     parser.add_argument("--no-wrist", action="store_true",
-                        help="don't copy your hand's tilt: leave the robot's wrist to its planner")
+                        help="don't copy your hand's tilt and twist: leave the robot's wrist to its planner")
     parser.add_argument("--pose-model", choices=("lite", "full", "heavy"), default="full",
                         help="body tracker: lite is fastest, heavy judges depth best (default full)")
     parser.add_argument("--demo", type=float, nargs="?", const=30.0, metavar="SECONDS",
