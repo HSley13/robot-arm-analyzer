@@ -14,6 +14,7 @@ add_library(robotarm_core
     src/hand_config.cpp
     src/hand_gestures.cpp
     src/pick_planner.cpp
+    src/intent.cpp
 )
 
 target_include_directories(robotarm_core PUBLIC
