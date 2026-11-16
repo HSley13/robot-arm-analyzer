@@ -337,11 +337,15 @@ Eigen::Vector3d grip_point_in_world(const ArmConfig &config, const BodyGeometry 
   }
   const Eigen::Matrix4d tip = to_arm_model(config).end_effector_pose(q_world);
   const Eigen::Vector2d along = Eigen::Vector2d(tip(0, 0), tip(1, 0)).normalized(); // the hand's direction
+  // The palm faces the body (out of the plane) at no roll, and turns toward
+  // the thumb side in the plane - up, for a level hand - as the hand rolls.
+  const Eigen::Vector2d thumb_side(-along.y(), along.x());
   const Eigen::Vector2d in_plane = shoulder_in_plane(body, pose.hip_height, pose.hip_bend) +
-                                   Eigen::Vector2d(tip(0, 3), tip(1, 3)) + forward_offset * along;
+                                   Eigen::Vector2d(tip(0, 3), tip(1, 3)) + forward_offset * along +
+                                   palmar_offset * std::sin(pose.hand_roll) * thumb_side;
 
   // Out of the plane, then turned by the waist (as yaw_to_place_point_in_plane).
-  const double lateral = body.shoulder_lateral - palmar_offset;
+  const double lateral = body.shoulder_lateral - palmar_offset * std::cos(pose.hand_roll);
   const double c = std::cos(pose.yaw);
   const double s = std::sin(pose.yaw);
   return {in_plane.x() * c + lateral * s, in_plane.y(), -in_plane.x() * s + lateral * c};
@@ -383,6 +387,7 @@ PickPlan plan_reach(const ArmConfig &config, const BodyGeometry &body, const Eig
 
   auto solve_at = [&](double hip, double bend) {
     Candidate candidate;
+    candidate.pose = current; // what isn't planned here (the hand's roll) stays as it was
     const Eigen::Vector2d shoulder = shoulder_in_plane(body, hip, bend);
     const Eigen::Vector2d tip_arm = Eigen::Rotation2Dd(bend) * (Eigen::Vector2d(forward, point.y()) - shoulder);
     PlanarIkResult result;

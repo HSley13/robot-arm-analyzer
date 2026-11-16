@@ -372,3 +372,27 @@ TEST(GripPoint, IsWherePlanGraspPutsTheObject) {
     EXPECT_LT((grip - c.point).norm(), 2e-3) << "got " << grip.transpose() << ", wanted " << c.point.transpose();
   }
 }
+
+TEST(GripPoint, TurnsWithTheHandsRoll) {
+  // A level hand straight ahead (waist at 0): rolled palm-up, what's in the
+  // hand sits above it instead of beside it, toward the body.
+  const ArmConfig config = humanoid_arm();
+  const BodyGeometry body;
+  robotarm::BodyPose pose = standing_pose();
+  pose.arm = {robotarm::to_radians(-30.0), robotarm::to_radians(30.0), 0.0}; // hand level
+  const Eigen::Vector3d palm_in = robotarm::grip_point_in_world(config, body, pose, 0.05, 0.0);
+  pose.hand_roll = robotarm::kPi / 2.0;
+  const Eigen::Vector3d palm_up = robotarm::grip_point_in_world(config, body, pose, 0.05, 0.0);
+  const Eigen::Vector3d at_hand = robotarm::grip_point_in_world(config, body, pose, 0.0, 0.0);
+  EXPECT_NEAR(palm_up.y() - at_hand.y(), 0.05, 1e-9);           // above the hand
+  EXPECT_NEAR(palm_up.z(), at_hand.z(), 1e-9);                   // not beside it
+  EXPECT_NEAR(at_hand.z() - palm_in.z(), 0.05, 1e-9);            // unrolled: toward the body (-z)
+}
+
+TEST(ReachPlanner, LeavesTheHandsRollAsItWas) {
+  robotarm::BodyPose start = standing_pose();
+  start.hand_roll = 0.7;
+  const PickPlan plan = robotarm::plan_reach(humanoid_arm(), BodyGeometry(), Eigen::Vector3d(0.40, 1.05, 0.30), start);
+  ASSERT_TRUE(plan.ok) << plan.reason;
+  EXPECT_DOUBLE_EQ(plan.pose.hand_roll, 0.7);
+}

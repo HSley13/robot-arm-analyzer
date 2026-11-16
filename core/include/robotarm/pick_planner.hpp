@@ -55,6 +55,11 @@ struct BodyPose {
   double hip_height = 0.8;
   double hip_bend = 0.0;
   std::vector<double> arm;
+  // rad, the hand turned about its own long axis (the forearm's twist):
+  // 0 = thumb up, palm toward the body; + turns the palm up, - down. Not
+  // part of the planar arm - it moves no mass in the arm's plane - so the
+  // planners leave it as they find it (plan_grasp's poses: 0).
+  double hand_roll = 0.0;
 };
 
 // Shoulder position in the arm's plane (x forward from the waist axis,
@@ -158,8 +163,9 @@ PickPlan plan_reach(const ArmConfig &config, const BodyGeometry &body, const Eig
 
 // The forward counterpart of plan_grasp: where a grasped object's grip
 // center is in the world for this body pose - `forward_offset` past the
-// arm's end-effector point along the hand, `palmar_offset` out of the arm's
-// plane toward the body. Used to find what the hand is touching when it
+// arm's end-effector point along the hand, `palmar_offset` out from the
+// palm (out of the arm's plane toward the body, turned by the pose's
+// hand_roll). Used to find what the hand is touching when it
 // closes (webcam control), and to check plan_grasp.
 Eigen::Vector3d grip_point_in_world(const ArmConfig &config, const BodyGeometry &body, const BodyPose &pose,
                                     double palmar_offset, double forward_offset);
