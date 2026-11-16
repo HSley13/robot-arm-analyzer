@@ -466,6 +466,46 @@ TEST(TaskController, KeepsHoldingOverABadSpotAndLetsGoOnceItsGood) {
   EXPECT_DOUBLE_EQ(objectById(rig.task, bottle)["y"].toDouble(), 0.0);
 }
 
+TEST(TaskController, TheHandTwistsAtAForearmsSpeedAndStaysTwisted) {
+  Rig rig;
+  rig.task.setHandRoll(1.2);
+  rig.task.advance(1.0 / 60.0);
+  EXPECT_GT(rig.task.handRollDegrees(), 0.0);
+  EXPECT_LT(rig.task.handRollDegrees(), 3.5 * 180.0 / M_PI / 60.0 + 1e-6); // not all at once (3.5 rad/s)
+  rig.runToEnd();
+  EXPECT_NEAR(rig.task.handRollDegrees(), 1.2 * 180.0 / M_PI, 0.1);
+
+  // Moving the hand somewhere else keeps the twist.
+  handTo(rig, 0.45, 1.0, 0.30);
+  EXPECT_NEAR(rig.task.handRollDegrees(), 1.2 * 180.0 / M_PI, 0.1);
+}
+
+TEST(TaskController, TheTwistStopsAtPalmUpOrDown) {
+  Rig rig;
+  rig.task.setHandRoll(3.0);
+  rig.runToEnd();
+  EXPECT_NEAR(rig.task.handRollDegrees(), 90.0, 1e-6);
+}
+
+TEST(TaskController, APickUpTurnsTheHandBackToNeutral) {
+  Rig rig;
+  rig.task.setHandRoll(1.0);
+  rig.runToEnd();
+  const int bottle = rig.task.addObject("bottle", 0.0, 0.55, 0.30);
+  ASSERT_TRUE(rig.task.pickUp(bottle)) << rig.task.status().toStdString();
+  rig.runToEnd();
+  EXPECT_EQ(rig.task.heldId(), bottle);
+  EXPECT_NEAR(rig.task.handRollDegrees(), 0.0, 1e-6);
+}
+
+TEST(TaskController, TheWarehouseGripperDoesntTwist) {
+  Rig rig;
+  ASSERT_TRUE(rig.task.useIndustrialArm());
+  rig.task.setHandRoll(1.0);
+  rig.runToEnd();
+  EXPECT_DOUBLE_EQ(rig.task.handRollDegrees(), 0.0);
+}
+
 TEST(TaskController, TheWarehouseGripperGrabsAndReleasesToo) {
   Rig rig;
   ASSERT_TRUE(rig.task.useIndustrialArm());

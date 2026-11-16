@@ -65,6 +65,9 @@ class TaskController : public QObject {
   Q_PROPERTY(double waistYawDegrees READ waistYawDegrees WRITE setWaistYawDegrees NOTIFY bodyChanged)
   Q_PROPERTY(double hipHeight READ hipHeight WRITE setHipHeight NOTIFY bodyChanged)
   Q_PROPERTY(double hipBendDegrees READ hipBendDegrees WRITE setHipBendDegrees NOTIFY bodyChanged)
+  // The hand turned about its own long axis (the forearm's twist): 0 =
+  // thumb up, palm toward the body; + turns the palm up. See setHandRoll.
+  Q_PROPERTY(double handRollDegrees READ handRollDegrees NOTIFY bodyChanged)
   // Body dimensions and ranges for the 3D model and the sliders.
   Q_PROPERTY(QVariantMap body READ body CONSTANT)
   // The tables, coffee tables and counters standing around:
@@ -108,6 +111,7 @@ public:
   void setHipHeight(double meters);
   double hipBendDegrees() const;
   void setHipBendDegrees(double degrees);
+  double handRollDegrees() const;
   QVariantMap body() const;
   QVariantList tables() const;
   QStringList tableKinds() const;
@@ -129,6 +133,12 @@ public slots:
   // in the arm's plane (as far as the wrist goes there) - the webcam copies
   // the tilt of a person's hand with it.
   bool reachToPointing(double x, double y, double z, double handAngleRadians);
+  // Turns the humanoid's hand about its own axis toward `radians` (see
+  // handRollDegrees; limited to +-90 degrees), at the speed a forearm
+  // twists - the webcam copies the turn of a person's palm with it. Ignored
+  // for the warehouse gripper and during a pick / put-down, which turn the
+  // hand back to neutral.
+  void setHandRoll(double radians);
   // Stops moving toward the reachTo() goal, wherever the body is now.
   void cancelReach();
 

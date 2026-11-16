@@ -39,6 +39,8 @@ constexpr double kMaxYawSpeed = 1.8;       // rad/s (~100 deg/s)
 constexpr double kMaxLiftSpeed = 0.45;     // m/s
 constexpr double kMaxBendSpeed = 1.2;      // rad/s (~70 deg/s)
 constexpr double kMaxJointSpeed = 2.6;     // rad/s (~150 deg/s)
+constexpr double kMaxRollSpeed = 3.5;      // rad/s (~200 deg/s), a forearm twisting
+constexpr double kMaxHandRoll = kPi / 2.0; // rad, palm straight up or down
 constexpr double kArrived = 1e-3;          // rad or m left to go
 
 double wrap(double angle) {
@@ -512,6 +514,8 @@ bool TaskController::selectAt(double x, double z) {
 // ---- body ------------------------------------------------------------------
 
 double TaskController::waistYawDegrees() const { return to_degrees(_pose.yaw); }
+
+double TaskController::handRollDegrees() const { return to_degrees(_pose.hand_roll); }
 double TaskController::hipBendDegrees() const { return to_degrees(_pose.hip_bend); }
 
 void TaskController::setWaistYawDegrees(double degrees) {
@@ -568,6 +572,7 @@ void TaskController::applyPose(const BodyPose &pose) {
   _pose.yaw = pose.yaw;
   _pose.hip_height = pose.hip_height;
   _pose.hip_bend = pose.hip_bend;
+  _pose.hand_roll = industrial() ? 0.0 : pose.hand_roll;
   _arm->setBaseTiltDegrees(to_degrees(pose.hip_bend));
   if (!pose.arm.empty()) {
     _arm->setJointAnglesRadians(pose.arm);
@@ -660,6 +665,7 @@ BodyPose TaskController::carryPose(const GraspOption &option, const PickPlan &fa
 BodyPose TaskController::homePose(double yaw) const {
   BodyPose home = currentPose();
   home.yaw = yaw;
+  home.hand_roll = 0.0;
   home.hip_height = kStandingHipHeight;
   home.hip_bend = 0.0;
   if (!industrial() && home.arm.size() == 3) {
@@ -701,6 +707,19 @@ bool TaskController::reachToward(const Eigen::Vector3d &point, const double *han
     startTicker();
   }
   return plan.ok;
+}
+
+void TaskController::setHandRoll(double radians) {
+  if (busy() || industrial() || !std::isfinite(radians)) {
+    return;
+  }
+  if (!_following) {
+    _goal = currentPose();
+    _following = true;
+    emit stateChanged();
+  }
+  _goal.hand_roll = std::clamp(radians, -kMaxHandRoll, kMaxHandRoll);
+  startTicker();
 }
 
 void TaskController::setGrip(double amount) {
@@ -827,8 +846,8 @@ void TaskController::followGoal(double seconds) {
 
   // The gap per degree of freedom, and each one's speed limit.
   std::vector<double> gap = {wrap(_goal.yaw - now.yaw), _goal.hip_height - now.hip_height,
-                             _goal.hip_bend - now.hip_bend};
-  std::vector<double> top = {kMaxYawSpeed, kMaxLiftSpeed, kMaxBendSpeed};
+                             _goal.hip_bend - now.hip_bend, _goal.hand_roll - now.hand_roll};
+  std::vector<double> top = {kMaxYawSpeed, kMaxLiftSpeed, kMaxBendSpeed, kMaxRollSpeed};
   for (size_t i = 0; i < now.arm.size(); i++) {
     gap.push_back(_goal.arm[i] - now.arm[i]);
     top.push_back(kMaxJointSpeed);
@@ -852,8 +871,9 @@ void TaskController::followGoal(double seconds) {
   next.yaw = now.yaw + k * gap[0];
   next.hip_height = now.hip_height + k * gap[1];
   next.hip_bend = now.hip_bend + k * gap[2];
+  next.hand_roll = now.hand_roll + k * gap[3];
   for (size_t i = 0; i < now.arm.size(); i++) {
-    next.arm[i] = now.arm[i] + k * gap[3 + i];
+    next.arm[i] = now.arm[i] + k * gap[4 + i];
   }
   applyPose(next);
 }
@@ -907,6 +927,7 @@ double TaskController::stepDuration(const BodyPose &from, const BodyPose &to) co
   double seconds = std::abs(wrap(to.yaw - from.yaw)) * 0.9;
   seconds = std::max(seconds, std::abs(to.hip_height - from.hip_height) * 3.0);
   seconds = std::max(seconds, std::abs(to.hip_bend - from.hip_bend) * 1.2);
+  seconds = std::max(seconds, std::abs(to.hand_roll - from.hand_roll) * 0.5);
   for (size_t i = 0; i < std::min(from.arm.size(), to.arm.size()); i++) {
     seconds = std::max(seconds, std::abs(to.arm[i] - from.arm[i]) * 0.8);
   }
@@ -1113,6 +1134,7 @@ void TaskController::advance(double seconds) {
     pose.yaw = _stepStart.yaw + s * wrap(step.target.yaw - _stepStart.yaw);
     pose.hip_height = _stepStart.hip_height + s * (step.target.hip_height - _stepStart.hip_height);
     pose.hip_bend = _stepStart.hip_bend + s * (step.target.hip_bend - _stepStart.hip_bend);
+    pose.hand_roll = _stepStart.hand_roll + s * (step.target.hand_roll - _stepStart.hand_roll);
     pose.arm = _stepStart.arm;
     for (size_t i = 0; i < std::min(pose.arm.size(), step.target.arm.size()); i++) {
       pose.arm[i] = _stepStart.arm[i] + s * (step.target.arm[i] - _stepStart.arm[i]);
