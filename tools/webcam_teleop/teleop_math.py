@@ -10,7 +10,11 @@ These steps turn what MediaPipe sees into robot commands:
                         mostly tracking noise.
 3. ``hand_pitch``     - how far your hand is tipped up or down; ``hand_tip``
                         then puts the robot's hand on its wrist, tipped the
-                        same way.
+                        same way. ``hand_roll`` - how far your palm is turned
+                        (the forearm's twist). Both work from the hand
+                        tracker's landmarks or, when it loses your hand, the
+                        body tracker's rougher hand points
+                        (``body_hand_frame``).
 4. ``grip_amount``    - how bent your fingers are, and how far their tips are
                         from your wrist, becomes 0 (open) .. 1 (fist);
                         ``GripGate`` only lets it grab or let go once a few
@@ -119,6 +123,7 @@ def steady_heading(
 WRIST = 0
 MIDDLE_KNUCKLE = 9
 FINGERTIPS = (8, 12, 16, 20)  # index, middle, ring, pinky
+INDEX_KNUCKLE, PINKY_KNUCKLE = 5, 17
 # Each finger's knuckle, middle joint, last joint and tip.
 FINGERS = ((5, 6, 7, 8), (9, 10, 11, 12), (13, 14, 15, 16), (17, 18, 19, 20))
 
@@ -128,6 +133,26 @@ def hand_direction(hand: Sequence[Point], mirror: bool = False) -> tuple[float, 
     open or closed - as the robot's (forward, up, outward)."""
     w, k = hand[WRIST], hand[MIDDLE_KNUCKLE]
     return to_robot(k.x - w.x, k.y - w.y, k.z - w.z, mirror)
+
+
+def hand_across(hand: Sequence[Point], mirror: bool = False) -> tuple[float, float, float]:
+    """Across the palm toward the thumb - pinky knuckle to index knuckle - as
+    the robot's (forward, up, outward). The same for a left or right hand,
+    open or closed."""
+    i, k = hand[INDEX_KNUCKLE], hand[PINKY_KNUCKLE]
+    return to_robot(i.x - k.x, i.y - k.y, i.z - k.z, mirror)
+
+
+def body_hand_frame(
+    wrist: Point, index: Point, pinky: Point, mirror: bool = False
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """The hand's direction and across-the-palm vector (as ``hand_direction``
+    and ``hand_across``) from the body tracker's three hand points - rougher
+    than the hand tracker's 21, but there when it loses the hand."""
+    mid = ((index.x + pinky.x) / 2, (index.y + pinky.y) / 2, (index.z + pinky.z) / 2)
+    direction = to_robot(mid[0] - wrist.x, mid[1] - wrist.y, mid[2] - wrist.z, mirror)
+    across = to_robot(index.x - pinky.x, index.y - pinky.y, index.z - pinky.z, mirror)
+    return direction, across
 
 
 def hand_pitch(direction: Sequence[float], heading: tuple[float, float]) -> float:
@@ -140,6 +165,24 @@ def hand_pitch(direction: Sequence[float], heading: tuple[float, float]) -> floa
     forward, up, outward = direction
     along = forward * heading[0] + outward * heading[1]
     return math.atan2(up, along)
+
+
+def hand_roll(across: Sequence[float], heading: tuple[float, float], pitch: float) -> float:
+    """How far the palm is turned about the hand's own axis (radians), the
+    way the robot's hand turns: 0 = thumb up, palm toward the body (holding
+    a bottle); + turns the palm up (thumb out, away from the body), - down.
+
+    ``across`` points to the thumb side; it's measured against the robot
+    hand's own "up" (``pitch`` tipped, in the plane facing ``heading``) and
+    its "out of the plane, away from the body".
+    """
+    forward, up, outward = across
+    s, c = math.sin(pitch), math.cos(pitch)
+    hand_up = (-s * heading[0], c, -s * heading[1])  # forward, up, outward
+    away = (-heading[1], 0.0, heading[0])
+    along_up = forward * hand_up[0] + up * hand_up[1] + outward * hand_up[2]
+    along_away = forward * away[0] + outward * away[2]
+    return math.atan2(along_away, along_up)
 
 
 def hand_tip(
@@ -202,6 +245,30 @@ def grip_amount(hand: Sequence[Point]) -> float:
     distance from the wrist, averaged - each covers for the other's bad
     angles (a hand seen edge-on, a joint the tracker guessed wrong)."""
     return 0.5 * (finger_curl(hand) + fingertip_spread(hand))
+
+
+def hand_crop(
+    wrist: Point, index: Point, pinky: Point, width: int, height: int, scale: float = 4.0, smallest: int = 128
+) -> tuple[int, int, int] | None:
+    """A square around the hand, in pixels (left, top, side), from the body
+    tracker's hand points (normalised image coordinates) - to look for the
+    hand again, zoomed in, when the whole frame misses it.
+
+    The hand tracker first has to find a palm. Small in the frame, or turned
+    edge-on, it often can't; filling a crop it usually can (MediaPipe
+    Holistic finds hands the same way, from the body's pose). None if the
+    hand is out of the picture.
+    """
+    cx = (wrist.x + index.x + pinky.x) / 3 * width
+    cy = (wrist.y + index.y + pinky.y) / 3 * height
+    reach = max(math.dist((wrist.x * width, wrist.y * height), (p.x * width, p.y * height)) for p in (index, pinky))
+    side = int(max(smallest, scale * reach))
+    side = min(side, width, height)
+    left = int(min(max(cx - side / 2, 0), width - side))
+    top = int(min(max(cy - side / 2, 0), height - side))
+    if not (0 <= cx < width and 0 <= cy < height):
+        return None
+    return left, top, side
 
 
 class GripGate:

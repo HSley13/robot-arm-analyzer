@@ -12,11 +12,15 @@ from teleop_math import (
     OneEuroFilter,
     P,
     arm_target,
+    body_hand_frame,
     finger_curl,
     fingertip_spread,
     grip_amount,
+    hand_across,
+    hand_crop,
     hand_direction,
     hand_pitch,
+    hand_roll,
     hand_tip,
     steady_heading,
 )
@@ -122,6 +126,77 @@ class HandTilt(unittest.TestCase):
         self.assertAlmostEqual(x, 0.5)
         self.assertAlmostEqual(y, 1.0)
         self.assertAlmostEqual(z, 0.3)
+
+
+def turned_hand(thumb_x: float, thumb_y: float, thumb_z: float) -> list:
+    """A hand pointing at the camera whose index knuckle sits toward
+    (thumb_x, thumb_y, thumb_z) from the pinky knuckle, camera coordinates."""
+    points = [P(0.0, 0.0, 0.0) for _ in range(21)]
+    points[MIDDLE_KNUCKLE] = P(0.0, 0.0, -0.09)
+    points[5] = P(0.04 * thumb_x, 0.04 * thumb_y, -0.09 + 0.04 * thumb_z)
+    points[17] = P(-0.04 * thumb_x, -0.04 * thumb_y, -0.09 - 0.04 * thumb_z)
+    return points
+
+
+class HandTwist(unittest.TestCase):
+    def roll_of(self, hand, heading=(1.0, 0.0), mirror=False):
+        return hand_roll(hand_across(hand, mirror), heading, hand_pitch(hand_direction(hand, mirror), heading))
+
+    def test_thumb_up_is_neutral(self):
+        self.assertAlmostEqual(self.roll_of(turned_hand(0, -1, 0)), 0.0)  # image y points down
+
+    def test_palm_up_and_down(self):
+        # Your right hand palm up: thumb out to your right - the image's left.
+        self.assertAlmostEqual(self.roll_of(turned_hand(-1, 0, 0)), math.pi / 2)
+        self.assertAlmostEqual(self.roll_of(turned_hand(1, 0, 0)), -math.pi / 2)
+
+    def test_mirror_flips_it_like_left_and_right(self):
+        self.assertAlmostEqual(self.roll_of(turned_hand(-1, 0, 0), mirror=True), -math.pi / 2)
+
+    def test_measured_the_same_with_the_arm_out_to_the_side(self):
+        # Arm and hand pointing out to your right (the image's left), palm
+        # down: thumb toward the camera.
+        points = [P(0.0, 0.0, 0.0) for _ in range(21)]
+        points[MIDDLE_KNUCKLE] = P(-0.09, 0.0, 0.0)
+        points[5] = P(-0.09, 0.0, -0.04)
+        points[17] = P(-0.09, 0.0, 0.04)
+        self.assertAlmostEqual(self.roll_of(points, heading=(0.0, 1.0)), -math.pi / 2)
+
+    def test_with_the_hand_tipped_up(self):
+        # Fingers straight up, palm toward the camera (a "stop" sign) is the
+        # hand tipped up with the palm turned... down, from the robot's view:
+        # a level palm-down hand, raised.
+        points = [P(0.0, 0.0, 0.0) for _ in range(21)]
+        points[MIDDLE_KNUCKLE] = P(0.0, -0.09, 0.0)
+        points[5] = P(0.04, -0.09, 0.0)  # thumb side to your left, the image's right
+        points[17] = P(-0.04, -0.09, 0.0)
+        direction, across = hand_direction(points), hand_across(points)
+        pitch = hand_pitch(direction, (1.0, 0.0))
+        self.assertAlmostEqual(pitch, math.pi / 2)
+        self.assertAlmostEqual(hand_roll(across, (1.0, 0.0), pitch), -math.pi / 2)
+
+    def test_the_body_trackers_hand_points_give_the_same(self):
+        direction, across = body_hand_frame(P(0, 0, 0), P(0.0, -0.04, -0.09), P(0.0, 0.04, -0.09))
+        pitch = hand_pitch(direction, (1.0, 0.0))
+        self.assertAlmostEqual(pitch, 0.0)
+        self.assertAlmostEqual(hand_roll(across, (1.0, 0.0), pitch), 0.0)  # index above pinky: thumb up
+
+
+class Crop(unittest.TestCase):
+    def test_a_square_around_the_hand(self):
+        left, top, side = hand_crop(P(0.5, 0.5, 0), P(0.55, 0.45, 0), P(0.52, 0.42, 0), 640, 480)
+        self.assertGreaterEqual(side, 128)
+        self.assertLessEqual(left, 0.5 * 640)
+        self.assertGreater(left + side, 0.55 * 640)
+        self.assertLessEqual(top, 0.42 * 480)
+
+    def test_stays_inside_the_picture(self):
+        left, top, side = hand_crop(P(0.99, 0.99, 0), P(0.98, 0.97, 0), P(0.97, 0.98, 0), 640, 480)
+        self.assertLessEqual(left + side, 640)
+        self.assertLessEqual(top + side, 480)
+
+    def test_a_hand_out_of_the_picture_has_none(self):
+        self.assertIsNone(hand_crop(P(1.3, 0.5, 0), P(1.35, 0.5, 0), P(1.32, 0.5, 0), 640, 480))
 
 
 def hand(fingertip_distance: float, palm: float = 0.09) -> list:
