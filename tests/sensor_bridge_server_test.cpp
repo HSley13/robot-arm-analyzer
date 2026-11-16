@@ -66,6 +66,15 @@ TEST(SensorBridge, AReachWithABadPitchIsIgnored) {
   EXPECT_FALSE(rig.task.reaching());
 }
 
+TEST(SensorBridge, ReachCanAlsoTwistTheHand) {
+  Rig rig;
+  rig.bridge.handleMessage(R"({"type": "reach", "x": 0.5, "y": 0.9, "z": 0.3, "pitch": 0.0, "roll": 0.8})");
+  for (int i = 0; i < 600 && rig.task.reaching(); i++) {
+    rig.task.advance(1.0 / 60.0);
+  }
+  EXPECT_NEAR(rig.task.handRollDegrees(), 0.8 * 180.0 / M_PI, 0.1);
+}
+
 TEST(SensorBridge, GripClosesTheHand) {
   Rig rig;
   rig.bridge.handleMessage(R"({"type": "grip", "amount": 0.6})");

@@ -105,6 +105,15 @@ QString SensorBridgeServer::handleMessage(const QString &text) {
       _task->reachToPointing(xyz[0], xyz[1], xyz[2], pitch);
     } else {
       qWarning() << "SensorBridgeServer: reach's pitch must be a number";
+      return {};
+    }
+    if (message.contains(QStringLiteral("roll"))) {
+      double roll = 0.0;
+      if (readNumbers(message, {"roll"}, &roll)) {
+        _task->setHandRoll(roll);
+      } else {
+        qWarning() << "SensorBridgeServer: reach's roll must be a number";
+      }
     }
   } else if (type == QStringLiteral("grip")) {
     double amount = 0.0;

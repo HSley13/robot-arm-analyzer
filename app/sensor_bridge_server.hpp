@@ -24,6 +24,9 @@ class TaskController;
 //     + "pitch": <rad>                                 optional: and point it
 //                                                     that far up from level
 //                                                     (reachToPointing)
+//     + "roll": <rad>                                  optional: and turn the
+//                                                     hand about its own axis,
+//                                                     + palm up (setHandRoll)
 //   {"type": "grip", "amount": <0..1>}                close / open the hand,
 //                                                     grabbing and letting go
 //                                                     (TaskController::setGrip)
