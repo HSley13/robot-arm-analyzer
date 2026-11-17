@@ -13,6 +13,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include "robotarm/intent.hpp"
 #include "robotarm/pick_planner.hpp"
 
 class QQmlEngine;
@@ -80,6 +81,15 @@ class TaskController : public QObject {
   // How closed the hand (or gripper) is being asked to be by live input,
   // 0 = open .. 1 = closed (see setGrip).
   Q_PROPERTY(double grip READ grip NOTIFY stateChanged)
+  // Help for live control (guidedReach): guess the object the person is
+  // reaching for, pull the hand toward it as the guess firms up, and
+  // finish the grab when they close their hand near it. On by default.
+  Q_PROPERTY(bool assist READ assist WRITE setAssist NOTIFY stateChanged)
+  // The guess: the object's id (-1 = none), how sure (0..1), and how
+  // strongly the hand is being pulled toward it right now (0..1).
+  Q_PROPERTY(int intentId READ intentId NOTIFY intentChanged)
+  Q_PROPERTY(double intentConfidence READ intentConfidence NOTIFY intentChanged)
+  Q_PROPERTY(double assistStrength READ assistStrength NOTIFY intentChanged)
 
 public:
   // The instance QML gets (see qml_singleton.hpp).
@@ -117,6 +127,11 @@ public:
   QStringList tableKinds() const;
   double gripperWidth() const { return _gripperWidth; }
   double grip() const { return _grip; }
+  bool assist() const { return _assist; }
+  void setAssist(bool on);
+  int intentId() const { return _guess.id; }
+  double intentConfidence() const { return _guess.confidence; }
+  double assistStrength() const { return _assistStrength; }
 
   // Actions. Slots, so QML calls them like functions
   // (TaskController.pickUp(id)) and C++ can connect signals to them.
@@ -139,6 +154,13 @@ public slots:
   // for the warehouse gripper and during a pick / put-down, which turn the
   // hand back to neutral.
   void setHandRoll(double radians);
+  // reachTo / reachToPointing for live control (the webcam): the same,
+  // with the assist's help (see the assist property) - pass a NaN
+  // handAngleRadians to leave the hand's direction free. Ignored while
+  // the assist finishes a grab. The time since the last call is measured
+  // here; after a long gap (the person was out of view) the guessing
+  // starts afresh.
+  bool guidedReach(double x, double y, double z, double handAngleRadians);
   // Stops moving toward the reachTo() goal, wherever the body is now.
   void cancelReach();
 
@@ -191,6 +213,10 @@ public slots:
   void handleClick(double x, double z);
 
 public:
+  // guidedReach with the time since the previous call given, not
+  // measured - for tests.
+  bool guidedReach(double x, double y, double z, double handAngleRadians, double seconds);
+
   // A query, not an action - stays Q_INVOKABLE (callable from QML, but not
   // something to connect a signal to).
   // Height of the surface an object of footprint radius `footprint` would
@@ -206,6 +232,7 @@ signals:
   void objectsChanged();
   void stateChanged();
   void bodyChanged();
+  void intentChanged();
   void tablesChanged();
 
 private:
@@ -282,8 +309,9 @@ private:
   // Where an object of this grip radius would sit in the closed hand (or
   // between the gripper's jaws), in the world, for the current pose.
   Eigen::Vector3d handGripPoint(double grip_radius) const;
-  // setGrip's grab and release; false (with a status) if nothing happened.
-  bool grabNearHand();
+  // setGrip's grab and release; false (with a status, if `complain`) if
+  // nothing happened.
+  bool grabNearHand(bool complain = true);
   bool releaseUnderHand();
   // The ways this arm can grasp `object` standing with its base at `base`,
   // most preferred first (the hand: from the side; a gripper: from above,
@@ -308,6 +336,16 @@ private:
   double stepDuration(const BodyPose &from, const BodyPose &to) const;
   void applyPose(const BodyPose &pose);
   bool reachToward(const Eigen::Vector3d &point, const double *hand_angle);
+  // The arm's end-effector point in the world, for the current pose.
+  Eigen::Vector3d endEffectorPoint() const;
+  // Updates the guess from a live end-effector target `point` and pulls
+  // it (and `hand_angle`, if given) toward the guessed object's grasp.
+  Eigen::Vector3d assisted(const Eigen::Vector3d &point, double *hand_angle, double seconds);
+  void forgetIntent();
+  // Closing the hand near the guessed object, but not around it: plans
+  // the grasp and moves there, grabbing on arrival. False if there's no
+  // sure enough guess close enough, or no grasp the arm can make.
+  bool finishGrab();
   // One time step of moving toward _goal (see reachTo).
   void followGoal(double seconds);
   void startTicker();
@@ -336,6 +374,14 @@ private:
   // Whether live input last closed the hand (past the grab threshold) -
   // grab and release fire when this flips, not on every update.
   bool _gripClosed = false;
+  // The assist (see guidedReach): its guess, the current pull, and the
+  // object it is moving the hand onto to grab (-1 = none).
+  bool _assist = true;
+  IntentEstimator _intent;
+  Intent _guess;
+  double _assistStrength = 0.0;
+  int _finishingId = -1;
+  QElapsedTimer _liveClock;
   QTimer _ticker;
   QElapsedTimer _tickClock;
 

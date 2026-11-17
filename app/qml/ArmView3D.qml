@@ -159,6 +159,7 @@ Item {
                 footprint: modelData.footprint
                 objectHeight: modelData.height
                 selected: modelData.selected
+                intent: TaskController.intentId === modelData.id ? TaskController.intentConfidence : 0.0
             }
         }
     }

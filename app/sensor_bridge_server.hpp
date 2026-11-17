@@ -19,17 +19,20 @@ class TaskController;
 // on the controllers. One JSON object per text frame:
 //
 //   {"type": "reach", "x": <m>, "y": <m>, "z": <m>}  move the hand there
-//                                                     (TaskController::reachTo:
-//                                                     planned, smooth, safe)
+//                                                     (TaskController::guidedReach:
+//                                                     planned, smooth, safe, and
+//                                                     helped onto the object
+//                                                     you're going for)
 //     + "pitch": <rad>                                 optional: and point it
 //                                                     that far up from level
-//                                                     (reachToPointing)
 //     + "roll": <rad>                                  optional: and turn the
 //                                                     hand about its own axis,
 //                                                     + palm up (setHandRoll)
 //   {"type": "grip", "amount": <0..1>}                close / open the hand,
 //                                                     grabbing and letting go
 //                                                     (TaskController::setGrip)
+//   {"type": "assist", "on": <bool>}                  that help on / off
+//                                                     (TaskController::assist)
 //   {"type": "hold"}                                  stop where it is
 //   {"type": "ping"}                                  answered with {"type": "pong"}
 //

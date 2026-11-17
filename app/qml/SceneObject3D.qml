@@ -23,6 +23,10 @@ Node {
     property real objectHeight: 0.23
     property bool selected: false
     property bool showSelection: true
+    // How sure the assist is that this is what the hand is reaching for,
+    // 0..1 (TaskController.intentConfidence): a ring that brightens as the
+    // guess firms up.
+    property real intent: 0.0
 
     readonly property real meshUnit: 100.0
 
@@ -371,6 +375,34 @@ Node {
             }
             pickable: true
             materials: PrincipledMaterial { baseColor: "#2c3035"; roughness: 0.45; metalness: 0.5 }
+        }
+    }
+
+    // The assist's guess: an amber ring, wider than the selection's.
+    Model {
+        visible: root.intent > 0.05
+        position: Qt.vector3d(0, 0.003, 0)
+        opacity: 0.35 + 0.65 * root.intent
+        geometry: TubeGeometry {
+            closed: true
+            radius: 0.0035
+            radialSegments: 6
+            samplesPerSpan: 2
+            points: {
+                const pts = []
+                const r = root.footprint + 0.035
+                for (let k = 0; k < 40; k++) {
+                    const a = 2 * Math.PI * k / 40
+                    pts.push(Qt.vector3d(r * Math.cos(a), 0, r * Math.sin(a)))
+                }
+                return pts
+            }
+        }
+        materials: PrincipledMaterial {
+            baseColor: "#ffb020"
+            emissiveFactor: Qt.vector3d(1.0, 0.69, 0.13)
+            lighting: PrincipledMaterial.NoLighting
+            alphaMode: PrincipledMaterial.Blend
         }
     }
 

@@ -7,8 +7,11 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QThread>
 #include <QTimer>
 #include <QWebSocket>
+
+#include <cmath>
 
 #include <gtest/gtest.h>
 
@@ -86,6 +89,32 @@ TEST(SensorBridge, HoldStopsTheReach) {
   rig.bridge.handleMessage(R"({"type": "reach", "x": 0.5, "y": 0.9, "z": 0.3})");
   rig.bridge.handleMessage(R"({"type": "hold"})");
   EXPECT_FALSE(rig.task.reaching());
+}
+
+TEST(SensorBridge, AssistCanBeSwitchedOffAndOn) {
+  Rig rig;
+  ASSERT_TRUE(rig.task.assist());
+  rig.bridge.handleMessage(R"({"type": "assist", "on": false})");
+  EXPECT_FALSE(rig.task.assist());
+  rig.bridge.handleMessage(R"({"type": "assist", "on": "yes"})"); // not a bool: ignored
+  EXPECT_FALSE(rig.task.assist());
+  rig.bridge.handleMessage(R"({"type": "assist", "on": true})");
+  EXPECT_TRUE(rig.task.assist());
+}
+
+TEST(SensorBridge, ReachIsAssisted) {
+  // Heading for a bottle over the wire: the app's guess follows.
+  Rig rig;
+  const int bottle = rig.task.addObject("bottle", 0.0, 0.62, 0.30);
+  for (int i = 0; i <= 30; i++) {
+    const double t = i / 30.0;
+    rig.bridge.handleMessage(QStringLiteral(R"({"type": "reach", "x": %1, "y": %2, "z": 0.30})")
+                                 .arg(0.40 + 0.12 * t)
+                                 .arg(0.65 - 0.53 * t));
+    rig.task.advance(1.0 / 30.0);
+    QThread::msleep(33); // the guess runs on real time between messages
+  }
+  EXPECT_EQ(rig.task.intentId(), bottle);
 }
 
 TEST(SensorBridge, PingIsAnswered) {
