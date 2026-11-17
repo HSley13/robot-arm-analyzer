@@ -61,7 +61,7 @@ Click an object or a spot to get a menu:
 
 ### Controlled with your own arm, through the webcam
 
-Stand in front of the webcam and the robot copies your right arm. Raise your hand and its hand rises; reach toward the screen and it reaches forward; reach low and it crouches and leans to follow; tip your hand up or down, or turn your palm over, and its hand does the same. Close your hand near an object to grab it, and open it to set the object down on whatever is below. Step out of view and the robot holds still. A pre-trained vision network tracks your arm and hand, and the robot's own planner still moves the body, so it stays smooth and the load analysis keeps running on whatever it carries. See [Webcam control](#webcam-control).
+Stand in front of the webcam and the robot copies your right arm. Raise your hand and its hand rises; reach toward the screen and it reaches forward; reach low and it crouches and leans to follow; tip your hand up or down, or turn your palm over, and its hand does the same. Close your hand near an object to grab it, and open it to set the object down on whatever is below. Step out of view and the robot holds still. You don't have to aim exactly: the app guesses which object you're reaching for (an amber ring lights up around it), pulls the hand toward it as it gets sure, and finishes the grab when you close your hand close by. A pre-trained vision network tracks your arm and hand, and the robot's own planner still moves the body, so it stays smooth and the load analysis keeps running on whatever it carries. See [Webcam control](#webcam-control).
 
 ### A five-finger hand, or a warehouse gripper
 
@@ -143,7 +143,16 @@ Webcam control uses two **pre-trained convolutional networks** from Google's Med
 - **Grip:** two measures averaged. One is how much the finger joints bend (about 0.3 rad straight, about 3 rad in a fist), which stays the same whichever way the hand faces. The other is fingertip-to-wrist distance divided by palm length (about 2 open, about 1 in a fist). Grabbing and releasing use two thresholds (0.7 and 0.3), so a half-closed hand doesn't flicker between them. A threshold only counts once three frames in a row are past it, so a single misread frame can't drop what you're holding.
 - **Filtering:** tracking jitters by millimetres every frame. A **1€ filter** (a low-pass filter whose cutoff rises with speed) steadies it at rest without lagging when you move fast.
 
-### 6. Planning and acting
+### 6. Shared autonomy: guessing what you're reaching for
+
+A webcam judges depth poorly, so aiming the robot's hand within a few centimetres of an object is hard. The app helps the way assistive robot arms do: it keeps a guess of what you want and helps only as much as it is sure (`core/include/robotarm/intent.hpp`, used by `TaskController::guidedReach`).
+
+- **Guessing:** every camera frame, each object collects evidence. Being close counts (−1 per 15 cm), and so does heading for it: up to +5 when the hand moves straight at it, nothing when it moves sideways, and minus when it moves away. A still hand has no heading. A "none of these" option stands beside them, for just moving around. Each score follows its evidence with a memory of 0.3 s, and the beliefs are their softmax. So the guess builds over a few frames, and when you curve toward a different object mid-gesture it switches within a few more.
+- **Helping:** the hand target is pulled toward the guessed object's grasp by a strength that fades in smoothly with confidence (from 45% to 80% sure) and closeness (from 30 cm to 8 cm), up to 85% of the way. An upright object's hand is also turned back toward level and thumb up. The pull is computed from *your* hand, not from where it was pulled to, so moving away always wins: the confidence drops and the help fades.
+- **Finishing the grab:** closing your hand within 20 cm of an object the guess is sure about plans the real grasp (the same planner as pick-up), moves there and grabs on arrival. Opening your hand on the way cancels it.
+- **Showing it:** an amber ring around the guessed object brightens with the confidence. Mouse drags are never assisted. `--no-assist` (or **a** in the webcam preview) turns the help off.
+
+### 7. Planning and acting
 
 A pick-up is a short plan of sub-goals: **approach → grasp → lift → carry**. A put-down is **move above → lower → release → retreat → home**. Each step is a target pose; the controller interpolates between them with eased motion, closes the hand or gripper at the right moment, and hands the object's mass to the physics as payload. Some steps are planned only when reached (the home pose is computed from wherever the arm actually ended up), which is a small form of replanning.
 
@@ -157,7 +166,7 @@ flowchart LR
     MP -->|"WebSocket, JSON"| BR["SensorBridgeServer"]
     BR --> TC
     U(["Mouse · menus · panels"]) --> UI["Qt Quick 3D / QML interface"]
-    UI --> TC["TaskController<br/>scene, body, pick / put-down, dragging"]
+    UI --> TC["TaskController<br/>scene, body, pick / put-down, dragging,<br/>assist (intent guess)"]
     UI --> AC["ArmController<br/>pose, payload, Exact / AI"]
     UI --> HC["HandController<br/>17-joint hand, gestures"]
     TC --> PLAN["Planner (core/)<br/>grasp search · reach · IK"]
@@ -224,17 +233,18 @@ python3 webcam_teleop.py            # with the robot app already running
 ```
 
 - **First run:** the two MediaPipe models (a few MB) download into `tools/webcam_teleop/models/`. On macOS, allow your terminal to use the camera when asked. If pip finds no MediaPipe for your Python version, create the venv with an older Python.
-- **Using it:** stand back far enough for the camera to see your shoulders and right arm. The preview window is a mirror showing your tracked arm, a grip bar and the connection state. **Space** pauses (the robot holds still) and **q** quits.
+- **Using it:** stand back far enough for the camera to see your shoulders and right arm. The preview window is a mirror showing your tracked arm, a grip bar and the connection state. **Space** pauses (the robot holds still), **a** turns the assist off and on, and **q** quits.
 - **If it mirrors you:** if the robot moves left when you move right, add `--mirror`.
-- **Options:** `--no-wrist` leaves the robot's wrist tilt and twist alone. `--pose-model lite|full|heavy` trades speed for better depth judgement (default `full`).
+- **Options:** `--no-assist` turns off the app's help reaching for things (see [shared autonomy](#6-shared-autonomy-guessing-what-youre-reaching-for)). `--no-wrist` leaves the robot's wrist tilt and twist alone. `--pose-model lite|full|heavy` trades speed for better depth judgement (default `full`).
 - **Without a camera:** `python3 webcam_teleop.py --demo` drives the robot with a scripted arm, to check the connection.
 
 **The protocol** (one JSON object per WebSocket message), so other programs can drive the robot too:
 
 | Message | Effect |
 | --- | --- |
-| `{"type": "reach", "x": 0.5, "y": 0.9, "z": 0.3}` | Move the hand there (metres, world frame); the body follows smoothly. An optional `"pitch"` (radians, + up from level) also points the hand that way, and an optional `"roll"` (radians, 0 = thumb up, + palm up) turns it about its own axis |
+| `{"type": "reach", "x": 0.5, "y": 0.9, "z": 0.3}` | Move the hand there (metres, world frame); the body follows smoothly, helped onto the object you seem to be reaching for. An optional `"pitch"` (radians, + up from level) also points the hand that way, and an optional `"roll"` (radians, 0 = thumb up, + palm up) turns it about its own axis |
 | `{"type": "grip", "amount": 0.8}` | 0 = open … 1 = closed; closing near an object grabs it, opening sets it down |
+| `{"type": "assist", "on": false}` | Turn that help off (`true`: on again; it starts on) |
 | `{"type": "hold"}` | Stop where it is |
 | `{"type": "ping"}` | Answered with `{"type": "pong"}` |
 
@@ -286,7 +296,7 @@ Optional launch flags, mostly for reproducible scenes and screenshots:
 ctest --test-dir build
 ```
 
-334 tests in 22 suites cover every physics module (kinematics, kinematic trees, statics, dynamics, trajectories, inverse kinematics, payload capacity, grasp and reach planning, the neural-network surrogates, config parsing). They also cover the application layer, including whole pick-and-place sequences stepped in simulated time with both the hand and the gripper, for every object type, and QML loading the C++ module. The webcam path is covered too: grab and release, the bridge (including a real local WebSocket connection), hand tilt and twist, and the Python retargeting, steady waist, hand twist, grip and its gate, filter, zoomed-in hand search and control rules.
+354 tests in 23 suites cover every physics module (kinematics, kinematic trees, statics, dynamics, trajectories, inverse kinematics, payload capacity, grasp and reach planning, intent guessing, the neural-network surrogates, config parsing). They also cover the application layer, including whole pick-and-place sequences stepped in simulated time with both the hand and the gripper, for every object type, and QML loading the C++ module. The webcam path is covered too: grab and release, the assist (guessing, switching mid-gesture, pulling a near miss onto the object, finishing and cancelling a grab), the bridge (including a real local WebSocket connection), hand tilt and twist, and the Python retargeting, steady waist, hand twist, grip and its gate, filter, zoomed-in hand search and control rules.
 
 ## Retraining the neural network
 
