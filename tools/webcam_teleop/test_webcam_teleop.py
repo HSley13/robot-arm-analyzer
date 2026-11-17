@@ -18,6 +18,7 @@ class FakeRobot:
     reach = 0.665
     hand = 0.095
     connected = True
+    assist = True
 
     def __init__(self):
         self.sent = []
@@ -105,6 +106,14 @@ class ControllerRules(unittest.TestCase):
         control.toggle_pause()
         control.arm(SHOULDER, ELBOW, WRIST, 0.1)
         self.assertEqual(robot.types(), ["hold", "reach"])
+
+    def test_the_assist_toggles_off_and_on(self):
+        robot = FakeRobot()
+        control = Controller(robot, mirror=False)
+        control.toggle_assist()
+        control.toggle_assist()
+        self.assertEqual(robot.sent, [{"type": "assist", "on": False}, {"type": "assist", "on": True}])
+        self.assertTrue(robot.assist)
 
     def test_a_hand_sends_its_grip_and_a_held_fist_grabs(self):
         robot = FakeRobot()

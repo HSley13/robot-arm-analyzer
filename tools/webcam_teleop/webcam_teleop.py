@@ -12,7 +12,13 @@ your hand up or down, or turn your palm, and the robot's hand does the
 same; close your hand near an object to grab it, open it to let go. Step out of view and the robot holds
 still.
 
-Keys in the preview window: space pauses / resumes, q or Esc quits.
+The app helps: it guesses which object you're reaching for (an amber ring
+around it), pulls the robot's hand toward it as it gets sure, and finishes
+the grab when you close your hand close by. --no-assist, or the a key,
+turns that off.
+
+Keys in the preview window: space pauses / resumes, a turns the assist off /
+on, q or Esc quits.
 
 How it works, frame by frame:
   webcam -> MediaPipe pose + hand landmarks -> teleop_math (retarget, steady
@@ -90,6 +96,7 @@ class Robot:
         self.reach = DEFAULT_REACH
         self.hand = DEFAULT_HAND
         self.kind = "?"
+        self.assist = True  # the app's help reaching for things, told again on every connect
         self._next_try = 0.0
 
     @property
@@ -113,6 +120,7 @@ class Robot:
                 self.reach = float(hello["reach"])
                 self.hand = float(hello.get("hand", 0.0))  # older apps: no hand, so the wrist is the tip
                 self.kind = hello.get("robot", "?")
+            self.send({"type": "assist", "on": self.assist})
             print(f"connected: {self.kind} arm, reach {self.reach:.2f} m")
         except Exception as error:  # the app isn't running (yet)
             self._drop()
@@ -367,6 +375,10 @@ class Controller:
             self.roll = None
         self.tracking = False
 
+    def toggle_assist(self) -> None:
+        self.robot.assist = not self.robot.assist
+        self.robot.send({"type": "assist", "on": self.robot.assist})
+
     def toggle_pause(self) -> None:
         self.paused = not self.paused
         if self.paused:
@@ -419,6 +431,8 @@ def run_camera(args, robot: Robot) -> None:
                 break
             if key == ord(" "):
                 control.toggle_pause()
+            if key == ord("a"):
+                control.toggle_assist()
 
     camera.release()
     robot.close()
@@ -466,7 +480,9 @@ def draw_preview(cv2, frame, pose_landmarks, hand_landmarks, control: Controller
     else:
         status, color = "controlling the robot", (80, 220, 80)
     cv2.putText(view, status, (20, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-    cv2.imshow("Robot arm - webcam control (space: pause, q: quit)", view)
+    assist = "assist: on (a: off)" if control.robot.assist else "assist: off (a: on)"
+    cv2.putText(view, assist, (20, 66), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+    cv2.imshow("Robot arm - webcam control (space: pause, a: assist, q: quit)", view)
 
 
 def run_demo(robot: Robot, seconds: float) -> None:
@@ -497,6 +513,8 @@ def main() -> None:
     parser.add_argument("--no-preview", action="store_true", help="don't show the camera window")
     parser.add_argument("--no-wrist", action="store_true",
                         help="don't copy your hand's tilt and twist: leave the robot's wrist to its planner")
+    parser.add_argument("--no-assist", action="store_true",
+                        help="no help from the app: it won't guess what you reach for or finish your grabs")
     parser.add_argument("--pose-model", choices=("lite", "full", "heavy"), default="full",
                         help="body tracker: lite is fastest, heavy judges depth best (default full)")
     parser.add_argument("--demo", type=float, nargs="?", const=30.0, metavar="SECONDS",
@@ -504,6 +522,7 @@ def main() -> None:
     args = parser.parse_args()
 
     robot = Robot(f"ws://{args.host}:{args.port}")
+    robot.assist = not args.no_assist
     try:
         if args.demo is not None:
             run_demo(robot, args.demo)
