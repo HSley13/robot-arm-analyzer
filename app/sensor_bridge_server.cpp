@@ -98,15 +98,13 @@ QString SensorBridgeServer::handleMessage(const QString &text) {
       qWarning() << "SensorBridgeServer: reach needs numbers x, y, z";
       return {};
     }
-    double pitch = 0.0;
-    if (!message.contains(QStringLiteral("pitch"))) {
-      _task->reachTo(xyz[0], xyz[1], xyz[2]);
-    } else if (readNumbers(message, {"pitch"}, &pitch)) {
-      _task->reachToPointing(xyz[0], xyz[1], xyz[2], pitch);
-    } else {
+    // Live control: the assisted reach (a NaN pitch = the hand left free).
+    double pitch = std::nan("");
+    if (message.contains(QStringLiteral("pitch")) && !readNumbers(message, {"pitch"}, &pitch)) {
       qWarning() << "SensorBridgeServer: reach's pitch must be a number";
       return {};
     }
+    _task->guidedReach(xyz[0], xyz[1], xyz[2], pitch);
     if (message.contains(QStringLiteral("roll"))) {
       double roll = 0.0;
       if (readNumbers(message, {"roll"}, &roll)) {
@@ -122,6 +120,13 @@ QString SensorBridgeServer::handleMessage(const QString &text) {
       return {};
     }
     _task->setGrip(amount);
+  } else if (type == QStringLiteral("assist")) {
+    const QJsonValue on = message.value(QStringLiteral("on"));
+    if (!on.isBool()) {
+      qWarning() << "SensorBridgeServer: assist needs a true / false on";
+      return {};
+    }
+    _task->setAssist(on.toBool());
   } else if (type == QStringLiteral("hold")) {
     _task->cancelReach();
   } else if (type == QStringLiteral("ping")) {
