@@ -30,6 +30,15 @@ constexpr double kGrabAt = 0.7;
 constexpr double kReleaseAt = 0.3;
 constexpr double kGrabReach = 0.08; // m, hand to object's grip center, to grab it
 
+// The assist (guidedReach): closing the hand within kFinishReach of the
+// guessed object's grip center, guessed at least kFinishConfidence sure,
+// moves the hand onto it and grabs. Live updates further apart than
+// kLiveGap start the guessing afresh.
+constexpr double kFinishReach = 0.20;     // m
+constexpr double kFinishConfidence = 0.45;
+constexpr double kLiveGap = 0.5;          // s
+constexpr double kTypicalGripRadius = 0.03; // m, for where "the hand" is while guessing
+
 // Following a reachTo() goal: every degree of freedom closes the gap
 // exponentially (fast for small moves, so dragging feels direct), and no
 // faster than its top speed - all slowed together, so a big move is one
@@ -690,10 +699,121 @@ bool TaskController::reachToPointing(double x, double y, double z, double handAn
   return reachToward(Eigen::Vector3d(x, y, z), &handAngleRadians);
 }
 
+bool TaskController::guidedReach(double x, double y, double z, double handAngleRadians) {
+  const double seconds = _liveClock.isValid() ? static_cast<double>(_liveClock.restart()) / 1000.0 : 0.0;
+  if (!_liveClock.isValid()) {
+    _liveClock.start();
+  }
+  return guidedReach(x, y, z, handAngleRadians, seconds);
+}
+
+bool TaskController::guidedReach(double x, double y, double z, double handAngleRadians, double seconds) {
+  if (busy() || _finishingId != -1) {
+    return false;
+  }
+  if (seconds > kLiveGap) {
+    forgetIntent();
+    seconds = 0.0;
+  }
+  double hand_angle = handAngleRadians;
+  const bool pointing = std::isfinite(hand_angle);
+  const Eigen::Vector3d point = assisted(Eigen::Vector3d(x, y, z), pointing ? &hand_angle : nullptr, seconds);
+  return reachToward(point, pointing ? &hand_angle : nullptr);
+}
+
+Eigen::Vector3d TaskController::endEffectorPoint() const {
+  return grip_point_in_world(_arm->config(), _geometry, currentPose(), 0.0, 0.0);
+}
+
+Eigen::Vector3d TaskController::assisted(const Eigen::Vector3d &point, double *hand_angle, double seconds) {
+  if (!_assist || _heldId != -1) {
+    forgetIntent();
+    return point;
+  }
+  // Where the person is asking the hand to be: the asked-for end-effector
+  // point plus the hand's own offset to where it grips (from the current
+  // pose - it turns slowly compared with the hand's travel).
+  const Eigen::Vector3d tip = endEffectorPoint();
+  const Eigen::Vector3d hand = point + (handGripPoint(kTypicalGripRadius) - tip);
+  std::vector<IntentEstimator::Candidate> candidates;
+  for (const SceneObject &object : _objects) {
+    candidates.push_back({object.id, object.base + Eigen::Vector3d(0.0, shapeOf(object.type, object.mass).grip_height, 0.0)});
+  }
+  _intent.update(hand, seconds, candidates);
+  _guess = _intent.likely();
+
+  _assistStrength = 0.0;
+  Eigen::Vector3d result = point;
+  if (const SceneObject *object = findObject(_guess.id)) {
+    const Shape shape = shapeOf(object->type, object->mass);
+    const Eigen::Vector3d center = object->base + Eigen::Vector3d(0.0, shape.grip_height, 0.0);
+    const Eigen::Vector3d offset = handGripPoint(shape.grip_radius) - tip;
+    _assistStrength = assist_strength(_guess.confidence, (point + offset - center).norm());
+    // Toward the end-effector point that puts the object in the hand, and
+    // an upright object's hand toward level.
+    result += _assistStrength * ((center - offset) - point);
+    if (hand_angle != nullptr && shape.upright) {
+      *hand_angle *= 1.0 - _assistStrength;
+    }
+  }
+  emit intentChanged();
+  return result;
+}
+
+void TaskController::forgetIntent() {
+  _intent.reset();
+  const bool had = _guess.id != -1 || _assistStrength != 0.0;
+  _guess = {};
+  _assistStrength = 0.0;
+  if (had) {
+    emit intentChanged();
+  }
+}
+
+void TaskController::setAssist(bool on) {
+  if (on == _assist) {
+    return;
+  }
+  _assist = on;
+  if (!on) {
+    forgetIntent();
+    _finishingId = -1;
+  }
+  emit stateChanged();
+}
+
+bool TaskController::finishGrab() {
+  const SceneObject *object = findObject(_guess.id);
+  if (!_assist || object == nullptr || _guess.confidence < kFinishConfidence) {
+    return false;
+  }
+  const Shape shape = shapeOf(object->type, object->mass);
+  const Eigen::Vector3d center = object->base + Eigen::Vector3d(0.0, shape.grip_height, 0.0);
+  if ((handGripPoint(shape.grip_radius) - center).norm() > kFinishReach) {
+    return false;
+  }
+  // The grasp grabNearHand will hold it by: the hand from the side, the
+  // gripper level.
+  const GraspOption option =
+      graspOption(*object, object->base, industrial() ? QStringLiteral("side") : QStringLiteral("hand"), shape.grip_height);
+  const PickPlan plan = plan_grasp(_arm->config(), _geometry, option.target, _pose.hip_height);
+  if (!plan.ok) {
+    return false;
+  }
+  _goal = plan.pose;
+  _goal.hand_roll = 0.0;
+  _finishingId = object->id;
+  _following = true;
+  startTicker();
+  setStatus(QStringLiteral("Taking the %1").arg(object->type));
+  return true;
+}
+
 bool TaskController::reachToward(const Eigen::Vector3d &point, const double *hand_angle) {
   if (busy()) {
     return false;
   }
+  _finishingId = -1; // a new goal (a mouse drag...) takes over from finishing a grab
   // Plan from the previous goal, not from where the body happens to be
   // mid-motion, so successive goals of one drag stay consistent.
   const BodyPose from = _following ? _goal : currentPose();
@@ -718,7 +838,11 @@ void TaskController::setHandRoll(double radians) {
     _following = true;
     emit stateChanged();
   }
-  _goal.hand_roll = std::clamp(radians, -kMaxHandRoll, kMaxHandRoll);
+  if (_finishingId != -1) {
+    return; // the grasp's own (neutral) roll
+  }
+  // Pulled toward a grab, the hand turns back toward neutral as much.
+  _goal.hand_roll = std::clamp(radians * (1.0 - _assistStrength), -kMaxHandRoll, kMaxHandRoll);
   startTicker();
 }
 
@@ -730,10 +854,14 @@ void TaskController::setGrip(double amount) {
 
   if (!_gripClosed && _grip >= kGrabAt) {
     _gripClosed = true;
-    if (_heldId == -1) {
-      grabNearHand();
+    if (_heldId == -1 && !grabNearHand(false) && !finishGrab()) {
+      setStatus(QStringLiteral("Nothing in the hand to grab - bring it closer to an object"));
     }
   } else if (_gripClosed && _grip <= kReleaseAt) {
+    if (_finishingId != -1) {
+      _finishingId = -1; // opened again before the hand got there: never mind
+      cancelReach();
+    }
     // Not over a place it can go: keep holding, and try again on the next
     // update - it lets go as soon as the hand moves somewhere it can.
     _gripClosed = _heldId != -1 && !releaseUnderHand();
@@ -762,7 +890,7 @@ Eigen::Vector3d TaskController::handGripPoint(double grip_radius) const {
                              gripForward(grip_radius) - hand_link);
 }
 
-bool TaskController::grabNearHand() {
+bool TaskController::grabNearHand(bool complain) {
   // The object whose grip center is closest to where it would sit in the hand.
   SceneObject *nearest = nullptr;
   double nearest_distance = kGrabReach;
@@ -776,7 +904,9 @@ bool TaskController::grabNearHand() {
     }
   }
   if (nearest == nullptr) {
-    setStatus(QStringLiteral("Nothing in the hand to grab - bring it closer to an object"));
+    if (complain) {
+      setStatus(QStringLiteral("Nothing in the hand to grab - bring it closer to an object"));
+    }
     return false;
   }
 
@@ -791,6 +921,7 @@ bool TaskController::grabNearHand() {
   } else if (_hand != nullptr) {
     _hand->setGrasp(gripClosure(shape.grip_radius));
   }
+  forgetIntent();
   setStatus(QStringLiteral("Holding the %1 (%2)").arg(nearest->type, massText(nearest->mass)));
   emit objectsChanged();
   emit stateChanged();
@@ -827,6 +958,7 @@ bool TaskController::releaseUnderHand() {
 }
 
 void TaskController::cancelReach() {
+  _finishingId = -1;
   if (!_following) {
     return;
   }
@@ -862,6 +994,10 @@ void TaskController::followGoal(double seconds) {
   }
   if (remaining < kArrived) {
     applyPose(_goal);
+    if (_finishingId != -1) {
+      _finishingId = -1;
+      grabNearHand();
+    }
     cancelReach();
     return;
   }

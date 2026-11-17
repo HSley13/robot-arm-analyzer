@@ -520,3 +520,111 @@ TEST(TaskController, TheWarehouseGripperGrabsAndReleasesToo) {
   rig.task.setGrip(0.0);
   EXPECT_EQ(rig.task.heldId(), -1);
 }
+
+// ---- the assist (live control) ---------------------------------------------
+
+namespace {
+
+constexpr double kLiveFrame = 1.0 / 30.0;
+
+// A webcam user's hand moving the arm's tip in a straight line from `from`
+// to `to` at `speed` m/s, then holding there for `rest` s: one live update
+// per camera frame, the body moving in between.
+void liveMove(Rig &rig, QVector3D from, QVector3D to, double speed = 0.3, double rest = 0.5) {
+  const double length = (to - from).length();
+  const int moving = std::max(1, int(std::ceil(length / (speed * kLiveFrame))));
+  for (int i = 1; i <= moving + int(rest / kLiveFrame); i++) {
+    const QVector3D at = from + (to - from) * float(std::min(1.0, double(i) / moving));
+    rig.task.guidedReach(at.x(), at.y(), at.z(), std::nan(""), kLiveFrame);
+    for (int k = 0; k < 2; k++) {
+      rig.task.advance(kLiveFrame / 2.0);
+    }
+  }
+}
+
+const QVector3D kLiveStart(0.40, 0.65, 0.25);
+
+} // namespace
+
+TEST(TaskController, AssistGuessesTheObjectTheHandIsGoingFor) {
+  Rig rig;
+  const int bottle = rig.task.addObject("bottle", 0.0, 0.62, 0.30);
+  const int box = rig.task.addObject("box", 0.0, 0.62, -0.10);
+  liveMove(rig, kLiveStart, QVector3D(0.55, 0.12, 0.30));
+  EXPECT_EQ(rig.task.intentId(), bottle);
+  liveMove(rig, QVector3D(0.55, 0.12, 0.30), QVector3D(0.58, 0.10, -0.05));
+  EXPECT_EQ(rig.task.intentId(), box); // changed its mind with the hand
+}
+
+TEST(TaskController, AssistPullsAnAlmostRightHandOntoTheObject) {
+  // Aimed 13 cm short and 5 cm to the side - what a webcam's depth guess
+  // does - closing the hand still grabs.
+  Rig rig;
+  const int bottle = rig.task.addObject("bottle", 0.0, 0.62, 0.30);
+  liveMove(rig, kLiveStart, QVector3D(0.49, 0.10, 0.35));
+  EXPECT_EQ(rig.task.intentId(), bottle);
+  EXPECT_GT(rig.task.assistStrength(), 0.4);
+  rig.task.setGrip(1.0);
+  rig.runToEnd();
+  EXPECT_EQ(rig.task.heldId(), bottle) << rig.task.status().toStdString();
+}
+
+TEST(TaskController, WithoutTheAssistTheSameMissMisses) {
+  Rig rig;
+  rig.task.setAssist(false);
+  rig.task.addObject("bottle", 0.0, 0.62, 0.30);
+  liveMove(rig, kLiveStart, QVector3D(0.49, 0.10, 0.35));
+  EXPECT_EQ(rig.task.intentId(), -1);
+  rig.task.setGrip(1.0);
+  rig.runToEnd();
+  EXPECT_EQ(rig.task.heldId(), -1);
+}
+
+TEST(TaskController, AssistFinishesTheGrabFromAFewCentimetresOff) {
+  // Too far for the pull alone: closing the hand sends it the rest of the
+  // way, and it grabs on arrival.
+  Rig rig;
+  const int bottle = rig.task.addObject("bottle", 0.0, 0.62, 0.30);
+  liveMove(rig, kLiveStart, QVector3D(0.47, 0.16, 0.37));
+  ASSERT_EQ(rig.task.intentId(), bottle);
+  rig.task.setGrip(1.0);
+  ASSERT_EQ(rig.task.heldId(), -1); // not around it yet
+  EXPECT_TRUE(rig.task.status().contains("Taking")) << rig.task.status().toStdString();
+  // Live updates keep coming while it does: they don't take over.
+  EXPECT_FALSE(rig.task.guidedReach(0.47, 0.16, 0.37, std::nan(""), kLiveFrame));
+  rig.runToEnd();
+  EXPECT_EQ(rig.task.heldId(), bottle) << rig.task.status().toStdString();
+}
+
+TEST(TaskController, OpeningTheHandStopsTheAssistsGrab) {
+  Rig rig;
+  rig.task.addObject("bottle", 0.0, 0.62, 0.30);
+  liveMove(rig, kLiveStart, QVector3D(0.47, 0.16, 0.37));
+  rig.task.setGrip(1.0);
+  ASSERT_EQ(rig.task.heldId(), -1);
+  ASSERT_TRUE(rig.task.reaching()); // on its way to grab
+  rig.task.advance(1.0 / 60.0);
+  rig.task.setGrip(0.0);
+  EXPECT_FALSE(rig.task.reaching());
+  rig.runToEnd();
+  EXPECT_EQ(rig.task.heldId(), -1);
+}
+
+TEST(TaskController, MouseDragsAreNotAssisted) {
+  Rig rig;
+  rig.task.addObject("bottle", 0.0, 0.62, 0.30);
+  handTo(rig, 0.49, 0.10, 0.35);
+  EXPECT_EQ(rig.task.intentId(), -1);
+  EXPECT_EQ(rig.task.assistStrength(), 0.0);
+}
+
+TEST(TaskController, HoldingSomethingTheAssistRests) {
+  Rig rig;
+  const int bottle = rig.task.addObject("bottle", 0.0, 0.62, 0.30);
+  rig.task.addObject("box", 0.0, 0.62, -0.10);
+  handTo(rig, 0.62, 0.10, 0.30);
+  rig.task.setGrip(1.0);
+  ASSERT_EQ(rig.task.heldId(), bottle);
+  liveMove(rig, QVector3D(0.62, 0.30, 0.30), QVector3D(0.58, 0.30, -0.08));
+  EXPECT_EQ(rig.task.intentId(), -1);
+}
