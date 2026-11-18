@@ -509,9 +509,29 @@ Item {
         }
 
         onReleased: (event) => {
-            if (!dragging) root.clicked(event.x, event.y, event.button)
+            if (!dragging && !doubled) {
+                // A plain click - unless a second one follows (a double-click).
+                pendingClick = Qt.vector3d(event.x, event.y, event.button)
+                clickDelay.restart()
+            }
+            doubled = false
             dragging = false
             grab = { kind: "none" }
+        }
+
+        // The second press of a double-click: the first click is dropped,
+        // and the release after this one isn't a click either.
+        property bool doubled: false
+        property vector3d pendingClick
+        onDoubleClicked: (event) => {
+            clickDelay.stop()
+            doubled = true
+            if (event.button === Qt.LeftButton) root.doubleClicked(event.x, event.y)
+        }
+        Timer {
+            id: clickDelay
+            interval: Qt.styleHints.mouseDoubleClickInterval
+            onTriggered: root.clicked(mouse.pendingClick.x, mouse.pendingClick.y, mouse.pendingClick.z)
         }
 
         onWheel: (wheel) => {
@@ -520,13 +540,16 @@ Item {
         onExited: hover = { kind: "none" }
     }
 
-    // A plain click (no drag): menus.
+    // A plain click (no drag): the hand grabs or lets go, anything else
+    // opens its menu.
     signal clicked(real x, real y, int button)
     onClicked: (x, y, button) => {
         const hit = hitTest(x, y)
         if (TaskController.clickMode !== "" && (hit.kind === "surface" || hit.kind === "table")) {
             // An armed click mode from the panel still works.
             TaskController.handleClick(hit.point.x, hit.point.z)
+        } else if (hit.kind === "hand" && button === Qt.LeftButton) {
+            TaskController.grabOrRelease()
         } else if (hit.kind === "object") {
             TaskController.selectedId = hit.id
             objectMenu.openFor(hit.id, x, y)
@@ -536,6 +559,17 @@ Item {
             spotMenu.openAt(hit.point, x, y, -1)
         } else {
             TaskController.selectedId = -1
+        }
+    }
+
+    // A double-click: pick an object up, or put what's held down there.
+    signal doubleClicked(real x, real y)
+    onDoubleClicked: (x, y) => {
+        const hit = hitTest(x, y)
+        if (hit.kind === "object" && TaskController.heldId === -1) {
+            TaskController.pickUp(hit.id)
+        } else if ((hit.kind === "surface" || hit.kind === "table") && TaskController.heldId !== -1) {
+            TaskController.putDown(hit.point.x, hit.point.z)
         }
     }
 
@@ -697,6 +731,9 @@ Item {
         readonly property vector3d screenPosition: root.jointScreen(ArmController.jointCount)
         readonly property bool active: mouse.grab.kind === "hand" && mouse.dragging
         readonly property bool hovered: mouse.hover.kind === "hand"
+        // An object close enough to grab with a click (TaskController.grabOrRelease).
+        readonly property bool inReach: TaskController.intentId !== -1 && TaskController.heldId === -1
+                                        && TaskController.assistStrength === 0 && !active
         visible: !TaskController.busy && ArmController.jointCount > 0
         x: screenPosition.x - width / 2
         y: screenPosition.y - height / 2
@@ -712,7 +749,7 @@ Item {
             opacity: handHandle.active || handHandle.hovered ? 1.0 : 0.6
         }
         Rectangle {
-            visible: handHandle.hovered && !handHandle.active
+            visible: (handHandle.hovered && !handHandle.active) || handHandle.inReach
             anchors.top: parent.bottom
             anchors.topMargin: 6
             anchors.horizontalCenter: parent.horizontalCenter
@@ -726,7 +763,9 @@ Item {
                 anchors.centerIn: parent
                 color: "white"
                 font.pixelSize: 12
-                text: "Drag the hand - the body follows"
+                text: TaskController.heldId !== -1 ? "Click the hand to let go - or double-click a spot"
+                    : handHandle.inReach ? "Click the hand to grab it"
+                    : "Drag the hand - the body follows. Double-click an object to pick it up"
             }
         }
     }
