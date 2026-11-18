@@ -24,8 +24,9 @@ class TaskController;
 //   "input"    one command from the client, as received ("message"), with
 //              what the robot made of it: the body pose after it ("pose":
 //              yaw, hip height, hip bend, hand roll, arm joints - radians
-//              and metres), the assist's guess ("intent": id, confidence,
-//              strength) and what's held ("held", -1 = nothing)
+//              and metres; with a left arm, its joints and roll too), the
+//              assist's guess ("intent": id, confidence, strength) and
+//              what each hand holds ("held", "held_left"; -1 = nothing)
 //   "objects"  the objects again, whenever they change (a grab, a release)
 //   "end"      the session is over
 //

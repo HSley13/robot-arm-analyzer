@@ -86,6 +86,8 @@ TEST(SessionRecorder, ASessionIsTheSceneThenTheCommandsThenAnEnd) {
   EXPECT_EQ(input["pose"].toObject()["arm"].toArray().size(), 3);
   EXPECT_TRUE(input["intent"].toObject().contains("confidence"));
   EXPECT_EQ(input["held"].toInt(), -1);
+  EXPECT_EQ(input["held_left"].toInt(), -1);
+  EXPECT_FALSE(input["pose"].toObject().contains("left_arm")); // no left arm in this rig
   EXPECT_GE(input["t"].toDouble(), start["t"].toDouble());
 
   EXPECT_EQ(lines[2]["type"].toString(), QString("end"));
