@@ -1437,6 +1437,10 @@ void TaskController::setLeftArm(ArmController *arm, HandController *hand) {
   _leftHand = hand;
   if (_leftArm != nullptr) {
     _leftArm->setBaseTiltDegrees(to_degrees(_pose.hip_bend));
+    if (_leftArm->jointCount() == 3) {
+      // Hanging relaxed at the side until it's used.
+      _leftArm->setJointAnglesRadians({to_radians(-85.0), to_radians(15.0), 0.0});
+    }
     _leftGoalArm = _leftArm->jointAnglesRadians();
   }
   emit leftArmChanged();
