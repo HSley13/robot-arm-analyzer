@@ -151,6 +151,7 @@ A webcam judges depth poorly, so aiming the robot's hand within a few centimetre
 - **Helping:** the hand target is pulled toward the guessed object's grasp by a strength that fades in smoothly with confidence (from 45% to 80% sure) and closeness (from 30 cm to 8 cm), up to 85% of the way. An upright object's hand is also turned back toward level and thumb up. The pull is computed from *your* hand, not from where it was pulled to, so moving away always wins: the confidence drops and the help fades.
 - **Finishing the grab:** closing your hand within 20 cm of an object the guess is sure about plans the real grasp (the same planner as pick-up), moves there and grabs on arrival. Opening your hand on the way cancels it.
 - **Showing it:** an amber ring around the guessed object brightens with the confidence. Mouse drags are never assisted. `--no-assist` (or **a** in the webcam preview) turns the help off.
+- **Learning from you (next):** every session is [recorded](#webcam-control) with the hand's path, the guesses and what was actually grabbed, the labelled data for fitting these numbers to you, and later a learned model of how you reach.
 
 ### 7. Planning and acting
 
@@ -250,6 +251,17 @@ python3 webcam_teleop.py            # with the robot app already running
 
 On connecting, a client first receives `{"type": "hello", "robot": …, "shoulder": [x, y, z], "reach": …, "hand": …}`, which describes the robot so arms can be scaled to it (`hand` is how much of the reach is the hand, past the wrist). App flags: `--bridge-port N`, `--bridge-lan` (accept other computers on the network; there's no authentication, so trusted networks only) and `--no-bridge`. The bridge needs the Qt WebSockets module; without it, the app builds without webcam control.
 
+**Recorded sessions.** Every webcam session is written down, to train the assist on later: one [JSON Lines](https://jsonlines.org) file per session in the app's data folder (on macOS `~/Library/Application Support/Humanoid Arm Load Analyzer/sessions/`). A session runs from the first client connecting to the last one leaving. Each line has `t` (seconds since the start) and a `type`:
+
+| Line | Holds |
+| --- | --- |
+| `start` | The scene: robot kind, objects (id, type, mass, position, grip height), tables, the time and the format `version` |
+| `input` | One command as received (`message`), and what the robot made of it: the body `pose` after it (radians, metres), the assist's guess (`intent`: id, confidence, strength) and what is `held` |
+| `objects` | The objects again whenever they change, so every grab and release is there |
+| `end` | The session is over |
+
+Only the commands are recorded, no camera images. `--record-dir DIR` records somewhere else, and `--no-record` turns it off.
+
 ---
 
 ## Tech stack
@@ -296,7 +308,7 @@ Optional launch flags, mostly for reproducible scenes and screenshots:
 ctest --test-dir build
 ```
 
-354 tests in 23 suites cover every physics module (kinematics, kinematic trees, statics, dynamics, trajectories, inverse kinematics, payload capacity, grasp and reach planning, intent guessing, the neural-network surrogates, config parsing). They also cover the application layer, including whole pick-and-place sequences stepped in simulated time with both the hand and the gripper, for every object type, and QML loading the C++ module. The webcam path is covered too: grab and release, the assist (guessing, switching mid-gesture, pulling a near miss onto the object, finishing and cancelling a grab), the bridge (including a real local WebSocket connection), hand tilt and twist, and the Python retargeting, steady waist, hand twist, grip and its gate, filter, zoomed-in hand search and control rules.
+359 tests in 24 suites cover every physics module (kinematics, kinematic trees, statics, dynamics, trajectories, inverse kinematics, payload capacity, grasp and reach planning, intent guessing, the neural-network surrogates, config parsing). They also cover the application layer, including whole pick-and-place sequences stepped in simulated time with both the hand and the gripper, for every object type, and QML loading the C++ module. The webcam path is covered too: grab and release, the assist (guessing, switching mid-gesture, pulling a near miss onto the object, finishing and cancelling a grab), session recording, the bridge (including a real local WebSocket connection), hand tilt and twist, and the Python retargeting, steady waist, hand twist, grip and its gate, filter, zoomed-in hand search and control rules.
 
 ## Retraining the neural network
 
