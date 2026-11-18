@@ -190,10 +190,11 @@ public slots:
   //
   // Live control of the left hand, like guidedReach (NaN handAngleRadians
   // = free). The two arms share one body, so one of them steers it: the
-  // right arm while it's being steered too (live, in the last 0.6 s) -
-  // the left arm then reaches with its own joints, toward the part of the
-  // point in its plane - else the left, which then turns, lifts and leans
-  // the body to get there. Returns false if it can't reach the point.
+  // one whose hand moved (3 cm or more) most recently - the right, until
+  // the left has moved. That arm turns, lifts and leans the body to get
+  // where it's going; the other reaches with its own joints alone, toward
+  // the part of its point in its plane. Returns false if it can't reach
+  // the point.
   bool reachLeft(double x, double y, double z, double handAngleRadians);
   // The left hand's grip, 0 open .. 1 closed, like setGrip: closing grabs
   // the object the hand is around - or, within 20 cm of one, moves onto
@@ -337,6 +338,14 @@ private:
     std::function<void()> on_arrive;
   };
 
+  // One hand's live target, for which arm steers the body (reachLeft):
+  // where it was, and when it last moved 3 cm or more.
+  struct Mover {
+    Eigen::Vector3d anchor = Eigen::Vector3d::Zero();
+    bool anchored = false;
+    QElapsedTimer moved;
+  };
+
   static double defaultMass(const QString &type);
   static Shape shapeOf(const QString &type, double mass);
   // Hand-frame position of a held object's grip center, and how far the
@@ -428,6 +437,11 @@ private:
   // A grab the left hand was moving in for, once both it and the body
   // have arrived.
   void finishLeftGrabIfArrived();
+  // Notes a live target for one hand; leftLeads: the left hand moved last.
+  static void noteMove(Mover &mover, const Eigen::Vector3d &target);
+  bool leftLeads() const;
+  // The right arm reaching with its own joints alone (the left steers).
+  bool reachWithArmOnly(const Eigen::Vector3d &point, const double *hand_angle);
   void setStatus(const QString &status);
   void queue(const BodyPose &target, double duration, std::function<void()> on_arrive = {});
 
@@ -475,7 +489,9 @@ private:
   double _leftGrip = 0.0;
   bool _leftGripClosed = false;
   int _leftFinishingId = -1;
-  QElapsedTimer _rightLiveClock;
+  // Which arm steers the body (see reachLeft).
+  Mover _rightMover;
+  Mover _leftMover;
   QTimer _ticker;
   QElapsedTimer _tickClock;
 

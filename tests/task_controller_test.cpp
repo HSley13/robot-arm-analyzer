@@ -736,16 +736,31 @@ TEST(TaskController, WithTheRightArmLeadingTheLeftReachesWithItsJointsAlone) {
   EXPECT_NEAR(tip.z(), -0.20, 0.01); // the left shoulder's plane
 }
 
-TEST(TaskController, RightLiveControlMakesTheRightArmLead) {
+TEST(TaskController, TheHandThatMovedLastSteersTheBody) {
   TwoArmRig rig;
-  rig.task.guidedReach(0.45, 1.0, 0.30, std::nan(""));
-  const double yaw = rig.task.waistYawDegrees();
-  rig.task.reachLeft(0.35, 0.95, -0.45, std::nan("")); // right steered just now: left follows in its plane
-  for (int i = 0; i < 30; i++) {
-    rig.task.advance(1.0 / 60.0);
+  const Eigen::Vector3d left_target(0.35, 0.95, -0.45); // 25 cm off the left arm's plane
+  const auto frame = [&](const QVector3D &right, const Eigen::Vector3d &left) {
+    rig.task.guidedReach(right.x(), right.y(), right.z(), std::nan(""), 1.0 / 30.0);
+    rig.task.reachLeft(left.x(), left.y(), left.z(), std::nan(""));
+    rig.task.advance(1.0 / 30.0);
+  };
+  // The right hand moving, the left held still: the right steers, the
+  // left can only reach with its joints - not out to its target.
+  for (int i = 0; i <= 15; i++) {
+    frame(QVector3D(0.45, 1.0 - 0.01 * i, 0.30 + 0.01 * i), left_target);
   }
-  rig.task.cancelReach(); // the right arm's goal aside, the left mustn't have moved the body
-  EXPECT_NEAR(rig.task.waistYawDegrees(), yaw, 15.0);
+  rig.runToEnd();
+  EXPECT_LT((tipInWorld(rig.arm, rig.task) - QVector3D(0.45, 0.85, 0.45)).length(), 0.01);
+  EXPECT_GT((leftTip(rig) - left_target).norm(), 0.1);
+
+  // Now the left hand moves and the right is still: the left steers, and
+  // gets there.
+  const Eigen::Vector3d left_goal(0.40, 1.0, -0.50);
+  for (int i = 0; i <= 15; i++) {
+    frame(QVector3D(0.45, 0.85, 0.45), left_target + (left_goal - left_target) * (i / 15.0));
+  }
+  rig.runToEnd();
+  EXPECT_LT((leftTip(rig) - left_goal).norm(), 0.01);
 }
 
 TEST(TaskController, TheLeftHandGrabsCarriesAndLetsGo) {

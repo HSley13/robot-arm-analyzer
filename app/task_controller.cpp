@@ -38,9 +38,9 @@ constexpr double kFinishReach = 0.20;     // m
 constexpr double kFinishConfidence = 0.45;
 constexpr double kLiveGap = 0.5;          // s
 constexpr double kTypicalGripRadius = 0.03; // m, for where "the hand" is while guessing
-// The right arm steers the body while it has been steered live this
-// recently (reachLeft).
-constexpr qint64 kRightLeadsMs = 600;
+// A hand whose live target moves this far is "moving" - the last one
+// moving steers the body (reachLeft).
+constexpr double kMoved = 0.03; // m
 
 // Following a reachTo() goal: every degree of freedom closes the gap
 // exponentially (fast for small moves, so dragging feels direct), and no
@@ -721,7 +721,7 @@ bool TaskController::guidedReach(double x, double y, double z, double handAngleR
   if (busy() || _finishingId != -1 || _leftFinishingId != -1) {
     return false;
   }
-  _rightLiveClock.start(); // the right arm steers the body now (see reachLeft)
+  noteMove(_rightMover, Eigen::Vector3d(x, y, z));
   if (seconds > kLiveGap) {
     forgetIntent();
     seconds = 0.0;
@@ -729,7 +729,26 @@ bool TaskController::guidedReach(double x, double y, double z, double handAngleR
   double hand_angle = handAngleRadians;
   const bool pointing = std::isfinite(hand_angle);
   const Eigen::Vector3d point = assisted(Eigen::Vector3d(x, y, z), pointing ? &hand_angle : nullptr, seconds);
+  if (leftLeads()) {
+    return reachWithArmOnly(point, pointing ? &hand_angle : nullptr);
+  }
   return reachToward(point, pointing ? &hand_angle : nullptr);
+}
+
+bool TaskController::reachWithArmOnly(const Eigen::Vector3d &point, const double *hand_angle) {
+  const BodyPose from = _following ? _goal : currentPose();
+  const PickPlan plan = plan_arm_reach(_arm->config(), _geometry, point, from, hand_angle);
+  if (plan.pose.arm.size() != _arm->config().joints.size()) {
+    return false;
+  }
+  _goal = from;
+  _goal.arm = plan.pose.arm;
+  if (!_following) {
+    _following = true;
+    emit stateChanged();
+  }
+  startTicker();
+  return plan.ok;
 }
 
 Eigen::Vector3d TaskController::endEffectorPoint() const {
@@ -1468,8 +1487,23 @@ Eigen::Vector3d TaskController::leftGripPoint(double grip_radius) const {
 }
 
 bool TaskController::reachLeft(double x, double y, double z, double handAngleRadians) {
-  const bool right_steering = _rightLiveClock.isValid() && _rightLiveClock.elapsed() < kRightLeadsMs;
-  return reachLeft(x, y, z, handAngleRadians, !right_steering);
+  noteMove(_leftMover, Eigen::Vector3d(x, y, z));
+  return reachLeft(x, y, z, handAngleRadians, leftLeads());
+}
+
+void TaskController::noteMove(Mover &mover, const Eigen::Vector3d &target) {
+  if (!mover.anchored) {
+    mover.anchor = target; // where it starts isn't a move
+    mover.anchored = true;
+  } else if ((target - mover.anchor).norm() >= kMoved) {
+    mover.anchor = target;
+    mover.moved.start();
+  }
+}
+
+bool TaskController::leftLeads() const {
+  return _leftArm != nullptr && _leftMover.moved.isValid() &&
+         (!_rightMover.moved.isValid() || _leftMover.moved.nsecsElapsed() < _rightMover.moved.nsecsElapsed());
 }
 
 bool TaskController::reachLeft(double x, double y, double z, double handAngleRadians, bool leads) {
