@@ -35,6 +35,8 @@ bool readNumbers(const QJsonObject &message, std::initializer_list<const char *>
   return true;
 }
 
+constexpr qsizetype kMaxPreviewSize = 2 * 1024 * 1024; // base64 characters
+
 } // namespace
 
 SensorBridgeServer::SensorBridgeServer(TaskController *task, ArmController *arm, quint16 port, QObject *parent)
@@ -131,6 +133,14 @@ QString SensorBridgeServer::handleMessage(const QString &text) {
     }
     _task->setAssist(on.toBool());
     record(message);
+  } else if (type == QStringLiteral("preview")) {
+    // Not a command - a picture for the window - so not recorded either.
+    const QJsonValue jpeg = message.value(QStringLiteral("jpeg"));
+    if (!jpeg.isString() || jpeg.toString().size() > kMaxPreviewSize) {
+      qWarning() << "SensorBridgeServer: preview needs a base64 jpeg (under 2 MB)";
+      return {};
+    }
+    emit previewFrame(jpeg.toString().toLatin1());
   } else if (type == QStringLiteral("hold")) {
     _task->cancelReach();
     record(message);

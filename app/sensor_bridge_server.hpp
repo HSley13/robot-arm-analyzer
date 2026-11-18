@@ -34,6 +34,8 @@ class TaskController;
 //                                                     (TaskController::setGrip)
 //   {"type": "assist", "on": <bool>}                  that help on / off
 //                                                     (TaskController::assist)
+//   {"type": "preview", "jpeg": <base64>}             a camera picture for the
+//                                                     window (previewFrame)
 //   {"type": "hold"}                                  stop where it is
 //   {"type": "ping"}                                  answered with {"type": "pong"}
 //
@@ -72,6 +74,9 @@ public:
 
 signals:
   void clientCountChanged();
+  // A preview picture from the client (base64 JPEG) - WebcamController
+  // shows it.
+  void previewFrame(const QByteArray &jpeg_base64);
 
 private:
   void onNewConnection();
