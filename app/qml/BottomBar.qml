@@ -360,6 +360,93 @@ Rectangle {
                 }
             }
 
+            // The left arm: the same analysis as the right arm's cards,
+            // compact - each joint's load against its limit, what it holds.
+            Rectangle {
+                id: leftArmCard
+                readonly property var arm: TaskController.leftArm
+                visible: arm !== null
+                Layout.preferredWidth: 190
+                implicitHeight: jointRepeater.count > 0
+                    ? jointRepeater.itemAt(0).implicitHeight
+                    : leftArmColumn.implicitHeight + 20
+                color: "#171a2b"
+                radius: 14
+                border.color: "#262a40"
+                border.width: 1
+
+                ColumnLayout {
+                    id: leftArmColumn
+                    anchors.fill: parent
+                    anchors.margins: 10
+                    spacing: 6
+
+                    Label {
+                        color: "white"
+                        font.bold: true
+                        text: "Left arm"
+                    }
+
+                    Repeater {
+                        model: leftArmCard.arm !== null ? leftArmCard.arm.jointCount : 0
+
+                        ColumnLayout {
+                            id: leftJoint
+                            required property int index
+                            readonly property var arm: leftArmCard.arm
+                            readonly property real torque: Math.abs(arm.jointTorques[index] || 0)
+                            readonly property real limit: arm.jointTorqueLimits[index] || 1
+                            readonly property color status: arm.jointColors[index] || "#2ecc71"
+                            Layout.fillWidth: true
+                            spacing: 2
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    color: "#c7cbd6"
+                                    font.pixelSize: 11
+                                    text: leftJoint.arm.jointNames[leftJoint.index] || ""
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    color: leftJoint.status
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                    text: Math.round(100 * leftJoint.torque / leftJoint.limit) + "%"
+                                }
+                            }
+                            Rectangle {
+                                Layout.fillWidth: true
+                                implicitHeight: 5
+                                radius: 2.5
+                                color: "#262a40"
+                                Rectangle {
+                                    width: parent.width * Math.min(1, leftJoint.torque / leftJoint.limit)
+                                    height: parent.height
+                                    radius: 2.5
+                                    color: leftJoint.status
+                                }
+                            }
+                        }
+                    }
+
+                    Label {
+                        color: "#9aa0ab"
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                        text: TaskController.leftHeldId !== -1
+                            ? "Holding the " + TaskController.leftHeldObject.type + " ("
+                                + TaskController.leftHeldObject.mass.toFixed(1) + " kg)"
+                            : leftArmCard.arm !== null
+                                ? leftArmCard.arm.currentMaxSafePayloadKg.toFixed(1) + " kg safe now"
+                                : ""
+                    }
+
+                    Item { Layout.fillHeight: true }
+                }
+            }
+
             Rectangle {
                 id: payloadCapacityCard
                 Layout.preferredWidth: 150

@@ -32,6 +32,9 @@ class TaskController;
 //   {"type": "grip", "amount": <0..1>}                close / open the hand,
 //                                                     grabbing and letting go
 //                                                     (TaskController::setGrip)
+//   + "hand": "left" on a reach or grip                 for the left hand instead
+//                                                     (reachLeft, setLeftHandRoll,
+//                                                     setLeftGrip; default "right")
 //   {"type": "assist", "on": <bool>}                  that help on / off
 //                                                     (TaskController::assist)
 //   {"type": "preview", "jpeg": <base64>}             a camera picture for the
@@ -41,7 +44,8 @@ class TaskController;
 //
 // On connecting, a client gets {"type": "hello", ...} describing the robot
 // (its standing shoulder position, the arm's reach and how much of that
-// is the hand) so it can scale a person's arm to the robot's. Malformed messages and unknown types are
+// is the hand; "left_shoulder" too when it has a working left arm, else
+// null) so it can scale a person's arm to the robot's. Malformed messages and unknown types are
 // logged and ignored, never fatal: a flaky sensor link should degrade to
 // "nothing happens", not crash the app.
 class SensorBridgeServer : public QObject {

@@ -7,6 +7,7 @@
 
 #include "arm_controller.hpp"
 #include "hand_controller.hpp"
+#include "robotarm/pick_planner.hpp"
 #include "task_controller.hpp"
 
 using robotarm::ArmController;
@@ -675,4 +676,155 @@ TEST(TaskController, ClickingTheHandFarFromEverythingSaysSo) {
   EXPECT_FALSE(rig.task.grabOrRelease());
   EXPECT_EQ(rig.task.heldId(), -1);
   EXPECT_TRUE(rig.task.status().contains("Nothing close enough")) << rig.task.status().toStdString();
+}
+
+// ---- the left arm ----------------------------------------------------------
+
+namespace {
+
+struct TwoArmRig : Rig {
+  ArmController left{std::string(PROJECT_ROOT_DIR) + "/config/humanoid_arm.json", "/nonexistent/weights.json"};
+  HandController leftHand{std::string(PROJECT_ROOT_DIR) + "/config/humanoid_hand.json"};
+  TwoArmRig() { task.setLeftArm(&left, &leftHand); }
+};
+
+// Where the left arm's end-effector point is (the mirrored robot's right).
+Eigen::Vector3d leftTip(const TwoArmRig &rig) {
+  robotarm::BodyPose pose;
+  pose.yaw = rig.task.waistYawDegrees() * M_PI / 180.0;
+  pose.hip_height = rig.task.hipHeight();
+  pose.hip_bend = rig.task.hipBendDegrees() * M_PI / 180.0;
+  pose.arm = rig.left.jointAnglesRadians();
+  const robotarm::BodyGeometry body;
+  return robotarm::mirrored(
+      robotarm::grip_point_in_world(rig.left.config(), body, robotarm::mirrored(pose), 0.0, 0.0));
+}
+
+void leftTo(TwoArmRig &rig, double x, double y, double z, bool leads = true) {
+  rig.task.reachLeft(x, y, z, std::nan(""), leads);
+  rig.runToEnd();
+}
+
+} // namespace
+
+TEST(TaskController, WithoutALeftArmLeftCommandsDoNothing) {
+  Rig rig;
+  EXPECT_EQ(rig.task.leftArm(), nullptr);
+  EXPECT_FALSE(rig.task.reachLeft(0.4, 1.0, -0.3, std::nan(""), true));
+  rig.task.setLeftGrip(1.0);
+  EXPECT_EQ(rig.task.leftHeldId(), -1);
+}
+
+TEST(TaskController, TheLeftArmLeadingTurnsTheBodyToReach) {
+  TwoArmRig rig;
+  const Eigen::Vector3d point(0.35, 0.95, -0.45); // ahead and to the left
+  leftTo(rig, point.x(), point.y(), point.z());
+  EXPECT_LT((leftTip(rig) - point).norm(), 0.01);
+  EXPECT_GT(rig.task.waistYawDegrees(), 1.0); // turned left (counter-clockwise from above)
+}
+
+TEST(TaskController, WithTheRightArmLeadingTheLeftReachesWithItsJointsAlone) {
+  TwoArmRig rig;
+  const double yaw = rig.task.waistYawDegrees();
+  const double hip = rig.task.hipHeight();
+  leftTo(rig, 0.40, 1.05, -0.45, false); // 25 cm off its plane: only the in-plane part
+  EXPECT_DOUBLE_EQ(rig.task.waistYawDegrees(), yaw);
+  EXPECT_DOUBLE_EQ(rig.task.hipHeight(), hip);
+  const Eigen::Vector3d tip = leftTip(rig);
+  EXPECT_NEAR(tip.x(), 0.40, 0.01);
+  EXPECT_NEAR(tip.y(), 1.05, 0.01);
+  EXPECT_NEAR(tip.z(), -0.20, 0.01); // the left shoulder's plane
+}
+
+TEST(TaskController, TheHandThatMovedLastSteersTheBody) {
+  TwoArmRig rig;
+  const Eigen::Vector3d left_target(0.35, 0.95, -0.45); // 25 cm off the left arm's plane
+  const auto frame = [&](const QVector3D &right, const Eigen::Vector3d &left) {
+    rig.task.guidedReach(right.x(), right.y(), right.z(), std::nan(""), 1.0 / 30.0);
+    rig.task.reachLeft(left.x(), left.y(), left.z(), std::nan(""));
+    rig.task.advance(1.0 / 30.0);
+  };
+  // The right hand moving, the left held still: the right steers, the
+  // left can only reach with its joints - not out to its target.
+  for (int i = 0; i <= 15; i++) {
+    frame(QVector3D(0.45, 1.0 - 0.01 * i, 0.30 + 0.01 * i), left_target);
+  }
+  rig.runToEnd();
+  EXPECT_LT((tipInWorld(rig.arm, rig.task) - QVector3D(0.45, 0.85, 0.45)).length(), 0.01);
+  EXPECT_GT((leftTip(rig) - left_target).norm(), 0.1);
+
+  // Now the left hand moves and the right is still: the left steers, and
+  // gets there.
+  const Eigen::Vector3d left_goal(0.40, 1.0, -0.50);
+  for (int i = 0; i <= 15; i++) {
+    frame(QVector3D(0.45, 0.85, 0.45), left_target + (left_goal - left_target) * (i / 15.0));
+  }
+  rig.runToEnd();
+  EXPECT_LT((leftTip(rig) - left_goal).norm(), 0.01);
+}
+
+TEST(TaskController, TheLeftHandGrabsCarriesAndLetsGo) {
+  TwoArmRig rig;
+  // On the table, on the robot's left: grip center 72 + 10 cm up.
+  const int bottle = rig.task.addObject("bottle", 0.0, 0.50, -0.45);
+  ASSERT_DOUBLE_EQ(objectById(rig.task, bottle)["y"].toDouble(), 0.72);
+  leftTo(rig, 0.50, 0.82, -0.45);
+  rig.task.setLeftGrip(1.0);
+  ASSERT_EQ(rig.task.leftHeldId(), bottle) << rig.task.status().toStdString();
+  EXPECT_EQ(rig.task.heldId(), -1);
+  EXPECT_DOUBLE_EQ(rig.left.payloadKg(), 1.0); // on the left arm's joints
+  EXPECT_DOUBLE_EQ(rig.arm.payloadKg(), 0.0);
+  EXPECT_TRUE(objectById(rig.task, bottle)["held"].toBool());
+  EXPECT_EQ(rig.task.leftHeldObject()["id"].toInt(), bottle);
+
+  // The right hand can't take it, nor can a pick-up.
+  EXPECT_FALSE(rig.task.pickUp(bottle));
+
+  leftTo(rig, 0.55, 0.40, 0.10); // over clear floor
+  rig.task.setLeftGrip(0.0);
+  EXPECT_EQ(rig.task.leftHeldId(), -1);
+  EXPECT_DOUBLE_EQ(rig.left.payloadKg(), 0.0);
+  EXPECT_DOUBLE_EQ(objectById(rig.task, bottle)["y"].toDouble(), 0.0);
+}
+
+TEST(TaskController, TheLeftHandMovesInToGrabFromAFewCentimetresOff) {
+  TwoArmRig rig;
+  const int bottle = rig.task.addObject("bottle", 0.0, 0.50, -0.45); // on the table
+  leftTo(rig, 0.42, 0.88, -0.50);
+  rig.task.setLeftGrip(1.0);
+  ASSERT_EQ(rig.task.leftHeldId(), -1); // not around it yet
+  EXPECT_TRUE(rig.task.status().contains("taking")) << rig.task.status().toStdString();
+  rig.runToEnd();
+  for (int i = 0; i < 600 && rig.task.leftHeldId() == -1; i++) {
+    rig.task.advance(1.0 / 60.0);
+  }
+  EXPECT_EQ(rig.task.leftHeldId(), bottle) << rig.task.status().toStdString();
+}
+
+TEST(TaskController, BothHandsHoldSomethingAtOnce) {
+  TwoArmRig rig;
+  const int right = rig.task.addObject("bottle", 0.0, 0.62, 0.30);
+  const int left = rig.task.addObject("can", 0.0, 0.50, -0.45); // on the table: grip center at 0.78
+  handTo(rig, 0.62, 0.10, 0.30);
+  rig.task.setGrip(1.0);
+  ASSERT_EQ(rig.task.heldId(), right);
+  leftTo(rig, 0.50, 0.78, -0.45); // the body turns for it (the right hand keeps the bottle)
+  rig.task.setLeftGrip(1.0);
+  for (int i = 0; i < 600 && rig.task.leftHeldId() == -1; i++) {
+    rig.task.advance(1.0 / 60.0);
+  }
+  EXPECT_EQ(rig.task.leftHeldId(), left) << rig.task.status().toStdString();
+  EXPECT_EQ(rig.task.heldId(), right);
+}
+
+TEST(TaskController, TheLeftHandTwistsAndLeansWithTheBody) {
+  TwoArmRig rig;
+  rig.task.setLeftHandRoll(0.8);
+  rig.runToEnd();
+  for (int i = 0; i < 120; i++) {
+    rig.task.advance(1.0 / 60.0);
+  }
+  EXPECT_NEAR(rig.task.leftHandRollDegrees(), 0.8 * 180 / M_PI, 0.5);
+  rig.task.setHipBendDegrees(20.0);
+  EXPECT_DOUBLE_EQ(rig.left.baseTiltDegrees(), 20.0); // one torso: both arms lean
 }

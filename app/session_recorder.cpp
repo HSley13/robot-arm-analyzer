@@ -95,7 +95,8 @@ void SessionRecorder::record(const QJsonObject &message) {
          {"intent", QJsonObject{{"id", _task->intentId()},
                                 {"confidence", _task->intentConfidence()},
                                 {"strength", _task->assistStrength()}}},
-         {"held", _task->heldId()}});
+         {"held", _task->heldId()},
+         {"held_left", _task->leftHeldId()}});
 }
 
 void SessionRecorder::writeObjects() { write({{"type", "objects"}, {"objects", objectsOf(*_task)}}); }
@@ -105,11 +106,20 @@ QJsonObject SessionRecorder::pose() const {
   for (const double angle : _arm->jointAnglesRadians()) {
     arm.append(angle);
   }
-  return {{"yaw", _task->waistYawDegrees() * kDegreesToRadians},
-          {"hip_height", _task->hipHeight()},
-          {"hip_bend", _task->hipBendDegrees() * kDegreesToRadians},
-          {"hand_roll", _task->handRollDegrees() * kDegreesToRadians},
-          {"arm", arm}};
+  QJsonObject pose{{"yaw", _task->waistYawDegrees() * kDegreesToRadians},
+                   {"hip_height", _task->hipHeight()},
+                   {"hip_bend", _task->hipBendDegrees() * kDegreesToRadians},
+                   {"hand_roll", _task->handRollDegrees() * kDegreesToRadians},
+                   {"arm", arm}};
+  if (const ArmController *left = _task->leftArm()) {
+    QJsonArray left_arm;
+    for (const double angle : left->jointAnglesRadians()) {
+      left_arm.append(angle);
+    }
+    pose.insert(QStringLiteral("left_arm"), left_arm);
+    pose.insert(QStringLiteral("left_hand_roll"), _task->leftHandRollDegrees() * kDegreesToRadians);
+  }
+  return pose;
 }
 
 void SessionRecorder::write(QJsonObject line) {

@@ -7,10 +7,11 @@ then:
     python3 webcam_teleop.py --demo     # no camera: a scripted arm, to try the link
 
 Stand facing the camera, far enough back that it sees your shoulders and
-your right arm. Move your right hand and the robot's hand follows - tip
-your hand up or down, or turn your palm, and the robot's hand does the
-same; close your hand near an object to grab it, open it to let go. Step out of view and the robot holds
-still.
+arms. Move a hand and the robot's hand on that side follows - tip your hand
+up or down, or turn your palm, and the robot's hand does the same; close
+your hand near an object to grab it, open it to let go. Both arms work
+(if the robot has a working left arm); the hand you moved last steers the
+robot's body. Step out of view and the robot holds still.
 
 The app helps: it guesses which object you're reaching for (an amber ring
 around it), pulls the robot's hand toward it as it gets sure, and finishes
@@ -38,6 +39,7 @@ import sys
 import time
 import urllib.request
 from contextlib import ExitStack
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -62,6 +64,30 @@ from teleop_math import (
 # and the body tracker's own rough points on that hand.
 RIGHT_SHOULDER, RIGHT_ELBOW, RIGHT_WRIST = 12, 14, 16
 RIGHT_PINKY, RIGHT_INDEX = 18, 20
+
+
+@dataclass(frozen=True)
+class Side:
+    """One of your arms: its pose landmarks, and what MediaPipe's hand
+    tracker calls that hand on an unmirrored frame (it assumes a mirrored
+    selfie, so your right hand is "Left")."""
+
+    name: str
+    shoulder: int
+    elbow: int
+    wrist: int
+    pinky: int
+    index: int
+    hand_label: str
+
+    def label(self, mirror: bool) -> str:
+        if not mirror:
+            return self.hand_label
+        return "Right" if self.hand_label == "Left" else "Left"
+
+
+RIGHT = Side("right", RIGHT_SHOULDER, RIGHT_ELBOW, RIGHT_WRIST, RIGHT_PINKY, RIGHT_INDEX, "Left")
+LEFT = Side("left", 11, 13, 15, 17, 19, "Right")
 
 MODELS = {
     **{
@@ -103,6 +129,7 @@ class Robot:
         self.shoulder = DEFAULT_SHOULDER
         self.reach = DEFAULT_REACH
         self.hand = DEFAULT_HAND
+        self.left_shoulder = None  # the robot's left shoulder, if its left arm works
         self.kind = "?"
         self.assist = True  # the app's help reaching for things, told again on every connect
         self._next_try = 0.0
@@ -128,6 +155,8 @@ class Robot:
                 self.reach = float(hello["reach"])
                 self.hand = float(hello.get("hand", 0.0))  # older apps: no hand, so the wrist is the tip
                 self.kind = hello.get("robot", "?")
+                left = hello.get("left_shoulder")
+                self.left_shoulder = tuple(left) if left else None
             self.send({"type": "assist", "on": self.assist})
             print(f"connected: {self.kind} arm, reach {self.reach:.2f} m")
         except Exception as error:  # the app isn't running (yet)
@@ -215,14 +244,18 @@ HAND_NEAR_WRIST = 0.2
 
 
 def right_hand(hand_result, pose_wrist, mirror: bool = False):
-    """Which detected hand is the right one: the one at the pose's right
-    wrist in the image - preferring, among those, the one MediaPipe labels
-    as a right hand. Its labels assume a mirrored selfie image, so on a raw
-    webcam frame your right hand is labelled "Left" (as Maestro's hand
-    selection has it); the label only breaks ties, position decides."""
+    """Which detected hand is your right one (see hand_at)."""
+    return hand_at(hand_result, pose_wrist, RIGHT.label(mirror))
+
+
+def hand_at(hand_result, pose_wrist, expected: str):
+    """Which detected hand is the one at the pose's wrist in the image -
+    preferring, among those, the one MediaPipe labels `expected`. Its labels
+    assume a mirrored selfie image, so on a raw webcam frame your right hand
+    is labelled "Left" (as Maestro's hand selection has it); the label only
+    breaks ties, position decides."""
     if not hand_result.hand_landmarks or pose_wrist is None:
         return None, None
-    expected = "Right" if mirror else "Left"
     labels = getattr(hand_result, "handedness", None) or []
 
     def score(i):
@@ -237,31 +270,33 @@ def right_hand(hand_result, pose_wrist, mirror: bool = False):
     return hand_result.hand_landmarks[best], hand_result.hand_world_landmarks[best]
 
 
-def find_hand(mp, cv2, hands, zoomed, rgb, image, stamp, seen, mirror):
-    """Your right hand this frame: (image landmarks, world landmarks, where
-    from) - "hand" from the whole frame, "zoomed" from a second look at a
-    crop around where the body tracker puts the hand, or (None, None, None).
+def find_hand(mp, cv2, detected, zoomed, rgb, seen, mirror, side: Side = RIGHT):
+    """One of your hands this frame: (image landmarks, world landmarks,
+    where from) - "hand" from the whole frame (`detected`, this frame's
+    hand tracker result), "zoomed" from a second look at a crop around where
+    the body tracker puts the hand, or (None, None, None).
     """
-    hand_image, hand_world = right_hand(hands.detect_for_video(image, stamp), seen[RIGHT_WRIST], mirror)
+    expected = side.label(mirror)
+    hand_image, hand_world = hand_at(detected, seen[side.wrist], expected)
     if hand_world is not None:
         return hand_image, hand_world, "hand"
     height, width = rgb.shape[:2]
-    crop = hand_crop(seen[RIGHT_WRIST], seen[RIGHT_INDEX], seen[RIGHT_PINKY], width, height)
+    crop = hand_crop(seen[side.wrist], seen[side.index], seen[side.pinky], width, height)
     if crop is None:
         return None, None, None
-    left, top, side = crop
-    patch = cv2.resize(rgb[top : top + side, left : left + side], (256, 256))
+    left, top, size = crop
+    patch = cv2.resize(rgb[top : top + size, left : left + size], (256, 256))
     result = zoomed.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=patch))
     if not result.hand_landmarks:
         return None, None, None
     # Back to whole-frame coordinates (world landmarks don't change: they're
     # in metres around the hand, wherever it is in the picture).
     points = [
-        SimpleNamespace(x=(left + p.x * side) / width, y=(top + p.y * side) / height) for p in result.hand_landmarks[0]
+        SimpleNamespace(x=(left + p.x * size) / width, y=(top + p.y * size) / height) for p in result.hand_landmarks[0]
     ]
     mapped = SimpleNamespace(hand_landmarks=[points], hand_world_landmarks=result.hand_world_landmarks,
                              handedness=result.handedness)
-    hand_image, hand_world = right_hand(mapped, seen[RIGHT_WRIST], mirror)
+    hand_image, hand_world = hand_at(mapped, seen[side.wrist], expected)
     return (hand_image, hand_world, "zoomed") if hand_world is not None else (None, None, None)
 
 
@@ -278,9 +313,14 @@ class Controller:
     when a hand was seen lately.
     """
 
-    def __init__(self, robot: Robot, mirror: bool, follow_wrist: bool = True) -> None:
+    def __init__(self, robot: Robot, mirror: bool, follow_wrist: bool = True, side: Side = RIGHT) -> None:
         self.robot = robot
-        self.mirror = mirror
+        self.side = side
+        # Your left arm drives the robot's left arm, which is the right one
+        # mirrored (z -> -z): everything is worked out as for the right arm
+        # with left and right swapped, and the target mirrored back.
+        self.left = side is LEFT
+        self.mirror = mirror != self.left
         self.follow_wrist = follow_wrist
         # Positions in metres move at up to ~1.5 m/s: beta lets the filter
         # open right up for a quick move, so the robot doesn't trail it.
@@ -309,6 +349,8 @@ class Controller:
         self._hand_seen = -math.inf
 
     def arm(self, shoulder, elbow, wrist, now: float) -> None:
+        if self.left and self.robot.left_shoulder is None:
+            return  # the robot has no working left arm
         # Arm length from one frame is noisy (depth guesses); average it slowly.
         length = math.dist((shoulder.x, shoulder.y, shoulder.z), (elbow.x, elbow.y, elbow.z)) + math.dist(
             (elbow.x, elbow.y, elbow.z), (wrist.x, wrist.y, wrist.z)
@@ -348,7 +390,9 @@ class Controller:
         # Closing or opening the hand: the robot's stays where it is.
         self.holding_still = self.grasp_hold(now, self.grip_amount, self.grip_gate.closed)
         if not self.paused and not self.holding_still:
-            message = {"type": "reach", "x": tip[0], "y": tip[1], "z": tip[2]}
+            message = {"type": "reach", "x": tip[0], "y": tip[1], "z": -tip[2] if self.left else tip[2]}
+            if self.left:
+                message["hand"] = "left"
             if self.pitch is not None:
                 message["pitch"] = math.remainder(self.pitch, 2 * math.pi)
             if self.roll is not None:
@@ -370,8 +414,11 @@ class Controller:
         self.hand_source = source
         self.grip_amount = self.grip_filter(grip_amount(landmarks), now)
         self.grip = self.grip_gate(self.grip_amount)
-        if not self.paused:
-            self.robot.send({"type": "grip", "amount": self.grip})
+        if not self.paused and not (self.left and self.robot.left_shoulder is None):
+            message = {"type": "grip", "amount": self.grip}
+            if self.left:
+                message["hand"] = "left"
+            self.robot.send(message)
 
     def body_hand(self, wrist, index, pinky, now: float) -> None:
         """The hand tracker lost the hand, but the body tracker still has a
@@ -381,10 +428,13 @@ class Controller:
         self._hand_seen = now
         self.hand_source = "body"
 
-    def lost(self) -> None:
-        """Out of view: stop where it is (once), and start smoothing afresh."""
+    def lost(self, hold: bool = True) -> None:
+        """Out of view: stop where it is (once; `hold` False leaves the
+        robot moving - one arm out of view while the other still steers),
+        and start smoothing afresh."""
         if self.tracking:
-            self.robot.send({"type": "hold"})
+            if hold:
+                self.robot.send({"type": "hold"})
             for f in self.filters:
                 f.reset()
             self.pitch_filter.reset()
@@ -411,6 +461,8 @@ def run_camera(args, robot: Robot) -> None:
     if not camera.isOpened():
         sys.exit(f"can't open camera {args.camera} (on macOS, allow the terminal to use the camera)")
     control = Controller(robot, args.mirror, follow_wrist=not args.no_wrist)
+    left_control = Controller(robot, args.mirror, follow_wrist=not args.no_wrist, side=LEFT)
+    controls = ((RIGHT, control), (LEFT, left_control))
     start = time.monotonic()
     stamp = -1
     last_preview = -math.inf
@@ -427,25 +479,32 @@ def run_camera(args, robot: Robot) -> None:
         stamp = max(int(now * 1000), stamp + 1)
         body = pose.detect_for_video(image, stamp)
         found = bool(body.pose_world_landmarks)
+        seen = body.pose_landmarks[0] if found else None
+        tracked = []  # the arms steering this frame
+        hand_images = []
         if found:
             world = body.pose_world_landmarks[0]
-            seen = body.pose_landmarks[0]
             # Only steer from a clearly visible arm.
-            found = min(seen[i].visibility for i in (RIGHT_SHOULDER, RIGHT_ELBOW, RIGHT_WRIST)) > 0.5
-        if found:
-            hand_image, hand_world, source = find_hand(mp, cv2, hands, zoomed, rgb, image, stamp, seen, args.mirror)
-            if hand_world is not None:
-                control.hand(hand_world, now, source)
-            elif min(seen[i].visibility for i in (RIGHT_INDEX, RIGHT_PINKY)) > 0.5:
-                control.body_hand(world[RIGHT_WRIST], world[RIGHT_INDEX], world[RIGHT_PINKY], now)
-            control.arm(world[RIGHT_SHOULDER], world[RIGHT_ELBOW], world[RIGHT_WRIST], now)
-        else:
-            control.lost()
-            hand_image = None
+            visible = [(side, c) for side, c in controls
+                       if min(seen[i].visibility for i in (side.shoulder, side.elbow, side.wrist)) > 0.5]
+            detected = hands.detect_for_video(image, stamp) if visible else None
+            for side, c in visible:
+                hand_image, hand_world, source = find_hand(mp, cv2, detected, zoomed, rgb, seen, args.mirror, side)
+                if hand_world is not None:
+                    c.hand(hand_world, now, source)
+                    hand_images.append(hand_image)
+                elif min(seen[i].visibility for i in (side.index, side.pinky)) > 0.5:
+                    c.body_hand(world[side.wrist], world[side.index], world[side.pinky], now)
+                c.arm(world[side.shoulder], world[side.elbow], world[side.wrist], now)
+                tracked.append(side)
+        # An arm out of view stops; the robot holds still only when neither is in view.
+        for side, c in controls:
+            if side not in tracked:
+                c.lost(hold=not tracked)
 
         stream = args.stream_preview and now - last_preview >= PREVIEW_INTERVAL
         if stream or not args.no_preview:
-            view = draw_preview(cv2, frame, seen if found else None, hand_image, control)
+            view = draw_preview(cv2, frame, seen, hand_images, control, tracked, left_control)
         if stream:
             last_preview = now
             robot.send(preview_message(cv2, view))
@@ -456,6 +515,7 @@ def run_camera(args, robot: Robot) -> None:
                 break
             if key == ord(" "):
                 control.toggle_pause()
+                left_control.paused = control.paused
             if key == ord("a"):
                 control.toggle_assist()
 
@@ -471,9 +531,10 @@ def preview_message(cv2, view) -> dict:
     return {"type": "preview", "jpeg": base64.b64encode(jpeg.tobytes()).decode("ascii")}
 
 
-def draw_preview(cv2, frame, pose_landmarks, hand_landmarks, control: Controller):
+def draw_preview(cv2, frame, pose_landmarks, hands, control: Controller, arms=(RIGHT,), left: Controller | None = None):
     """The camera image as a mirror (what people expect), with the tracked
-    arm, the grip, and the state of things."""
+    arms (`arms`) and hands (`hands`, landmark lists), the grip, and the
+    state of things."""
     height, width = frame.shape[:2]
     view = cv2.flip(frame, 1)
 
@@ -481,13 +542,15 @@ def draw_preview(cv2, frame, pose_landmarks, hand_landmarks, control: Controller
         return int((1.0 - p.x) * width), int(p.y * height)  # flipped like the view
 
     if pose_landmarks is not None:
-        points = [pixel(pose_landmarks[i]) for i in (RIGHT_SHOULDER, RIGHT_ELBOW, RIGHT_WRIST)]
-        cv2.line(view, points[0], points[1], (255, 224, 23), 4)
-        cv2.line(view, points[1], points[2], (255, 224, 23), 4)
-        for p in points:
-            cv2.circle(view, p, 7, (255, 255, 255), -1)
-    if hand_landmarks is not None:
-        for p in hand_landmarks:
+        for side in arms:
+            points = [pixel(pose_landmarks[i]) for i in (side.shoulder, side.elbow, side.wrist)]
+            color = (255, 224, 23) if side is RIGHT else (60, 176, 255)
+            cv2.line(view, points[0], points[1], color, 4)
+            cv2.line(view, points[1], points[2], color, 4)
+            for p in points:
+                cv2.circle(view, p, 7, (255, 255, 255), -1)
+    for hand in hands:
+        for p in hand:
             cv2.circle(view, pixel(p), 3, (60, 200, 255), -1)
 
     # Grip bar: open (left) .. closed (right).
@@ -497,6 +560,8 @@ def draw_preview(cv2, frame, pose_landmarks, hand_landmarks, control: Controller
     grip_text = "grip: CLOSED" if control.grip_gate.closed else "grip: open"
     if control.holding_still:
         grip_text += " - holding still"
+    if left is not None and LEFT in arms and control.robot.left_shoulder is not None:
+        grip_text += " | left: " + ("CLOSED" if left.grip_gate.closed else "open")
     cv2.putText(view, grip_text, (230, height - 23), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
     if control.pitch is not None:
         sources = {"hand": "", "zoomed": " (zoomed in)", "body": " (body tracker: no grip)"}
@@ -510,8 +575,8 @@ def draw_preview(cv2, frame, pose_landmarks, hand_landmarks, control: Controller
         status, color = "waiting for the robot app...", (0, 165, 255)
     elif control.paused:
         status, color = "PAUSED - space to resume", (0, 200, 255)
-    elif not control.tracking:
-        status, color = "step into view: shoulders and right arm", (0, 165, 255)
+    elif not control.tracking and not (left is not None and left.tracking):
+        status, color = "step into view: shoulders and arms", (0, 165, 255)
     else:
         status, color = "controlling the robot", (80, 220, 80)
     cv2.putText(view, status, (20, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)

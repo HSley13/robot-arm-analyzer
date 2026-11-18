@@ -396,3 +396,69 @@ TEST(ReachPlanner, LeavesTheHandsRollAsItWas) {
   ASSERT_TRUE(plan.ok) << plan.reason;
   EXPECT_DOUBLE_EQ(plan.pose.hand_roll, 0.7);
 }
+
+TEST(ArmReach, MovesTheArmAloneTheBodyStaysPut) {
+  const ArmConfig config = humanoid_arm();
+  const BodyGeometry body;
+  robotarm::BodyPose start = standing_pose();
+  start.yaw = 0.3;
+  start.hand_roll = 0.5;
+  // A point in the arm's plane: the tip of some other arm pose there.
+  robotarm::BodyPose other = start;
+  other.arm = {robotarm::to_radians(-40.0), robotarm::to_radians(50.0), robotarm::to_radians(0.0)};
+  const Eigen::Vector3d point = tip_point_of(config, body, other);
+  const PickPlan plan = robotarm::plan_arm_reach(config, body, point, start);
+  ASSERT_TRUE(plan.ok) << plan.reason;
+  EXPECT_DOUBLE_EQ(plan.pose.yaw, start.yaw);
+  EXPECT_DOUBLE_EQ(plan.pose.hip_height, start.hip_height);
+  EXPECT_DOUBLE_EQ(plan.pose.hip_bend, start.hip_bend);
+  EXPECT_DOUBLE_EQ(plan.pose.hand_roll, start.hand_roll);
+  EXPECT_LT((tip_point_of(config, body, plan.pose) - point).norm(), 1e-3);
+}
+
+TEST(ArmReach, ASidewaysPointIsReachedInTheArmsPlane) {
+  // 25 cm to the side of the arm's plane: the waist would have to turn, so
+  // the hand gets the in-plane part (same forward distance and height).
+  const ArmConfig config = humanoid_arm();
+  const BodyGeometry body;
+  const robotarm::BodyPose start = standing_pose();
+  const PickPlan plan = robotarm::plan_arm_reach(config, body, Eigen::Vector3d(0.40, 1.05, 0.20 - 0.25), start);
+  ASSERT_TRUE(plan.ok) << plan.reason;
+  const Eigen::Vector3d tip = tip_point_of(config, body, plan.pose);
+  EXPECT_NEAR(tip.x(), 0.40, 1e-3);
+  EXPECT_NEAR(tip.y(), 1.05, 1e-3);
+  EXPECT_NEAR(tip.z(), 0.20, 1e-9);
+}
+
+TEST(ArmReach, NeverThroughTheFloor) {
+  const ArmConfig config = humanoid_arm();
+  const BodyGeometry body;
+  const robotarm::BodyPose start = standing_pose();
+  const PickPlan plan = robotarm::plan_arm_reach(config, body, Eigen::Vector3d(0.30, -0.5, 0.20), start);
+  EXPECT_FALSE(plan.ok);
+  EXPECT_GT(tip_point_of(config, body, plan.pose).y(), 0.0);
+}
+
+TEST(Mirror, TheLeftArmIsTheRightArmOfTheMirroredRobot) {
+  // Plan the left hand to a point by planning the right one to its mirror
+  // image: the mirrored answer puts the left grip point there.
+  const ArmConfig config = humanoid_arm();
+  const BodyGeometry body;
+  robotarm::BodyPose start = standing_pose();
+  start.yaw = 0.4;
+  const Eigen::Vector3d left_target(0.45, 1.0, -0.35);
+  const PickPlan plan = robotarm::plan_reach(config, body, robotarm::mirrored(left_target), robotarm::mirrored(start));
+  ASSERT_TRUE(plan.ok) << plan.reason;
+  const robotarm::BodyPose left = robotarm::mirrored(plan.pose);
+  const Eigen::Vector3d left_tip =
+      robotarm::mirrored(robotarm::grip_point_in_world(config, body, robotarm::mirrored(left), 0.0, 0.0));
+  EXPECT_LT((left_tip - left_target).norm(), 1e-3);
+  // Mirroring twice changes nothing.
+  EXPECT_DOUBLE_EQ(robotarm::mirrored(robotarm::mirrored(start)).yaw, start.yaw);
+  EXPECT_EQ(robotarm::mirrored(robotarm::mirrored(left_target)), left_target);
+  // The left shoulder is on the robot's left: -z at yaw 0.
+  robotarm::BodyPose ahead = standing_pose();
+  ahead.arm = {0.0, 0.0, 0.0}; // straight forward
+  EXPECT_LT(robotarm::mirrored(robotarm::grip_point_in_world(config, body, robotarm::mirrored(ahead), 0.0, 0.0)).z(),
+            0.0);
+}

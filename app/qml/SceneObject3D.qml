@@ -23,6 +23,11 @@ Node {
     property real objectHeight: 0.23
     property bool selected: false
     property bool showSelection: true
+
+    // Drawn mirrored (the left arm is the right one with z -> -z): that
+    // turns every triangle inside out, so the other side gets culled.
+    property bool mirrored: false
+    readonly property int cullMode: mirrored ? Material.FrontFaceCulling : Material.BackFaceCulling
     // How sure the assist is that this is what the hand is reaching for,
     // 0..1 (TaskController.intentConfidence): a ring that brightens as the
     // guess firms up.
@@ -46,11 +51,11 @@ Node {
         readonly property real r: root.gripRadius
         Cyl {
             radius: parent.r; length: root.objectHeight * 0.66
-            materials: PrincipledMaterial { baseColor: "#4f9bd8"; roughness: 0.18; specularAmount: 0.8 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#4f9bd8"; roughness: 0.18; specularAmount: 0.8 }
         }
         Cyl {
             radius: parent.r * 1.005; length: root.objectHeight * 0.22; y: root.objectHeight * 0.2
-            materials: PrincipledMaterial { baseColor: "#f2f2ee"; roughness: 0.6 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#f2f2ee"; roughness: 0.6 }
         }
         Model {
             source: "#Cone"
@@ -58,15 +63,15 @@ Node {
             scale: Qt.vector3d(2 * parent.r / root.meshUnit, root.objectHeight * 0.17 / root.meshUnit,
                                2 * parent.r / root.meshUnit)
             pickable: true
-            materials: PrincipledMaterial { baseColor: "#4f9bd8"; roughness: 0.18; specularAmount: 0.8 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#4f9bd8"; roughness: 0.18; specularAmount: 0.8 }
         }
         Cyl {
             radius: parent.r * 0.42; length: root.objectHeight * 0.1; y: root.objectHeight * 0.8
-            materials: PrincipledMaterial { baseColor: "#4f9bd8"; roughness: 0.2 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#4f9bd8"; roughness: 0.2 }
         }
         Cyl {
             radius: parent.r * 0.48; length: root.objectHeight * 0.07; y: root.objectHeight * 0.9
-            materials: PrincipledMaterial { baseColor: "#f5f5f5"; roughness: 0.5 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#f5f5f5"; roughness: 0.5 }
         }
     }
 
@@ -75,11 +80,11 @@ Node {
         visible: root.type === "can"
         Cyl {
             radius: root.gripRadius; length: root.objectHeight
-            materials: PrincipledMaterial { baseColor: "#c2c6cc"; metalness: 1.0; roughness: 0.3 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#c2c6cc"; metalness: 1.0; roughness: 0.3 }
         }
         Cyl {
             radius: root.gripRadius * 1.004; length: root.objectHeight * 0.7; y: root.objectHeight * 0.13
-            materials: PrincipledMaterial { baseColor: "#c62828"; roughness: 0.35; specularAmount: 0.7 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#c62828"; roughness: 0.35; specularAmount: 0.7 }
         }
     }
 
@@ -93,12 +98,12 @@ Node {
                 radius: 0.003
             }
             pickable: true
-            materials: PrincipledMaterial { baseColor: "#b98a55"; roughness: 0.85 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#b98a55"; roughness: 0.85 }
         }
         Model {
             position: Qt.vector3d(0, root.objectHeight + 0.0004, 0)
             geometry: RoundedBoxGeometry { size: Qt.vector3d(2 * root.gripRadius * 1.01, 0.0012, 0.018); radius: 0.0004 }
-            materials: PrincipledMaterial { baseColor: "#d9c69a"; roughness: 0.4 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#d9c69a"; roughness: 0.4 }
         }
     }
 
@@ -111,7 +116,7 @@ Node {
             scale: Qt.vector3d(2 * root.gripRadius / root.meshUnit, 2 * root.gripRadius / root.meshUnit,
                                2 * root.gripRadius / root.meshUnit)
             pickable: true
-            materials: PrincipledMaterial { baseColor: "#e8742a"; roughness: 0.75 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#e8742a"; roughness: 0.75 }
         }
         Repeater3D {
             model: 2
@@ -134,7 +139,7 @@ Node {
                         return pts
                     }
                 }
-                materials: PrincipledMaterial { baseColor: "#2b1a12"; roughness: 0.8 }
+                materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#2b1a12"; roughness: 0.8 }
             }
         }
     }
@@ -146,23 +151,23 @@ Node {
         readonly property real plateRadius: root.footprint
         Cyl {
             radius: parent.plateRadius; length: parent.plateThickness
-            materials: PrincipledMaterial { baseColor: "#1b1d21"; roughness: 0.8 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#1b1d21"; roughness: 0.8 }
         }
         Cyl {
             radius: 0.020; length: 0.010; y: parent.plateThickness
-            materials: PrincipledMaterial { baseColor: "#c9ced4"; metalness: 1.0; roughness: 0.28 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#c9ced4"; metalness: 1.0; roughness: 0.28 }
         }
         Cyl {
             radius: root.gripRadius; length: 0.132; y: parent.plateThickness
-            materials: PrincipledMaterial { baseColor: "#5b6168"; metalness: 1.0; roughness: 0.45 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#5b6168"; metalness: 1.0; roughness: 0.45 }
         }
         Cyl {
             radius: 0.020; length: 0.010; y: parent.plateThickness + 0.122
-            materials: PrincipledMaterial { baseColor: "#c9ced4"; metalness: 1.0; roughness: 0.28 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#c9ced4"; metalness: 1.0; roughness: 0.28 }
         }
         Cyl {
             radius: parent.plateRadius; length: parent.plateThickness; y: parent.plateThickness + 0.132
-            materials: PrincipledMaterial { baseColor: "#1b1d21"; roughness: 0.8 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#1b1d21"; roughness: 0.8 }
         }
     }
 
@@ -181,15 +186,15 @@ Node {
         visible: root.type === "mug"
         Cyl {
             radius: root.gripRadius; length: root.objectHeight
-            materials: PrincipledMaterial { baseColor: "#e8e2d6"; roughness: 0.22; specularAmount: 0.7 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#e8e2d6"; roughness: 0.22; specularAmount: 0.7 }
         }
         Cyl {
             radius: root.gripRadius * 0.86; length: 0.004; y: root.objectHeight - 0.014
-            materials: PrincipledMaterial { baseColor: "#3a2416"; roughness: 0.15 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#3a2416"; roughness: 0.15 }
         }
         Cyl {
             radius: root.gripRadius * 1.006; length: root.objectHeight * 0.18; y: root.objectHeight * 0.55
-            materials: PrincipledMaterial { baseColor: "#2f6f8f"; roughness: 0.3 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#2f6f8f"; roughness: 0.3 }
         }
         Model {
             geometry: TubeGeometry {
@@ -203,7 +208,7 @@ Node {
                          Qt.vector3d(root.gripRadius - 0.004, root.objectHeight * 0.22, 0)]
             }
             pickable: true
-            materials: PrincipledMaterial { baseColor: "#e8e2d6"; roughness: 0.22; specularAmount: 0.7 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#e8e2d6"; roughness: 0.22; specularAmount: 0.7 }
         }
     }
 
@@ -220,7 +225,7 @@ Node {
                 position: Qt.vector3d(0, root.objectHeight / 2, (index === 0 ? 1 : -1) * (parent.thickness / 2 - 0.0015))
                 geometry: RoundedBoxGeometry { size: Qt.vector3d(0.15, root.objectHeight, 0.003); radius: 0.001 }
                 pickable: true
-                materials: PrincipledMaterial { baseColor: "#7a1f2b"; roughness: 0.55 }
+                materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#7a1f2b"; roughness: 0.55 }
             }
         }
         // Spine.
@@ -228,13 +233,13 @@ Node {
             position: Qt.vector3d(-0.075 + 0.002, root.objectHeight / 2, 0)
             geometry: RoundedBoxGeometry { size: Qt.vector3d(0.004, root.objectHeight, 2 * root.gripRadius); radius: 0.0015 }
             pickable: true
-            materials: PrincipledMaterial { baseColor: "#6a1a25"; roughness: 0.55 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#6a1a25"; roughness: 0.55 }
         }
         // Gold title band on the spine.
         Model {
             position: Qt.vector3d(-0.075, root.objectHeight * 0.72, 0)
             geometry: RoundedBoxGeometry { size: Qt.vector3d(0.002, 0.03, 2 * root.gripRadius - 0.006); radius: 0.0008 }
-            materials: PrincipledMaterial { baseColor: "#d4af37"; metalness: 1.0; roughness: 0.3 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#d4af37"; metalness: 1.0; roughness: 0.3 }
         }
         // Page block.
         Model {
@@ -244,7 +249,7 @@ Node {
                 radius: 0.0008
             }
             pickable: true
-            materials: PrincipledMaterial { baseColor: "#f1ead8"; roughness: 0.9 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#f1ead8"; roughness: 0.9 }
         }
     }
 
@@ -261,7 +266,7 @@ Node {
             position: Qt.vector3d(0, parent.baseHeight / 2, 0)
             geometry: RoundedBoxGeometry { size: Qt.vector3d(0.18, 0.02, 0.18); radius: 0.008 }
             pickable: true
-            materials: PrincipledMaterial { baseColor: "#1d1f22"; roughness: 0.9 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#1d1f22"; roughness: 0.9 }
         }
         Model {
             source: "#Cone"
@@ -269,7 +274,7 @@ Node {
             scale: Qt.vector3d(2 * parent.bodyRadius / root.meshUnit, (root.objectHeight - parent.baseHeight) / root.meshUnit,
                                2 * parent.bodyRadius / root.meshUnit)
             pickable: true
-            materials: PrincipledMaterial { baseColor: "#ff6a13"; roughness: 0.5 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#ff6a13"; roughness: 0.5 }
         }
         Repeater3D {
             model: [0.13, 0.21]
@@ -284,7 +289,7 @@ Node {
                     samplesPerSpan: 2
                     points: root.ring(band.r, band.modelData, 32)
                 }
-                materials: PrincipledMaterial { baseColor: "#f4f4f4"; roughness: 0.25; specularAmount: 1.0 }
+                materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#f4f4f4"; roughness: 0.25; specularAmount: 1.0 }
             }
         }
     }
@@ -295,15 +300,15 @@ Node {
         readonly property real potHeight: 0.14
         Cyl {
             radius: root.gripRadius; length: parent.potHeight
-            materials: PrincipledMaterial { baseColor: "#b5562f"; roughness: 0.85 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#b5562f"; roughness: 0.85 }
         }
         Cyl {
             radius: root.gripRadius * 1.12; length: 0.025; y: parent.potHeight - 0.025
-            materials: PrincipledMaterial { baseColor: "#a44c28"; roughness: 0.85 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#a44c28"; roughness: 0.85 }
         }
         Cyl {
             radius: root.gripRadius * 0.95; length: 0.004; y: parent.potHeight - 0.012
-            materials: PrincipledMaterial { baseColor: "#3a2a1f"; roughness: 1.0 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#3a2a1f"; roughness: 1.0 }
         }
         // Leaves: flattened, tilted ellipsoids fanning out and up.
         Repeater3D {
@@ -322,6 +327,7 @@ Node {
                     scale: Qt.vector3d(0.045 / root.meshUnit, parent.leafLength / root.meshUnit, 0.008 / root.meshUnit)
                     pickable: true
                     materials: PrincipledMaterial {
+                        cullMode: root.cullMode
                         baseColor: leaf.index % 3 === 0 ? "#2f7d3a" : leaf.index % 3 === 1 ? "#3f9a48" : "#27682f"
                         roughness: 0.55
                     }
@@ -341,14 +347,14 @@ Node {
         // Flat bottom ring, then the ball.
         Cyl {
             radius: parent.r * 0.62; length: 0.012
-            materials: PrincipledMaterial { baseColor: "#17191c"; roughness: 0.7 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#17191c"; roughness: 0.7 }
         }
         Model {
             source: "#Sphere"
             position: Qt.vector3d(0, parent.r, 0)
             scale: Qt.vector3d(2 * parent.r / root.meshUnit, 2 * parent.r / root.meshUnit, 2 * parent.r / root.meshUnit)
             pickable: true
-            materials: PrincipledMaterial { baseColor: "#24272b"; roughness: 0.55; metalness: 0.4 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#24272b"; roughness: 0.55; metalness: 0.4 }
         }
         Model {
             geometry: TubeGeometry {
@@ -358,7 +364,7 @@ Node {
                 samplesPerSpan: 2
                 points: root.ring(root.footprint * 1.002, root.footprint, 40)
             }
-            materials: PrincipledMaterial { baseColor: kettlebell.band; roughness: 0.4 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: kettlebell.band; roughness: 0.4 }
         }
         // Handle: two horns rising off the shoulders, joined across the top.
         Model {
@@ -374,7 +380,7 @@ Node {
                          Qt.vector3d(root.footprint * 0.62, root.footprint * 1.62, 0)]
             }
             pickable: true
-            materials: PrincipledMaterial { baseColor: "#2c3035"; roughness: 0.45; metalness: 0.5 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#2c3035"; roughness: 0.45; metalness: 0.5 }
         }
     }
 
@@ -399,6 +405,7 @@ Node {
             }
         }
         materials: PrincipledMaterial {
+            cullMode: root.cullMode
             baseColor: "#ffb020"
             emissiveFactor: Qt.vector3d(1.0, 0.69, 0.13)
             lighting: PrincipledMaterial.NoLighting
@@ -426,6 +433,7 @@ Node {
             }
         }
         materials: PrincipledMaterial {
+            cullMode: root.cullMode
             baseColor: "#17e0ff"
             emissiveFactor: Qt.vector3d(0.09, 0.88, 1.0)
             lighting: PrincipledMaterial.NoLighting

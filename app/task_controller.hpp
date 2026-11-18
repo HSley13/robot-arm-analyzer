@@ -13,6 +13,8 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include "arm_controller.hpp"
+#include "hand_controller.hpp"
 #include "robotarm/intent.hpp"
 #include "robotarm/pick_planner.hpp"
 
@@ -20,9 +22,6 @@ class QQmlEngine;
 class QJSEngine;
 
 namespace robotarm {
-
-class ArmController;
-class HandController;
 
 // The humanoid's "do something useful" layer: the objects lying around
 // the scene, the body's own degrees of freedom (waist turn, lift height,
@@ -53,7 +52,8 @@ class TaskController : public QObject {
   Q_PROPERTY(QVariantMap heldObject READ heldObject NOTIFY objectsChanged)
 
   Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
-  // True while the body is still moving toward the last reachTo() goal.
+  // True while the body is still moving toward the last reachTo() goal (or
+  // the left arm toward its own).
   Q_PROPERTY(bool reaching READ reaching NOTIFY stateChanged)
   Q_PROPERTY(QString status READ status NOTIFY stateChanged)
   // What the next click in the 3D view does: "" (select an object),
@@ -93,6 +93,16 @@ class TaskController : public QObject {
   Q_PROPERTY(double intentConfidence READ intentConfidence NOTIFY intentChanged)
   Q_PROPERTY(double assistStrength READ assistStrength NOTIFY intentChanged)
 
+  // The left arm, when there is one (setLeftArm): its own ArmController
+  // (joints, loads - the same analysis as the right arm's) and
+  // HandController (fingers), what it holds, its hand's twist and grip.
+  Q_PROPERTY(robotarm::ArmController *leftArm READ leftArm NOTIFY leftArmChanged)
+  Q_PROPERTY(robotarm::HandController *leftHand READ leftHand NOTIFY leftArmChanged)
+  Q_PROPERTY(int leftHeldId READ leftHeldId NOTIFY objectsChanged)
+  Q_PROPERTY(QVariantMap leftHeldObject READ leftHeldObject NOTIFY objectsChanged)
+  Q_PROPERTY(double leftHandRollDegrees READ leftHandRollDegrees NOTIFY bodyChanged)
+  Q_PROPERTY(double leftGrip READ leftGrip NOTIFY stateChanged)
+
 public:
   // The instance QML gets (see qml_singleton.hpp).
   static TaskController *create(QQmlEngine *, QJSEngine *);
@@ -108,7 +118,7 @@ public:
   QVariantMap heldObject() const;
 
   bool busy() const { return !_steps.empty(); }
-  bool reaching() const { return _following; }
+  bool reaching() const { return _following || _leftFollowing; }
   QString status() const { return _status; }
   QString clickMode() const { return _clickMode; }
   void setClickMode(const QString &mode);
@@ -134,6 +144,17 @@ public:
   int intentId() const { return _guess.id; }
   double intentConfidence() const { return _guess.confidence; }
   double assistStrength() const { return _assistStrength; }
+
+  // Gives the robot a working left arm (not owned; both must outlive this):
+  // a second ArmController for the same humanoid arm, mirrored onto the
+  // left shoulder, and a HandController for its hand.
+  void setLeftArm(ArmController *arm, HandController *hand);
+  ArmController *leftArm() const { return _leftArm; }
+  HandController *leftHand() const { return _leftHand; }
+  int leftHeldId() const { return _leftHeldId; }
+  QVariantMap leftHeldObject() const;
+  double leftHandRollDegrees() const;
+  double leftGrip() const { return _leftGrip; }
 
   // Actions. Slots, so QML calls them like functions
   // (TaskController.pickUp(id)) and C++ can connect signals to them.
@@ -163,6 +184,27 @@ public slots:
   // here; after a long gap (the person was out of view) the guessing
   // starts afresh.
   bool guidedReach(double x, double y, double z, double handAngleRadians);
+
+  // ---- the left arm (see setLeftArm; all ignored without one, and during
+  // a pick / put-down) ----
+  //
+  // Live control of the left hand, like guidedReach (NaN handAngleRadians
+  // = free). The two arms share one body, so one of them steers it: the
+  // one whose hand moved (3 cm or more) most recently - the right, until
+  // the left has moved. That arm turns, lifts and leans the body to get
+  // where it's going; the other reaches with its own joints alone, toward
+  // the part of its point in its plane. Returns false if it can't reach
+  // the point.
+  bool reachLeft(double x, double y, double z, double handAngleRadians);
+  // The left hand's grip, 0 open .. 1 closed, like setGrip: closing grabs
+  // the object the hand is around - or, within 20 cm of one, moves onto
+  // it (body and all) and grabs on arrival; opening lets go onto what's
+  // below.
+  void setLeftGrip(double amount);
+  // The left hand's twist, like setHandRoll (+ palm up).
+  void setLeftHandRoll(double radians);
+  // Stops the left arm where it is.
+  void cancelLeftReach();
   // Stops moving toward the reachTo() goal, wherever the body is now.
   void cancelReach();
   // The mouse's grab: holding nothing, grabs the object the hand is
@@ -223,6 +265,8 @@ public:
   // guidedReach with the time since the previous call given, not
   // measured - for tests.
   bool guidedReach(double x, double y, double z, double handAngleRadians, double seconds);
+  // reachLeft with whether the left arm steers the body given - for tests.
+  bool reachLeft(double x, double y, double z, double handAngleRadians, bool leads);
 
   // A query, not an action - stays Q_INVOKABLE (callable from QML, but not
   // something to connect a signal to).
@@ -240,6 +284,7 @@ signals:
   void stateChanged();
   void bodyChanged();
   void intentChanged();
+  void leftArmChanged();
   void tablesChanged();
 
 private:
@@ -293,6 +338,14 @@ private:
     std::function<void()> on_arrive;
   };
 
+  // One hand's live target, for which arm steers the body (reachLeft):
+  // where it was, and when it last moved 3 cm or more.
+  struct Mover {
+    Eigen::Vector3d anchor = Eigen::Vector3d::Zero();
+    bool anchored = false;
+    QElapsedTimer moved;
+  };
+
   static double defaultMass(const QString &type);
   static Shape shapeOf(const QString &type, double mass);
   // Hand-frame position of a held object's grip center, and how far the
@@ -313,6 +366,8 @@ private:
   QVariantMap toVariant(const SceneObject &object) const;
 
   bool industrial() const;
+  // Held by either hand.
+  bool isHeld(int id) const { return id != -1 && (id == _heldId || id == _leftHeldId); }
   // Where an object of this grip radius would sit in the closed hand (or
   // between the gripper's jaws), in the world, for the current pose.
   Eigen::Vector3d handGripPoint(double grip_radius) const;
@@ -365,6 +420,28 @@ private:
   // One time step of moving toward _goal (see reachTo).
   void followGoal(double seconds);
   void startTicker();
+  // Stops the timer once nothing moves any more (no sequence, no goal for
+  // either arm).
+  void stopTickerIfIdle();
+
+  // The left arm's side of things: its pose (the shared body + its own
+  // joints and roll), where an object of this grip radius sits in its
+  // hand, one time step toward its goal, and its grab / release.
+  BodyPose leftPose() const;
+  Eigen::Vector3d leftGripPoint(double grip_radius) const;
+  void followLeft(double seconds);
+  const SceneObject *nearestToLeftHand(double reach) const;
+  bool grabNearLeftHand();
+  bool releaseUnderLeftHand();
+  bool leftMoveInToGrab(const SceneObject &object);
+  // A grab the left hand was moving in for, once both it and the body
+  // have arrived.
+  void finishLeftGrabIfArrived();
+  // Notes a live target for one hand; leftLeads: the left hand moved last.
+  static void noteMove(Mover &mover, const Eigen::Vector3d &target);
+  bool leftLeads() const;
+  // The right arm reaching with its own joints alone (the left steers).
+  bool reachWithArmOnly(const Eigen::Vector3d &point, const double *hand_angle);
   void setStatus(const QString &status);
   void queue(const BodyPose &target, double duration, std::function<void()> on_arrive = {});
 
@@ -398,6 +475,23 @@ private:
   double _assistStrength = 0.0;
   int _finishingId = -1;
   QElapsedTimer _liveClock;
+
+  // The left arm (see setLeftArm): its goal (joint values), roll, what it
+  // holds, its grip, the object it's moving in to grab, and when the right
+  // arm was last steered live (it then steers the body).
+  ArmController *_leftArm = nullptr;
+  HandController *_leftHand = nullptr;
+  std::vector<double> _leftGoalArm;
+  bool _leftFollowing = false;
+  double _leftRoll = 0.0;
+  double _leftGoalRoll = 0.0;
+  int _leftHeldId = -1;
+  double _leftGrip = 0.0;
+  bool _leftGripClosed = false;
+  int _leftFinishingId = -1;
+  // Which arm steers the body (see reachLeft).
+  Mover _rightMover;
+  Mover _leftMover;
   QTimer _ticker;
   QElapsedTimer _tickClock;
 

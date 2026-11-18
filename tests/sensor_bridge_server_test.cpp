@@ -15,6 +15,7 @@
 #include <QWebSocket>
 
 #include <cmath>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -130,6 +131,33 @@ TEST(SensorBridge, PreviewPicturesArePassedOn) {
   rig.bridge.handleMessage(R"({"type": "preview", "jpeg": "anBlZyE="})");
   rig.bridge.handleMessage(R"({"type": "preview", "jpeg": 42})"); // not a picture: ignored
   EXPECT_EQ(frames, QByteArrayList({"anBlZyE="}));
+}
+
+TEST(SensorBridge, LeftHandMessagesDriveTheLeftArm) {
+  Rig rig;
+  ArmController left{std::string(PROJECT_ROOT_DIR) + "/config/humanoid_arm.json", "/nonexistent/weights.json"};
+  HandController leftHand{std::string(PROJECT_ROOT_DIR) + "/config/humanoid_hand.json"};
+  EXPECT_TRUE(rig.bridge.hello()["left_shoulder"].isNull()); // none yet
+  rig.task.setLeftArm(&left, &leftHand);
+  EXPECT_DOUBLE_EQ(rig.bridge.hello()["left_shoulder"].toArray()[2].toDouble(), -0.20);
+
+  const std::vector<double> before = left.jointAnglesRadians();
+  rig.bridge.handleMessage(R"({"type": "reach", "hand": "left", "x": 0.4, "y": 1.0, "z": -0.3, "roll": 0.5})");
+  for (int i = 0; i < 120; i++) {
+    rig.task.advance(1.0 / 60.0);
+  }
+  EXPECT_NE(left.jointAnglesRadians(), before);
+  EXPECT_GT(rig.task.leftHandRollDegrees(), 1.0);
+  rig.bridge.handleMessage(R"({"type": "grip", "hand": "left", "amount": 0.4})");
+  EXPECT_DOUBLE_EQ(rig.task.leftGrip(), 0.4);
+  EXPECT_DOUBLE_EQ(rig.task.grip(), 0.0); // the right hand untouched
+
+  rig.bridge.handleMessage(R"({"type": "reach", "hand": "left", "x": 0.4, "y": 0.9, "z": -0.3})");
+  rig.bridge.handleMessage(R"({"type": "hold"})"); // stops both
+  EXPECT_FALSE(rig.task.reaching());
+  rig.bridge.handleMessage(R"({"type": "grip", "hand": "middle", "amount": 0.9})"); // no such hand
+  EXPECT_DOUBLE_EQ(rig.task.leftGrip(), 0.4);
+  EXPECT_DOUBLE_EQ(rig.task.grip(), 0.0);
 }
 
 TEST(SensorBridge, PingIsAnswered) {

@@ -81,6 +81,10 @@ QJsonObject SensorBridgeServer::hello() const {
   return {{"type", "hello"},
           {"robot", _arm->armStyle().isEmpty() ? QStringLiteral("humanoid") : _arm->armStyle()},
           {"shoulder", QJsonArray{0.0, shoulderY, body["shoulderLateral"].toDouble()}},
+          // Where the left one is, if the robot has a working left arm.
+          {"left_shoulder", _task->leftArm() != nullptr
+                                ? QJsonValue(QJsonArray{0.0, shoulderY, -body["shoulderLateral"].toDouble()})
+                                : QJsonValue()},
           {"reach", reach},
           {"hand", hand}};
 }
@@ -94,6 +98,13 @@ QString SensorBridgeServer::handleMessage(const QString &text) {
   }
   const QJsonObject message = document.object();
   const QString type = message.value(QStringLiteral("type")).toString();
+  // Which hand a reach or grip is for: "right" (the default) or "left".
+  const QString hand = message.value(QStringLiteral("hand")).toString(QStringLiteral("right"));
+  if (hand != QStringLiteral("right") && hand != QStringLiteral("left")) {
+    qWarning() << "SensorBridgeServer: hand must be \"right\" or \"left\", not" << hand;
+    return {};
+  }
+  const bool left = hand == QStringLiteral("left");
 
   if (type == QStringLiteral("reach")) {
     double xyz[3];
@@ -107,11 +118,11 @@ QString SensorBridgeServer::handleMessage(const QString &text) {
       qWarning() << "SensorBridgeServer: reach's pitch must be a number";
       return {};
     }
-    _task->guidedReach(xyz[0], xyz[1], xyz[2], pitch);
+    left ? _task->reachLeft(xyz[0], xyz[1], xyz[2], pitch) : _task->guidedReach(xyz[0], xyz[1], xyz[2], pitch);
     if (message.contains(QStringLiteral("roll"))) {
       double roll = 0.0;
       if (readNumbers(message, {"roll"}, &roll)) {
-        _task->setHandRoll(roll);
+        left ? _task->setLeftHandRoll(roll) : _task->setHandRoll(roll);
       } else {
         qWarning() << "SensorBridgeServer: reach's roll must be a number";
       }
@@ -123,7 +134,7 @@ QString SensorBridgeServer::handleMessage(const QString &text) {
       qWarning() << "SensorBridgeServer: grip needs a number amount";
       return {};
     }
-    _task->setGrip(amount);
+    left ? _task->setLeftGrip(amount) : _task->setGrip(amount);
     record(message);
   } else if (type == QStringLiteral("assist")) {
     const QJsonValue on = message.value(QStringLiteral("on"));
@@ -143,6 +154,7 @@ QString SensorBridgeServer::handleMessage(const QString &text) {
     emit previewFrame(jpeg.toString().toLatin1());
   } else if (type == QStringLiteral("hold")) {
     _task->cancelReach();
+    _task->cancelLeftReach();
     record(message);
   } else if (type == QStringLiteral("ping")) {
     return toText({{"type", "pong"}});
@@ -188,6 +200,7 @@ void SensorBridgeServer::onClientDisconnected() {
   socket->deleteLater();
   // Whatever it was steering toward, stop there.
   _task->cancelReach();
+  _task->cancelLeftReach();
   if (_recorder != nullptr && _clients.isEmpty()) {
     _recorder->stop();
   }

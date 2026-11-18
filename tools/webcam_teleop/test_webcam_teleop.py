@@ -10,7 +10,7 @@ from teleop_math import P
 import numpy as np
 
 from test_teleop_math import curled_hand, turned_hand
-from webcam_teleop import (RIGHT_INDEX, RIGHT_PINKY, RIGHT_WRIST, Controller, find_hand, preview_message,
+from webcam_teleop import (LEFT, RIGHT_INDEX, RIGHT_PINKY, RIGHT_WRIST, Controller, find_hand, preview_message,
                            right_hand)
 
 
@@ -20,6 +20,7 @@ class FakeRobot:
     hand = 0.095
     connected = True
     assist = True
+    left_shoulder = None  # no working left arm, unless a test gives it one
 
     def __init__(self):
         self.sent = []
@@ -117,6 +118,43 @@ class ControllerRules(unittest.TestCase):
         self.assertEqual(robot.sent, [{"type": "assist", "on": False}, {"type": "assist", "on": True}])
         self.assertTrue(robot.assist)
 
+    def test_the_left_arm_drives_the_robots_left_arm_mirrored(self):
+        robot = FakeRobot()
+        robot.left_shoulder = (0.0, 1.25, -0.20)
+        Controller(robot, mirror=False, side=LEFT).arm(SHOULDER, ELBOW, WRIST, 0.0)
+        reach = robot.sent[-1]
+        self.assertEqual(reach["hand"], "left")
+        self.assertAlmostEqual(reach["x"], 0.665)  # straight at the camera: full reach forward
+        self.assertAlmostEqual(reach["z"], -0.20)  # from the left shoulder
+
+    def test_out_to_your_left_is_out_to_the_robots_left(self):
+        robot = FakeRobot()
+        robot.left_shoulder = (0.0, 1.25, -0.20)
+        # Your left hand out to your side: the image's right on an unmirrored frame (+x).
+        Controller(robot, mirror=False, side=LEFT).arm(SHOULDER, P(0.3, 0, 0), P(0.6, 0, 0), 0.0)
+        self.assertLess(robot.sent[-1]["z"], -0.6)
+
+    def test_no_left_arm_on_the_robot_nothing_is_sent_for_yours(self):
+        robot = FakeRobot()
+        control = Controller(robot, mirror=False, side=LEFT)
+        control.arm(SHOULDER, ELBOW, WRIST, 0.0)
+        control.hand(curled_hand(1.5, 1.7, 1.0), 0.0)
+        self.assertEqual(robot.sent, [])
+
+    def test_the_left_hands_grip_says_which_hand(self):
+        robot = FakeRobot()
+        robot.left_shoulder = (0.0, 1.25, -0.20)
+        Controller(robot, mirror=False, side=LEFT).hand(curled_hand(1.5, 1.7, 1.0), 0.0)
+        self.assertEqual(robot.sent[-1]["hand"], "left")
+
+    def test_one_arm_out_of_view_doesnt_stop_the_robot(self):
+        robot = FakeRobot()
+        control = Controller(robot, mirror=False)
+        control.arm(SHOULDER, ELBOW, WRIST, 0.0)
+        control.lost(hold=False)
+        self.assertEqual(robot.types(), ["reach"])
+        self.assertFalse(control.tracking)
+
     def test_closing_the_hand_holds_the_robots_hand_still(self):
         robot = FakeRobot()
         control = Controller(robot, mirror=False)
@@ -196,21 +234,37 @@ class FindHand(unittest.TestCase):
     def test_the_whole_frame_first(self):
         whole = FakeDetector([SimpleNamespace(x=0.5, y=0.5)])
         zoomed = FakeDetector()
-        _, world, source = find_hand(FakeMp, FakeCv2, whole, zoomed, self.rgb, "frame", 0, self.seen, False)
+        _, world, source = find_hand(FakeMp, FakeCv2, whole.detect("frame"), zoomed, self.rgb, self.seen, False)
         self.assertEqual((world, source), ("world", "hand"))
         self.assertEqual(zoomed.images, [])  # no second look needed
 
     def test_a_second_look_zoomed_in_maps_back_to_the_frame(self):
         # The zoomed look finds the hand's wrist at the crop's centre.
         zoomed = FakeDetector([SimpleNamespace(x=0.5, y=0.5)])
-        image, world, source = find_hand(FakeMp, FakeCv2, FakeDetector(), zoomed, self.rgb, "frame", 0, self.seen, False)
+        image, world, source = find_hand(FakeMp, FakeCv2, FakeDetector().detect("frame"), zoomed, self.rgb, self.seen,
+                                         False)
         self.assertEqual((world, source), ("world", "zoomed"))
         self.assertEqual(zoomed.images[0].shape, (256, 256, 3))
         # Back in whole-frame terms: near the body tracker's hand.
         self.assertLess(math.dist((image[0].x, image[0].y), (0.52, 0.45)), 0.05)
 
+    def test_the_left_hand_is_the_one_at_the_left_wrist(self):
+        # Your left wrist on the image's right (an unmirrored frame); both
+        # hands found - the one there is your left.
+        seen = dict(self.seen)
+        seen[LEFT.wrist] = SimpleNamespace(x=0.70, y=0.50)
+        seen[LEFT.index] = SimpleNamespace(x=0.68, y=0.42)
+        seen[LEFT.pinky] = SimpleNamespace(x=0.71, y=0.42)
+        right, left = [SimpleNamespace(x=0.50, y=0.50)], [SimpleNamespace(x=0.70, y=0.50)]
+        detected = SimpleNamespace(hand_landmarks=[right, left], hand_world_landmarks=["right world", "left world"],
+                                   handedness=[label("Left"), label("Right")])
+        _, world, _ = find_hand(FakeMp, FakeCv2, detected, FakeDetector(), self.rgb, seen, False, LEFT)
+        self.assertEqual(world, "left world")
+        _, world, _ = find_hand(FakeMp, FakeCv2, detected, FakeDetector(), self.rgb, seen, False)
+        self.assertEqual(world, "right world")
+
     def test_nothing_either_way(self):
-        found = find_hand(FakeMp, FakeCv2, FakeDetector(), FakeDetector(), self.rgb, "frame", 0, self.seen, False)
+        found = find_hand(FakeMp, FakeCv2, FakeDetector().detect("frame"), FakeDetector(), self.rgb, self.seen, False)
         self.assertEqual(found, (None, None, None))
 
 
@@ -246,10 +300,6 @@ class RightHand(unittest.TestCase):
         self.assertEqual(right_hand(one, None), (None, None))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class Preview(unittest.TestCase):
     def test_the_preview_goes_to_the_app_small_and_as_base64_jpeg(self):
         message = preview_message(FakeCv2, np.zeros((720, 1280, 3), dtype=np.uint8))
@@ -257,3 +307,7 @@ class Preview(unittest.TestCase):
         ext, shape, params = FakeCv2.encoded
         self.assertEqual((ext, shape), (".jpg", (202, 360, 3)))  # 360 wide, same proportions
         self.assertEqual(params, [FakeCv2.IMWRITE_JPEG_QUALITY, 60])
+
+
+if __name__ == "__main__":
+    unittest.main()

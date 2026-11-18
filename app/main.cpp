@@ -112,6 +112,13 @@ int main(int argc, char *argv[]) {
                                      std::string(PROJECT_ROOT_DIR) + "/ml/models/humanoid_arm_dynamic.surrogate.json");
 
   robotarm::HandController handController(std::string(PROJECT_ROOT_DIR) + "/config/humanoid_hand.json");
+  // The left arm: the same humanoid arm and hand, mirrored onto the left
+  // shoulder by TaskController (and the 3D view), with its own loads.
+  robotarm::ArmController leftController(std::string(PROJECT_ROOT_DIR) + "/config/humanoid_arm.json",
+                                         std::string(PROJECT_ROOT_DIR) + "/ml/models/humanoid_arm.surrogate.json",
+                                         std::string(PROJECT_ROOT_DIR) +
+                                             "/ml/models/humanoid_arm_dynamic.surrogate.json");
+  robotarm::HandController leftHandController(std::string(PROJECT_ROOT_DIR) + "/config/humanoid_hand.json");
 
   if (parser.isSet(industrialOption)) {
     controller.convertToIndustrial();
@@ -140,6 +147,7 @@ int main(int argc, char *argv[]) {
   // The body (waist / lift / hip) and the objects around the robot, plus
   // a few objects to start with so there's something to pick up.
   robotarm::TaskController taskController(&controller, &handController);
+  taskController.setLeftArm(&leftController, &leftHandController);
   taskController.addObject("bottle", 1.0, 0.62, 0.22);
   taskController.addObject("dumbbell", 6.0, 0.80, 0.52);
   taskController.addObject("can", 0.35, 0.40, -0.50);

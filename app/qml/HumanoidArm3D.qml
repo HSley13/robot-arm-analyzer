@@ -11,7 +11,7 @@ import Humanoid.Backend
 // deltoid cap, rubber seal bands at the joints, inset service panels and
 // screw heads.
 //
-// Placement comes straight from ArmController's forward kinematics.
+// Placement comes straight from the arm controller's forward kinematics.
 // Each limb is a Node at its joint, rotated by that joint's full frame
 // (frameRotations), so inside it:
 //   +X runs along the limb toward the next joint,
@@ -27,11 +27,24 @@ import Humanoid.Backend
 Node {
     id: root
 
-    readonly property real meshUnit: 100.0
-    readonly property int jointCount: ArmController.jointPositions.length - 1
+    // Which arm this draws: the right one (the defaults) or, mirrored onto
+    // the left shoulder by HumanoidBody3D, the left one (TaskController's
+    // leftArm, leftHand, ...).
+    property var arm: ArmController
+    property var hand: HandController
+    property real handRollDegrees: TaskController.handRollDegrees
+    property var heldObject: TaskController.heldObject
 
-    function linkLength(i) { return i < ArmController.linkLengths.length ? ArmController.linkLengths[i] : 0.0 }
-    function jointColor(i) { return i < ArmController.jointColors.length ? String(ArmController.jointColors[i]) : "#2ecc71" }
+    // Drawn mirrored (the left arm is the right one with z -> -z): that
+    // turns every triangle inside out, so the other side gets culled.
+    property bool mirrored: false
+    readonly property int cullMode: mirrored ? Material.FrontFaceCulling : Material.BackFaceCulling
+
+    readonly property real meshUnit: 100.0
+    readonly property int jointCount: root.arm.jointPositions.length - 1
+
+    function linkLength(i) { return i < root.arm.linkLengths.length ? root.arm.linkLengths[i] : 0.0 }
+    function jointColor(i) { return i < root.arm.jointColors.length ? String(root.arm.jointColors[i]) : "#2ecc71" }
 
     // Load status on the shells: untouched while a joint is safe, washed
     // amber at caution and red at overload, so a struggling joint shows
@@ -48,12 +61,12 @@ Node {
 
     // ---- materials -------------------------------------------------------
 
-    PrincipledMaterial { id: shellMaterial; baseColor: "#7f91a3"; roughness: 0.46; specularAmount: 0.45 }
-    PrincipledMaterial { id: shellDarkMaterial; baseColor: "#5d6f82"; roughness: 0.52 }
-    PrincipledMaterial { id: jointMaterial; baseColor: "#3a4552"; roughness: 0.5; metalness: 0.15 }
-    PrincipledMaterial { id: rubberMaterial; baseColor: "#262d35"; roughness: 0.9 }
-    PrincipledMaterial { id: steelMaterial; baseColor: "#c9ced4"; metalness: 1.0; roughness: 0.26 }
-    PrincipledMaterial { id: holeMaterial; baseColor: "#161b21"; roughness: 0.9 }
+    PrincipledMaterial { id: shellMaterial; cullMode: root.cullMode; baseColor: "#7f91a3"; roughness: 0.46; specularAmount: 0.45 }
+    PrincipledMaterial { id: shellDarkMaterial; cullMode: root.cullMode; baseColor: "#5d6f82"; roughness: 0.52 }
+    PrincipledMaterial { id: jointMaterial; cullMode: root.cullMode; baseColor: "#3a4552"; roughness: 0.5; metalness: 0.15 }
+    PrincipledMaterial { id: rubberMaterial; cullMode: root.cullMode; baseColor: "#262d35"; roughness: 0.9 }
+    PrincipledMaterial { id: steelMaterial; cullMode: root.cullMode; baseColor: "#c9ced4"; metalness: 1.0; roughness: 0.26 }
+    PrincipledMaterial { id: holeMaterial; cullMode: root.cullMode; baseColor: "#161b21"; roughness: 0.9 }
 
     // ---- reusable pieces -------------------------------------------------
 
@@ -72,6 +85,7 @@ Node {
             scale: Qt.vector3d(2 * actuator.radius / root.meshUnit, actuator.depth / root.meshUnit,
                                2 * actuator.radius / root.meshUnit)
             materials: PrincipledMaterial {
+                cullMode: root.cullMode
                 baseColor: Qt.tint("#3a4552", Qt.rgba(actuator.statusColor.r, actuator.statusColor.g,
                                                       actuator.statusColor.b, 0.35))
                 roughness: 0.5
@@ -138,6 +152,7 @@ Node {
                 }
             }
             materials: PrincipledMaterial {
+                cullMode: root.cullMode
                 baseColor: actuator.statusColor
                 emissiveFactor: Qt.vector3d(actuator.statusColor.r, actuator.statusColor.g, actuator.statusColor.b)
                 lighting: PrincipledMaterial.NoLighting
@@ -164,7 +179,7 @@ Node {
             radius: Math.min(shell.width, shell.thickness) * shell.roundness
             taper: shell.taper
         }
-        materials: PrincipledMaterial { baseColor: shell.color; roughness: 0.46; specularAmount: 0.45 }
+        materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: shell.color; roughness: 0.46; specularAmount: 0.45 }
     }
 
     // A rubber seal band around a limb at `x`.
@@ -211,8 +226,8 @@ Node {
     Node {
         id: upperArm
         visible: root.jointCount >= 1
-        position: ArmController.jointPositions.length > 0 ? ArmController.jointPositions[0] : Qt.vector3d(0, 0, 0)
-        rotation: ArmController.frameRotations.length > 1 ? ArmController.frameRotations[1] : Qt.quaternion(1, 0, 0, 0)
+        position: root.arm.jointPositions.length > 0 ? root.arm.jointPositions[0] : Qt.vector3d(0, 0, 0)
+        rotation: root.arm.frameRotations.length > 1 ? root.arm.frameRotations[1] : Qt.quaternion(1, 0, 0, 0)
 
         Actuator {
             radius: 0.056
@@ -273,8 +288,8 @@ Node {
     Node {
         id: forearm
         visible: root.jointCount >= 2
-        position: ArmController.jointPositions.length > 1 ? ArmController.jointPositions[1] : Qt.vector3d(0, 0, 0)
-        rotation: ArmController.frameRotations.length > 2 ? ArmController.frameRotations[2] : Qt.quaternion(1, 0, 0, 0)
+        position: root.arm.jointPositions.length > 1 ? root.arm.jointPositions[1] : Qt.vector3d(0, 0, 0)
+        rotation: root.arm.frameRotations.length > 2 ? root.arm.frameRotations[2] : Qt.quaternion(1, 0, 0, 0)
 
         readonly property real length: root.forearmLength
 
@@ -323,7 +338,7 @@ Node {
             position: Qt.vector3d(forearm.length - 0.012, 0, 0)
             eulerRotation.z: -90
             geometry: RoundedBoxGeometry { size: Qt.vector3d(0.050, 0.034, 0.046); radius: 0.013 }
-            materials: PrincipledMaterial { baseColor: root.tinted("#5d6f82", 2, 0.5); roughness: 0.52 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: root.tinted("#5d6f82", 2, 0.5); roughness: 0.52 }
         }
         Actuator {
             position: Qt.vector3d(forearm.length, 0, 0)
@@ -337,15 +352,15 @@ Node {
 
     Node {
         id: handMountNode
-        position: ArmController.jointPositions.length > 2 ? ArmController.jointPositions[2] : Qt.vector3d(0, 0, 0)
-        rotation: ArmController.frameRotations.length > 3 ? ArmController.frameRotations[3] : Qt.quaternion(1, 0, 0, 0)
+        position: root.arm.jointPositions.length > 2 ? root.arm.jointPositions[2] : Qt.vector3d(0, 0, 0)
+        rotation: root.arm.frameRotations.length > 3 ? root.arm.frameRotations[3] : Qt.quaternion(1, 0, 0, 0)
 
         // The forearm's twist: the hand turned about its own axis (+X, the
         // hand link), + turning the palm from the body toward +Y (up, for a
         // level hand) - as grip_point_in_world has it, so what the hand
         // holds is drawn where the controller thinks it is.
         Node {
-            readonly property real halfRoll: TaskController.handRollDegrees * Math.PI / 360.0
+            readonly property real halfRoll: root.handRollDegrees * Math.PI / 360.0
             rotation: Qt.quaternion(Math.cos(halfRoll), Math.sin(halfRoll), 0, 0)
 
             // Arm frame -> hand frame: fingers along the hand link (+X), palm
@@ -353,11 +368,13 @@ Node {
             // about X.
             Hand3D {
                 eulerRotation.x: -90
+                controller: root.hand
+                mirrored: root.mirrored
                 // The demo dumbbell from the Payload card - hidden while the hand
                 // is carrying one of the scene's objects instead.
-                holdingPayload: !ArmController.gripperOpen && TaskController.heldId < 0
-                payloadKg: ArmController.payloadKg
-                heldObject: TaskController.heldObject
+                holdingPayload: !root.arm.gripperOpen && root.heldObject.id === undefined
+                payloadKg: root.arm.payloadKg
+                heldObject: root.heldObject
             }
         }
     }
