@@ -63,7 +63,11 @@ Click an object or a spot to get a menu:
 
 ### Controlled with your own arm, through the webcam
 
-Stand in front of the webcam (it turns on with the app) and the robot copies your right arm. Raise your hand and its hand rises; reach toward the screen and it reaches forward; reach low and it crouches and leans to follow; tip your hand up or down, or turn your palm over, and its hand does the same. Close your hand near an object to grab it, and open it to set the object down on whatever is below. Step out of view and the robot holds still. You don't have to aim exactly: the app guesses which object you're reaching for (an amber ring lights up around it), pulls the hand toward it as it gets sure, and finishes the grab when you close your hand close by. A pre-trained vision network tracks your arm and hand, and the robot's own planner still moves the body, so it stays smooth and the load analysis keeps running on whatever it carries. See [Webcam control](#webcam-control).
+Stand in front of the webcam (it turns on with the app) and the robot copies your arms, both of them. Raise a hand and its hand rises; reach toward the screen and it reaches forward; reach low and it crouches and leans to follow; tip your hand up or down, or turn your palm over, and its hand does the same. Close your hand near an object to grab it, and open it to set the object down on whatever is below. Step out of view and the robot holds still. You don't have to aim exactly: the app guesses which object you're reaching for (an amber ring lights up around it), pulls the hand toward it as it gets sure, and finishes the grab when you close your hand close by. A pre-trained vision network tracks your arms and hands, and the robot's own planner still moves the body, so it stays smooth and the load analysis keeps running on whatever it carries. See [Webcam control](#webcam-control).
+
+### Two working arms
+
+The left arm works too: the same arm and five-finger hand, mirrored onto the left shoulder, with its own joint loads in the **Left arm** card (each joint against its limit, and what it holds). Your left hand drives it through the webcam: it reaches, twists, grabs and carries like the right one, and each hand can hold something at once. The two arms share one body, so the hand you moved last steers it, turning, lifting and leaning the body. The other arm reaches with its own joints. The planner needs no second copy: the robot is mirror-symmetric, so a left-arm problem is the right arm's problem with the scene mirrored (z → −z, the waist turned the other way), solved and mirrored back.
 
 ### A five-finger hand, or a warehouse gripper
 
@@ -242,7 +246,7 @@ pip install -r requirements.txt
 The app uses that `.venv` if it's there, and `python3` from the PATH otherwise. `--no-webcam` keeps it off at launch. The script still runs on its own too (`python3 webcam_teleop.py`, with its own preview window), for example on another computer with `--host`.
 
 - **First run:** the two MediaPipe models (a few MB) download into `tools/webcam_teleop/models/`. On macOS, allow your terminal to use the camera when asked. If pip finds no MediaPipe for your Python version, create the venv with an older Python.
-- **Using it:** stand back far enough for the camera to see your shoulders and right arm. The preview is a mirror showing your tracked arm, a grip bar and the state of things. Run on its own, the script's window also takes keys: **space** pauses (the robot holds still), **a** turns the assist off and on, and **q** quits.
+- **Using it:** stand back far enough for the camera to see your shoulders and arms. Your right hand drives the robot's right arm and your left hand its left; the one you moved last steers the body. The preview is a mirror showing your tracked arm, a grip bar and the state of things. Run on its own, the script's window also takes keys: **space** pauses (the robot holds still), **a** turns the assist off and on, and **q** quits.
 - **If it mirrors you:** if the robot moves left when you move right, add `--mirror`.
 - **Options:** `--no-assist` turns off the app's help reaching for things (see [shared autonomy](#6-shared-autonomy-guessing-what-youre-reaching-for)). `--no-wrist` leaves the robot's wrist tilt and twist alone. `--pose-model lite|full|heavy` trades speed for better depth judgement (default `full`).
 - **Without a camera:** `python3 webcam_teleop.py --demo` drives the robot with a scripted arm, to check the connection.
@@ -253,12 +257,13 @@ The app uses that `.venv` if it's there, and `python3` from the PATH otherwise. 
 | --- | --- |
 | `{"type": "reach", "x": 0.5, "y": 0.9, "z": 0.3}` | Move the hand there (metres, world frame); the body follows smoothly, helped onto the object you seem to be reaching for. An optional `"pitch"` (radians, + up from level) also points the hand that way, and an optional `"roll"` (radians, 0 = thumb up, + palm up) turns it about its own axis |
 | `{"type": "grip", "amount": 0.8}` | 0 = open … 1 = closed; closing near an object grabs it, opening sets it down |
+| `"hand": "left"` on a reach or grip | For the left hand instead (the default is `"right"`) |
 | `{"type": "assist", "on": false}` | Turn that help off (`true`: on again; it starts on) |
 | `{"type": "preview", "jpeg": "<base64>"}` | A camera picture for the app's Webcam panel |
-| `{"type": "hold"}` | Stop where it is |
+| `{"type": "hold"}` | Stop where it is (both arms) |
 | `{"type": "ping"}` | Answered with `{"type": "pong"}` |
 
-On connecting, a client first receives `{"type": "hello", "robot": …, "shoulder": [x, y, z], "reach": …, "hand": …}`, which describes the robot so arms can be scaled to it (`hand` is how much of the reach is the hand, past the wrist). App flags: `--no-webcam`, `--bridge-port N`, `--bridge-lan` (accept other computers on the network; there's no authentication, so trusted networks only) and `--no-bridge`. The bridge needs the Qt WebSockets module; without it, the app builds without webcam control.
+On connecting, a client first receives `{"type": "hello", "robot": …, "shoulder": [x, y, z], "reach": …, "hand": …}`, which describes the robot so arms can be scaled to it (`hand` is how much of the reach is the hand, past the wrist; `left_shoulder` is there when the robot has a working left arm, else `null`). App flags: `--no-webcam`, `--bridge-port N`, `--bridge-lan` (accept other computers on the network; there's no authentication, so trusted networks only) and `--no-bridge`. The bridge needs the Qt WebSockets module; without it, the app builds without webcam control.
 
 **Recorded sessions.** Every webcam session is written down, to train the assist on later: one [JSON Lines](https://jsonlines.org) file per session in the app's data folder (on macOS `~/Library/Application Support/Humanoid Arm Load Analyzer/sessions/`). A session runs from the first client connecting to the last one leaving. Each line has `t` (seconds since the start) and a `type`:
 
@@ -317,7 +322,7 @@ Optional launch flags, mostly for reproducible scenes and screenshots:
 ctest --test-dir build
 ```
 
-375 tests in 25 suites cover every physics module (kinematics, kinematic trees, statics, dynamics, trajectories, inverse kinematics, payload capacity, grasp and reach planning, intent guessing, the neural-network surrogates, config parsing). They also cover the application layer, including whole pick-and-place sequences stepped in simulated time with both the hand and the gripper, for every object type, and QML loading the C++ module. The webcam path is covered too: grab and release, the assist (guessing, switching mid-gesture, pulling a near miss onto the object, finishing and cancelling a grab), session recording, starting the webcam program from the app, the bridge (including a real local WebSocket connection), hand tilt and twist, and the Python retargeting, steady waist, hand twist, grip and its gate, holding still while grabbing, filter, zoomed-in hand search and control rules.
+394 tests in 25 suites cover every physics module (kinematics, kinematic trees, statics, dynamics, trajectories, inverse kinematics, payload capacity, grasp and reach planning, the arm-only reach and left-right mirroring, intent guessing, the neural-network surrogates, config parsing). They also cover the application layer, including whole pick-and-place sequences stepped in simulated time with both the hand and the gripper, for every object type, and QML loading the C++ module. The webcam path is covered too: grab and release with either hand, the hand that moved last steering the body, the assist (guessing, switching mid-gesture, pulling a near miss onto the object, finishing and cancelling a grab), session recording, starting the webcam program from the app, the bridge (including a real local WebSocket connection), hand tilt and twist, and the Python retargeting, steady waist, hand twist, grip and its gate, holding still while grabbing, filter, zoomed-in hand search and control rules.
 
 ## Retraining the neural network
 
