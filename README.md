@@ -53,6 +53,8 @@ The neural network's curve follows the exact one closely and is about **9× fast
 
 Grab the hand and drag it anywhere. The robot plans a whole-body pose for that point and **moves** there at speeds its joints could manage: it turns, crouches and leans, all parts finishing together, with no jumps. You can also grab the torso, the lift column or the round base to lean, lift or turn the waist yourself.
 
+Picking things up takes no menus: **double-click an object** and the robot picks it up, and double-click a spot to put it down there. Or drag the hand near an object yourself: an amber ring shows what is in reach, and **clicking the hand** grabs it. Within 20 cm, the hand moves in the rest of the way first. Click the hand again to let go.
+
 ![Dragging the hand down to the ball: waist turns, lift lowers, torso leans](image/06-drag-the-hand.png)
 
 Click an object or a spot to get a menu:
@@ -214,6 +216,8 @@ flowchart LR
 | Drag a **joint** or a **limb**     | Swings that joint                                       |
 | Drag the **torso / column / base** (amber handles) | Lean / lift / turn the waist           |
 | Drag an **object** or a **table**  | Moves it (a table carries what's on it)                 |
+| Double-click an **object**         | Picks it up; double-click a spot to put it down there   |
+| Click the **hand**                 | Grabs the object it's near (amber ring), or lets go     |
 | Click an **object**                | Pick up · move to x, z · set mass · delete              |
 | Click the **floor** or a **table** | Put down here · reach here · add an object or furniture |
 | Drag empty space                   | Orbit the camera; right-drag pans; the wheel zooms      |
