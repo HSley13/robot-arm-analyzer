@@ -573,6 +573,45 @@ Item {
         }
     }
 
+    // ---- webcam control --------------------------------------------------
+
+    // Over the robot's shoulder (it faces +X, its right arm at +Z): your
+    // right is its right on screen, and reaching toward the screen is its
+    // forward - so steering it with your own arm matches what you see.
+    property var savedView: null
+    function viewFromBehind() {
+        savedView = { position: cameraOrigin.position, rotation: cameraOrigin.eulerRotation, distance: camera.z }
+        cameraOrigin.position = Qt.vector3d(0.45, 0.80, 0.20)
+        cameraOrigin.eulerRotation = Qt.vector3d(-22, -90, 0)
+        camera.z = 2.0
+        webcamPanel.behindView = true
+    }
+    function freeView() {
+        if (savedView !== null) {
+            cameraOrigin.position = savedView.position
+            cameraOrigin.eulerRotation = savedView.rotation
+            camera.z = savedView.distance
+        }
+        webcamPanel.behindView = false
+    }
+
+    WebcamPanel {
+        id: webcamPanel
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.margins: 12
+        onBehindViewRequested: root.viewFromBehind()
+        onNormalViewRequested: root.freeView()
+    }
+    Connections {
+        target: WebcamController
+        function onRunningChanged() {
+            if (WebcamController.running && !webcamPanel.behindView) root.viewFromBehind()
+        }
+        // Started with the app, before this view existed.
+        Component.onCompleted: if (WebcamController.running) root.viewFromBehind()
+    }
+
     ObjectMenu { id: objectMenu }
     SpotMenu { id: spotMenu }
 
