@@ -692,7 +692,9 @@ BodyPose TaskController::homePose(double yaw) const {
 }
 
 bool TaskController::reachTo(double x, double y, double z) {
-  return reachToward(Eigen::Vector3d(x, y, z), nullptr);
+  const bool reached = reachToward(Eigen::Vector3d(x, y, z), nullptr);
+  showWhatsInReach(Eigen::Vector3d(x, y, z));
+  return reached;
 }
 
 bool TaskController::reachToPointing(double x, double y, double z, double handAngleRadians) {
@@ -792,21 +794,93 @@ bool TaskController::finishGrab() {
   if ((handGripPoint(shape.grip_radius) - center).norm() > kFinishReach) {
     return false;
   }
+  return moveInToGrab(*object);
+}
+
+bool TaskController::moveInToGrab(const SceneObject &object) {
   // The grasp grabNearHand will hold it by: the hand from the side, the
   // gripper level.
+  const Shape shape = shapeOf(object.type, object.mass);
   const GraspOption option =
-      graspOption(*object, object->base, industrial() ? QStringLiteral("side") : QStringLiteral("hand"), shape.grip_height);
+      graspOption(object, object.base, industrial() ? QStringLiteral("side") : QStringLiteral("hand"), shape.grip_height);
   const PickPlan plan = plan_grasp(_arm->config(), _geometry, option.target, _pose.hip_height);
   if (!plan.ok) {
     return false;
   }
   _goal = plan.pose;
   _goal.hand_roll = 0.0;
-  _finishingId = object->id;
+  _finishingId = object.id;
   _following = true;
   startTicker();
-  setStatus(QStringLiteral("Taking the %1").arg(object->type));
+  setStatus(QStringLiteral("Taking the %1").arg(object.type));
   return true;
+}
+
+const TaskController::SceneObject *TaskController::nearestToHand(double reach) const {
+  // Each object against where it would sit in the hand.
+  const SceneObject *nearest = nullptr;
+  double nearest_distance = reach;
+  for (const SceneObject &object : _objects) {
+    const Shape shape = shapeOf(object.type, object.mass);
+    const Eigen::Vector3d grip_center = object.base + Eigen::Vector3d(0.0, shape.grip_height, 0.0);
+    const double distance = (handGripPoint(shape.grip_radius) - grip_center).norm();
+    if (object.id != _heldId && distance < nearest_distance) {
+      nearest = &object;
+      nearest_distance = distance;
+    }
+  }
+  return nearest;
+}
+
+bool TaskController::grabOrRelease() {
+  if (busy() || _finishingId != -1) {
+    return false;
+  }
+  if (_heldId != -1) {
+    setGrip(0.0);
+    return _heldId == -1;
+  }
+  const SceneObject *object = nearestToHand(kFinishReach);
+  if (object == nullptr) {
+    setStatus(QStringLiteral("Nothing close enough to grab - bring the hand within 20 cm of an object"));
+    return false;
+  }
+  cancelReach();
+  _gripClosed = true; // so opening (setGrip, or this again) lets go
+  if (grabNearHand(false)) {
+    return true;
+  }
+  if (!moveInToGrab(*object)) {
+    _gripClosed = false;
+    setStatus(QStringLiteral("Can't get the hand around the %1 from here").arg(object->type));
+    return false;
+  }
+  return true;
+}
+
+void TaskController::showWhatsInReach(const Eigen::Vector3d &point) {
+  if (_heldId != -1 || busy()) {
+    forgetIntent();
+    return;
+  }
+  // The object nearest where the hand is going (its grip point for that
+  // object, from the end-effector point asked for), if any is in reach -
+  // brighter the closer.
+  const Eigen::Vector3d tip = endEffectorPoint();
+  Intent nearest;
+  double nearest_distance = kFinishReach;
+  for (const SceneObject &object : _objects) {
+    const Shape shape = shapeOf(object.type, object.mass);
+    const Eigen::Vector3d center = object.base + Eigen::Vector3d(0.0, shape.grip_height, 0.0);
+    const double distance = (point + (handGripPoint(shape.grip_radius) - tip) - center).norm();
+    if (distance < nearest_distance) {
+      nearest = {object.id, 1.0 - distance / kFinishReach};
+      nearest_distance = distance;
+    }
+  }
+  _guess = nearest;
+  _assistStrength = 0.0;
+  emit intentChanged();
 }
 
 bool TaskController::reachToward(const Eigen::Vector3d &point, const double *hand_angle) {
@@ -891,18 +965,8 @@ Eigen::Vector3d TaskController::handGripPoint(double grip_radius) const {
 }
 
 bool TaskController::grabNearHand(bool complain) {
-  // The object whose grip center is closest to where it would sit in the hand.
-  SceneObject *nearest = nullptr;
-  double nearest_distance = kGrabReach;
-  for (SceneObject &object : _objects) {
-    const Shape shape = shapeOf(object.type, object.mass);
-    const Eigen::Vector3d grip_center = object.base + Eigen::Vector3d(0.0, shape.grip_height, 0.0);
-    const double distance = (handGripPoint(shape.grip_radius) - grip_center).norm();
-    if (distance < nearest_distance) {
-      nearest = &object;
-      nearest_distance = distance;
-    }
-  }
+  const SceneObject *found = nearestToHand(kGrabReach);
+  SceneObject *nearest = found != nullptr ? findObject(found->id) : nullptr;
   if (nearest == nullptr) {
     if (complain) {
       setStatus(QStringLiteral("Nothing in the hand to grab - bring it closer to an object"));
