@@ -193,6 +193,8 @@ Rectangle {
                             ["Drag the torso / column / base", "lean / lift / turn the waist"],
                             ["Drag an object", "move it"],
                             ["Drag a table", "move it, and what's on it"],
+                            ["Double-click an object", "pick it up (a spot: put it down)"],
+                            ["Click the hand", "grab what it's near, or let go"],
                             ["Click an object", "pick up · move · mass · delete"],
                             ["Click the floor / table", "put down · reach · add objects or furniture"],
                             ["Drag empty space", "orbit · right-drag pans · wheel zooms"]
