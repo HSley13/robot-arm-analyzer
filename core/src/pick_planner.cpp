@@ -460,4 +460,57 @@ PickPlan plan_reach(const ArmConfig &config, const BodyGeometry &body, const Eig
   return plan;
 }
 
+PickPlan plan_arm_reach(const ArmConfig &config, const BodyGeometry &body, const Eigen::Vector3d &point,
+                        const BodyPose &current, const double *hand_angle) {
+  PickPlan plan;
+  plan.pose = current;
+  if (!is_planar_revolute(config) || current.arm.size() != config.joints.size()) {
+    plan.reason = "needs an arm whose joints all turn in one plane";
+    return plan;
+  }
+  // The point in the torso's frame: how far in front of the waist axis
+  // (the arm's plane is the torso's x-y plane, shifted sideways).
+  const double forward = point.x() * std::cos(current.yaw) - point.z() * std::sin(current.yaw);
+  const ArmModel arm = to_arm_model(config);
+  const std::vector<JointLimit> limits = limits_of(config);
+  constexpr double kMinClearance = 0.03;
+  constexpr double kReached = 1e-3; // m
+
+  const Eigen::Vector2d shoulder = shoulder_in_plane(body, current.hip_height, current.hip_bend);
+  const Eigen::Vector2d tip_arm =
+      Eigen::Rotation2Dd(current.hip_bend) * (Eigen::Vector2d(forward, point.y()) - shoulder);
+  PlanarIkResult result;
+  if (hand_angle != nullptr) {
+    const double phi_arm = *hand_angle + current.hip_bend;
+    result = solve_planar_ik(arm, current.arm, tip_arm, &phi_arm, limits, 60);
+    if (result.position_error > kReached) {
+      result = solve_planar_ik(arm, result.joint_values, tip_arm, nullptr, limits, 60);
+    }
+  } else {
+    result = solve_planar_ik(arm, current.arm, tip_arm, nullptr, limits, 60);
+  }
+  std::vector<double> q_world = result.joint_values;
+  q_world[0] -= current.hip_bend;
+  for (const Eigen::Matrix4d &frame : arm.forward_kinematics(q_world)) {
+    if (shoulder.y() + frame(1, 3) < kMinClearance) {
+      plan.reason = "the arm would go through the floor";
+      return plan; // the arm stays as it was
+    }
+  }
+  plan.pose.arm = result.joint_values;
+  plan.ok = result.position_error <= kReached;
+  if (!plan.ok) {
+    plan.reason = "out of reach";
+  }
+  return plan;
+}
+
+Eigen::Vector3d mirrored(const Eigen::Vector3d &point) { return Eigen::Vector3d(point.x(), point.y(), -point.z()); }
+
+BodyPose mirrored(const BodyPose &pose) {
+  BodyPose mirror = pose;
+  mirror.yaw = -pose.yaw;
+  return mirror;
+}
+
 } // namespace robotarm

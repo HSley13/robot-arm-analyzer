@@ -161,6 +161,25 @@ PickPlan plan_grasp(const ArmConfig &config, const BodyGeometry &body, const Gra
 PickPlan plan_reach(const ArmConfig &config, const BodyGeometry &body, const Eigen::Vector3d &point,
                     const BodyPose &current, const double *hand_angle = nullptr);
 
+// Where to put the arm's joints alone so its end-effector point gets as
+// close as it can to `point`, the body (waist, lift, lean, the hand's roll)
+// staying exactly as in `current` - for the second arm while the first one
+// steers the body. Only the part of the point in the arm's plane can be
+// reached (sideways needs the waist); `hand_angle` as in plan_reach. ok is
+// true if the point itself was reached.
+PickPlan plan_arm_reach(const ArmConfig &config, const BodyGeometry &body, const Eigen::Vector3d &point,
+                        const BodyPose &current, const double *hand_angle = nullptr);
+
+// The left arm. Everything here plans the RIGHT arm; the robot is
+// mirror-symmetric about the world's x-y plane (the waist axis lies in
+// it), so the left arm is the right arm of the mirrored robot: a left-arm
+// problem becomes a right-arm one by mirroring its points (z -> -z) and
+// its pose (the waist turned the other way; lift, lean, the arm's joints
+// and the hand's roll - + palm up - unchanged), and the answer comes back
+// mirrored the same way. Both are their own inverse.
+Eigen::Vector3d mirrored(const Eigen::Vector3d &point);
+BodyPose mirrored(const BodyPose &pose);
+
 // The forward counterpart of plan_grasp: where a grasped object's grip
 // center is in the world for this body pose - `forward_offset` past the
 // arm's end-effector point along the hand, `palmar_offset` out from the
