@@ -122,6 +122,16 @@ TEST(SensorBridge, ReachIsAssisted) {
   EXPECT_EQ(rig.task.intentId(), bottle);
 }
 
+TEST(SensorBridge, PreviewPicturesArePassedOn) {
+  Rig rig;
+  QByteArrayList frames;
+  QObject::connect(&rig.bridge, &SensorBridgeServer::previewFrame,
+                   [&](const QByteArray &jpeg) { frames.append(jpeg); });
+  rig.bridge.handleMessage(R"({"type": "preview", "jpeg": "anBlZyE="})");
+  rig.bridge.handleMessage(R"({"type": "preview", "jpeg": 42})"); // not a picture: ignored
+  EXPECT_EQ(frames, QByteArrayList({"anBlZyE="}));
+}
+
 TEST(SensorBridge, PingIsAnswered) {
   Rig rig;
   const QJsonObject reply = QJsonDocument::fromJson(rig.bridge.handleMessage(R"({"type": "ping"})").toUtf8()).object();

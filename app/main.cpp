@@ -24,6 +24,7 @@
 #include "session_recorder.hpp"
 #endif
 #include "task_controller.hpp"
+#include "webcam_controller.hpp"
 
 #ifndef APP_QML_DIR
 #error "APP_QML_DIR must be defined by the build"
@@ -96,10 +97,13 @@ int main(int argc, char *argv[]) {
   const QCommandLineOption recordDirOption(
       "record-dir", "Where outside-control sessions are recorded (default: the app's data folder, sessions/).", "dir");
   const QCommandLineOption noRecordOption("no-record", "Don't record outside-control sessions.");
+  // Webcam control runs inside the app (see webcam_controller.hpp).
+  const QCommandLineOption noWebcamOption("no-webcam",
+                                          "Don't start webcam control at launch (it can still be turned on in the window).");
   parser.addOptions({poseOption, payloadOption, openHandOption, cameraOption, focusOption, screenshotOption,
                      delayOption, scanOption, pickOption, putOption, atOption, sizeOption,
                      industrialOption, tableOption, addOption, bridgePortOption,
-                     bridgeLanOption, noBridgeOption, recordDirOption, noRecordOption});
+                     bridgeLanOption, noBridgeOption, recordDirOption, noRecordOption, noWebcamOption});
   parser.process(app);
 
 
@@ -205,6 +209,9 @@ int main(int argc, char *argv[]) {
   robotarm::HandController::setQmlInstance(&handController);
   robotarm::TaskController::setQmlInstance(&taskController);
 
+  // The webcam program connects to the sensor bridge, so it needs it running.
+  robotarm::WebcamController::Launch webcamLaunch;
+  webcamLaunch.unavailableReason = QStringLiteral("Webcam control needs Qt WebSockets (not in this build)");
 #ifdef ROBOTARM_HAS_SENSOR_BRIDGE
   // Outside control (the webcam program, scripts...) - see sensor_bridge_server.hpp.
   // The recorder first, so it outlives the bridge that writes to it.
@@ -218,7 +225,10 @@ int main(int argc, char *argv[]) {
   if (!parser.isSet(noRecordOption)) {
     sensorBridge.setRecorder(&sessionRecorder);
   }
+  webcamLaunch.unavailableReason = QStringLiteral("Webcam control needs outside control (started with --no-bridge)");
   if (!parser.isSet(noBridgeOption) && sensorBridge.start(parser.isSet(bridgeLanOption))) {
+    webcamLaunch = robotarm::WebcamController::defaultLaunch(QStringLiteral(PROJECT_ROOT_DIR "/tools/webcam_teleop"),
+                                                   sensorBridge.port());
     QObject::connect(&sensorBridge, &robotarm::SensorBridgeServer::clientCountChanged, &taskController,
                      [&sensorBridge, &taskController]() {
                        taskController.notify(sensorBridge.clientCount() > 0
@@ -227,6 +237,16 @@ int main(int argc, char *argv[]) {
                      });
   }
 #endif
+  // After the bridge, so it's gone (and its program stopped) first.
+  robotarm::WebcamController webcam(webcamLaunch);
+  robotarm::WebcamController::setQmlInstance(&webcam);
+#ifdef ROBOTARM_HAS_SENSOR_BRIDGE
+  QObject::connect(&sensorBridge, &robotarm::SensorBridgeServer::previewFrame, &webcam,
+                   &robotarm::WebcamController::showPreview);
+#endif
+  if (!parser.isSet(noWebcamOption) && !parser.isSet(screenshotOption)) {
+    webcam.start();
+  }
 
   QQmlApplicationEngine engine;
   engine.addImportPath(QStringLiteral("qrc:/qt/qml")); // the default from Qt 6.5 on
