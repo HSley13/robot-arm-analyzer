@@ -10,6 +10,7 @@
 #include <cmath>
 
 #include "arm_controller.hpp"
+#include "session_recorder.hpp"
 #include "task_controller.hpp"
 
 namespace robotarm {
@@ -113,6 +114,7 @@ QString SensorBridgeServer::handleMessage(const QString &text) {
         qWarning() << "SensorBridgeServer: reach's roll must be a number";
       }
     }
+    record(message);
   } else if (type == QStringLiteral("grip")) {
     double amount = 0.0;
     if (!readNumbers(message, {"amount"}, &amount)) {
@@ -120,6 +122,7 @@ QString SensorBridgeServer::handleMessage(const QString &text) {
       return {};
     }
     _task->setGrip(amount);
+    record(message);
   } else if (type == QStringLiteral("assist")) {
     const QJsonValue on = message.value(QStringLiteral("on"));
     if (!on.isBool()) {
@@ -127,14 +130,22 @@ QString SensorBridgeServer::handleMessage(const QString &text) {
       return {};
     }
     _task->setAssist(on.toBool());
+    record(message);
   } else if (type == QStringLiteral("hold")) {
     _task->cancelReach();
+    record(message);
   } else if (type == QStringLiteral("ping")) {
     return toText({{"type", "pong"}});
   } else {
     qWarning() << "SensorBridgeServer: ignoring unknown message type:" << type;
   }
   return {};
+}
+
+void SensorBridgeServer::record(const QJsonObject &message) {
+  if (_recorder != nullptr) {
+    _recorder->record(message);
+  }
 }
 
 void SensorBridgeServer::onNewConnection() {
@@ -150,6 +161,9 @@ void SensorBridgeServer::onNewConnection() {
   });
   connect(socket, &QWebSocket::disconnected, this, &SensorBridgeServer::onClientDisconnected);
   _clients.append(socket);
+  if (_recorder != nullptr && _clients.size() == 1) {
+    _recorder->start(); // a session: from the first client connecting to the last one leaving
+  }
   socket->sendTextMessage(toText(hello()));
   qInfo().noquote() << "SensorBridgeServer: client connected from" << socket->peerAddress().toString();
   emit clientCountChanged();
@@ -164,6 +178,9 @@ void SensorBridgeServer::onClientDisconnected() {
   socket->deleteLater();
   // Whatever it was steering toward, stop there.
   _task->cancelReach();
+  if (_recorder != nullptr && _clients.isEmpty()) {
+    _recorder->stop();
+  }
   qInfo() << "SensorBridgeServer: client disconnected";
   emit clientCountChanged();
 }
