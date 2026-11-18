@@ -87,6 +87,8 @@ class TaskController : public QObject {
   Q_PROPERTY(bool assist READ assist WRITE setAssist NOTIFY stateChanged)
   // The guess: the object's id (-1 = none), how sure (0..1), and how
   // strongly the hand is being pulled toward it right now (0..1).
+  // While dragging the hand with the mouse: the object in reach (see
+  // grabOrRelease), brighter the closer.
   Q_PROPERTY(int intentId READ intentId NOTIFY intentChanged)
   Q_PROPERTY(double intentConfidence READ intentConfidence NOTIFY intentChanged)
   Q_PROPERTY(double assistStrength READ assistStrength NOTIFY intentChanged)
@@ -163,6 +165,11 @@ public slots:
   bool guidedReach(double x, double y, double z, double handAngleRadians);
   // Stops moving toward the reachTo() goal, wherever the body is now.
   void cancelReach();
+  // The mouse's grab: holding nothing, grabs the object the hand is
+  // around - or, within 20 cm of one, moves the hand onto it and grabs on
+  // arrival; holding something, lets go of it onto what's below. False
+  // (and `status` says why) if nothing happened.
+  bool grabOrRelease();
 
   // Shows a message in the status line - for events from outside the
   // controller (a webcam connecting...).
@@ -346,6 +353,15 @@ private:
   // the grasp and moves there, grabbing on arrival. False if there's no
   // sure enough guess close enough, or no grasp the arm can make.
   bool finishGrab();
+  // Plans the grasp of `object` and moves the hand there, grabbing it on
+  // arrival; false if the arm can't make it.
+  bool moveInToGrab(const SceneObject &object);
+  // The object (not held) nearest where it would sit in the hand, within
+  // `reach` m; nullptr if none.
+  const SceneObject *nearestToHand(double reach) const;
+  // For mouse drags: the guess (intentId) becomes the object in reach of
+  // where the hand is going, so the 3D view rings it.
+  void showWhatsInReach(const Eigen::Vector3d &point);
   // One time step of moving toward _goal (see reachTo).
   void followGoal(double seconds);
   void startTicker();

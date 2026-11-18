@@ -610,12 +610,17 @@ TEST(TaskController, OpeningTheHandStopsTheAssistsGrab) {
   EXPECT_EQ(rig.task.heldId(), -1);
 }
 
-TEST(TaskController, MouseDragsAreNotAssisted) {
+TEST(TaskController, MouseDragsAreNotPulled) {
+  // The hand goes exactly where it's dragged (the object in reach is only
+  // ringed - see grabOrRelease).
   Rig rig;
   rig.task.addObject("bottle", 0.0, 0.62, 0.30);
   handTo(rig, 0.49, 0.10, 0.35);
-  EXPECT_EQ(rig.task.intentId(), -1);
   EXPECT_EQ(rig.task.assistStrength(), 0.0);
+  const QVector3D tip = tipInWorld(rig.arm, rig.task);
+  EXPECT_NEAR(tip.x(), 0.49, 0.01);
+  EXPECT_NEAR(tip.y(), 0.10, 0.01);
+  EXPECT_NEAR(tip.z(), 0.35, 0.01);
 }
 
 TEST(TaskController, HoldingSomethingTheAssistRests) {
@@ -627,4 +632,47 @@ TEST(TaskController, HoldingSomethingTheAssistRests) {
   ASSERT_EQ(rig.task.heldId(), bottle);
   liveMove(rig, QVector3D(0.62, 0.30, 0.30), QVector3D(0.58, 0.30, -0.08));
   EXPECT_EQ(rig.task.intentId(), -1);
+}
+
+// ---- the mouse's grab ------------------------------------------------------
+
+TEST(TaskController, DraggingTheHandNearAnObjectRingsIt) {
+  Rig rig;
+  const int bottle = rig.task.addObject("bottle", 0.0, 0.62, 0.30);
+  handTo(rig, 0.45, 0.60, 0.30); // far above it
+  EXPECT_EQ(rig.task.intentId(), -1);
+  handTo(rig, 0.52, 0.12, 0.33); // a hand's width short of it
+  EXPECT_EQ(rig.task.intentId(), bottle);
+  EXPECT_GT(rig.task.intentConfidence(), 0.0);
+}
+
+TEST(TaskController, ClickingTheHandNearAnObjectGrabsItAndAgainLetsGo) {
+  Rig rig;
+  const int bottle = rig.task.addObject("bottle", 0.0, 0.62, 0.30);
+  handTo(rig, 0.50, 0.14, 0.34); // close, but not around it
+  ASSERT_TRUE(rig.task.grabOrRelease()) << rig.task.status().toStdString();
+  rig.runToEnd();
+  ASSERT_EQ(rig.task.heldId(), bottle) << rig.task.status().toStdString();
+
+  handTo(rig, 0.60, 0.40, -0.20); // over clear floor
+  EXPECT_TRUE(rig.task.grabOrRelease());
+  EXPECT_EQ(rig.task.heldId(), -1);
+  EXPECT_DOUBLE_EQ(objectById(rig.task, bottle)["y"].toDouble(), 0.0);
+}
+
+TEST(TaskController, ClickingTheHandAroundAnObjectGrabsItRightAway) {
+  Rig rig;
+  const int bottle = rig.task.addObject("bottle", 0.0, 0.62, 0.30);
+  handTo(rig, 0.62, 0.10, 0.30);
+  EXPECT_TRUE(rig.task.grabOrRelease());
+  EXPECT_EQ(rig.task.heldId(), bottle);
+}
+
+TEST(TaskController, ClickingTheHandFarFromEverythingSaysSo) {
+  Rig rig;
+  rig.task.addObject("bottle", 0.0, 0.62, 0.30);
+  handTo(rig, 0.45, 0.60, 0.30);
+  EXPECT_FALSE(rig.task.grabOrRelease());
+  EXPECT_EQ(rig.task.heldId(), -1);
+  EXPECT_TRUE(rig.task.status().contains("Nothing close enough")) << rig.task.status().toStdString();
 }
