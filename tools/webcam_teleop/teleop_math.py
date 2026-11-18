@@ -18,7 +18,8 @@ These steps turn what MediaPipe sees into robot commands:
 4. ``grip_amount``    - how bent your fingers are, and how far their tips are
                         from your wrist, becomes 0 (open) .. 1 (fist);
                         ``GripGate`` only lets it grab or let go once a few
-                        frames in a row agree.
+                        frames in a row agree, and ``GraspHold`` keeps the
+                        hand still while the fingers close or open.
 5. ``OneEuroFilter``  - removes the frame-to-frame jitter of the tracking
                         without making the robot lag when you move quickly.
 """
@@ -299,6 +300,40 @@ class GripGate:
         if self.closed:
             return max(amount, self.release_at + 0.01)
         return min(amount, self.grab_at - 0.01)
+
+
+class GraspHold:
+    """Keep the robot's hand still while yours closes or opens.
+
+    Making a fist moves the tracked wrist a few centimetres - just when the
+    robot's hand should stay put around the object - and so does opening it
+    again. So the position holds while the grip is on its way (between
+    ``start`` and ``1 - start``) and for ``settle`` seconds after the hand
+    has grabbed or let go; but never longer than ``longest`` seconds at a
+    time, so a hand left half-closed still steers. Call it every frame with
+    the grip (0 open .. 1 closed) and whether the grip gate is closed; True
+    means hold.
+    """
+
+    def __init__(self, start: float = 0.35, settle: float = 0.25, longest: float = 0.8) -> None:
+        self.start = start
+        self.settle = settle
+        self.longest = longest
+        self._closed = False
+        self._flipped = -math.inf
+        self._holding_since: float | None = None
+
+    def __call__(self, now: float, grip: float, closed: bool) -> bool:
+        if closed != self._closed:
+            self._closed = closed
+            self._flipped = now
+        changing = self.start < grip < 1.0 - self.start or now - self._flipped < self.settle
+        if not changing:
+            self._holding_since = None
+            return False
+        if self._holding_since is None:
+            self._holding_since = now
+        return now - self._holding_since < self.longest
 
 
 class OneEuroFilter:

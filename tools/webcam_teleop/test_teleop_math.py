@@ -8,6 +8,7 @@ from teleop_math import (
     FINGERTIPS,
     MIDDLE_KNUCKLE,
     WRIST,
+    GraspHold,
     GripGate,
     OneEuroFilter,
     P,
@@ -282,6 +283,33 @@ class Gate(unittest.TestCase):
     def test_in_between_it_passes_straight_through(self):
         gate = GripGate()
         self.assertEqual(gate(0.5), 0.5)
+
+
+class Hold(unittest.TestCase):
+    def test_an_open_or_closed_hand_steers(self):
+        hold = GraspHold()
+        self.assertFalse(hold(0.0, 0.05, False))
+        hold(1.0, 0.95, True)  # grabbed: settling...
+        self.assertFalse(hold(2.0, 0.95, True))  # ...then steering, closed
+
+    def test_the_hand_holds_while_the_fingers_close_and_just_after(self):
+        hold = GraspHold(settle=0.25)
+        self.assertTrue(hold(0.0, 0.5, False))  # closing
+        self.assertTrue(hold(0.1, 0.8, True))  # grabbed: settling
+        self.assertTrue(hold(0.3, 0.95, True))
+        self.assertFalse(hold(0.4, 0.95, True))  # settled: steering again
+
+    def test_and_while_they_open_again(self):
+        hold = GraspHold()
+        hold(0.0, 0.95, True)
+        hold(0.5, 0.95, True)  # holding something, steering
+        self.assertTrue(hold(1.0, 0.5, True))
+
+    def test_never_too_long_a_hand_left_half_closed_steers(self):
+        hold = GraspHold(longest=0.8)
+        holds = [hold(i / 30, 0.5, False) for i in range(60)]
+        self.assertTrue(all(holds[:24]))
+        self.assertFalse(any(holds[25:]))
 
 
 class Filter(unittest.TestCase):

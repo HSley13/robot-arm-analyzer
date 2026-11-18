@@ -43,6 +43,7 @@ from types import SimpleNamespace
 
 from teleop_math import (
     P,
+    GraspHold,
     GripGate,
     OneEuroFilter,
     arm_target,
@@ -283,11 +284,18 @@ class Controller:
         self.follow_wrist = follow_wrist
         # Positions in metres move at up to ~1.5 m/s: beta lets the filter
         # open right up for a quick move, so the robot doesn't trail it.
-        self.filters = [OneEuroFilter(min_cutoff=1.0, beta=1.5) for _ in range(3)]
+        # Forward / back (the robot's x) is the webcam's depth guess, by far
+        # the noisiest: smoothed harder.
+        self.filters = [OneEuroFilter(min_cutoff=0.6, beta=0.8)] + [
+            OneEuroFilter(min_cutoff=1.0, beta=1.5) for _ in range(2)
+        ]
         self.pitch_filter = OneEuroFilter(min_cutoff=1.0, beta=0.5)
         self.roll_filter = OneEuroFilter(min_cutoff=1.0, beta=0.5)
         self.grip_filter = OneEuroFilter(min_cutoff=1.5, beta=0.5)
         self.grip_gate = GripGate()
+        self.grasp_hold = GraspHold()
+        self.grip_amount = 0.0  # the filtered grip, before the gate
+        self.holding_still = False  # the hand held while the grip changes
         self.arm_length: float | None = None
         self.heading = (1.0, 0.0)  # (forward, outward): facing straight ahead
         self.paused = False
@@ -337,7 +345,9 @@ class Controller:
         tip = hand_tip(wrist_target, self.heading, pitch, hand)
 
         self.tracking = True
-        if not self.paused:
+        # Closing or opening the hand: the robot's stays where it is.
+        self.holding_still = self.grasp_hold(now, self.grip_amount, self.grip_gate.closed)
+        if not self.paused and not self.holding_still:
             message = {"type": "reach", "x": tip[0], "y": tip[1], "z": tip[2]}
             if self.pitch is not None:
                 message["pitch"] = math.remainder(self.pitch, 2 * math.pi)
@@ -358,7 +368,8 @@ class Controller:
         self._hand_across = hand_across(landmarks, self.mirror)
         self._hand_seen = now
         self.hand_source = source
-        self.grip = self.grip_gate(self.grip_filter(grip_amount(landmarks), now))
+        self.grip_amount = self.grip_filter(grip_amount(landmarks), now)
+        self.grip = self.grip_gate(self.grip_amount)
         if not self.paused:
             self.robot.send({"type": "grip", "amount": self.grip})
 
@@ -484,6 +495,8 @@ def draw_preview(cv2, frame, pose_landmarks, hand_landmarks, control: Controller
     cv2.rectangle(view, (20, height - 40), (20 + int(200 * control.grip), height - 20), (60, 200, 255), -1)
     cv2.line(view, (20 + int(200 * 0.7), height - 44), (20 + int(200 * 0.7), height - 16), (255, 255, 255), 1)
     grip_text = "grip: CLOSED" if control.grip_gate.closed else "grip: open"
+    if control.holding_still:
+        grip_text += " - holding still"
     cv2.putText(view, grip_text, (230, height - 23), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
     if control.pitch is not None:
         sources = {"hand": "", "zoomed": " (zoomed in)", "body": " (body tracker: no grip)"}

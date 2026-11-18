@@ -50,6 +50,7 @@ class ControllerRules(unittest.TestCase):
         hand = [P(0, 0, 0) for _ in range(21)]
         hand[9] = P(0, -0.06, -0.06)
         control.hand(hand, 0.0)
+        control.grip_amount = 0.0  # (a sketch of a hand, not an open one: say it's open)
         control.arm(SHOULDER, ELBOW, WRIST, 0.0)
         reach = robot.sent[-1]
         self.assertAlmostEqual(reach["pitch"], math.pi / 4)
@@ -115,6 +116,15 @@ class ControllerRules(unittest.TestCase):
         control.toggle_assist()
         self.assertEqual(robot.sent, [{"type": "assist", "on": False}, {"type": "assist", "on": True}])
         self.assertTrue(robot.assist)
+
+    def test_closing_the_hand_holds_the_robots_hand_still(self):
+        robot = FakeRobot()
+        control = Controller(robot, mirror=False)
+        control.arm(SHOULDER, ELBOW, WRIST, 0.0)
+        control.grip_amount = 0.5  # half way to a fist
+        control.arm(SHOULDER, ELBOW, P(0.05, 0, -0.55), 1 / 30)
+        self.assertEqual(robot.types(), ["reach"])  # the second one held back
+        self.assertTrue(control.holding_still)
 
     def test_a_hand_sends_its_grip_and_a_held_fist_grabs(self):
         robot = FakeRobot()
