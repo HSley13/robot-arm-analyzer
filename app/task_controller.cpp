@@ -38,6 +38,9 @@ constexpr double kFinishReach = 0.20;     // m
 constexpr double kFinishConfidence = 0.45;
 constexpr double kLiveGap = 0.5;          // s
 constexpr double kTypicalGripRadius = 0.03; // m, for where "the hand" is while guessing
+// The right arm steers the body while it has been steered live this
+// recently (reachLeft).
+constexpr qint64 kRightLeadsMs = 600;
 
 // Following a reachTo() goal: every degree of freedom closes the gap
 // exponentially (fast for small moves, so dragging feels direct), and no
@@ -212,7 +215,7 @@ QVariantMap TaskController::toVariant(const SceneObject &object) const {
   map["footprint"] = shape.footprint;
   map["height"] = shape.height;
   map["gripHeight"] = shape.grip_height;
-  map["held"] = object.id == _heldId;
+  map["held"] = isHeld(object.id);
   map["selected"] = object.id == _selectedId;
   // Where it sits in the hand (Hand3D's frame) while held.
   map["gripForward"] = gripForward(shape.grip_radius);
@@ -279,7 +282,7 @@ TaskController::Table *TaskController::findTable(int id) {
 }
 
 bool TaskController::isOn(const SceneObject &object, const Table &table) const {
-  return object.id != _heldId && std::abs(object.base.y() - table.height) < 1e-9 && object.base.x() >= table.x0() &&
+  return !isHeld(object.id) && std::abs(object.base.y() - table.height) < 1e-9 && object.base.x() >= table.x0() &&
          object.base.x() <= table.x1() && object.base.z() >= table.z0() && object.base.z() <= table.z1();
 }
 
@@ -301,7 +304,7 @@ QString TaskController::tableBlockedBy(const Table &table, int ignore_id) const 
     }
   }
   for (const SceneObject &object : _objects) {
-    if (object.id == _heldId || object.base.y() > 0.0) {
+    if (isHeld(object.id) || object.base.y() > 0.0) {
       continue; // carried, or standing on a table (a moved table takes its own along)
     }
     const double footprint = shapeOf(object.type, object.mass).footprint;
@@ -422,7 +425,7 @@ void TaskController::removeTable(int id) {
 
 bool TaskController::spotIsFree(double x, double z, double footprint, int ignore_id) const {
   for (const SceneObject &other : _objects) {
-    if (other.id == ignore_id || other.id == _heldId) {
+    if (other.id == ignore_id || isHeld(other.id)) {
       continue;
     }
     const double distance = std::hypot(other.base.x() - x, other.base.z() - z);
@@ -466,7 +469,7 @@ int TaskController::addObject(const QString &type, double massKg, double x, doub
 
 bool TaskController::moveObject(int id, double x, double z) {
   SceneObject *object = findObject(id);
-  if (object == nullptr || id == _heldId) {
+  if (object == nullptr || isHeld(id)) {
     return false;
   }
   const Shape shape = shapeOf(object->type, object->mass);
@@ -488,12 +491,14 @@ void TaskController::setObjectMass(int id, double kg) {
   object->mass = kg;
   if (id == _heldId) {
     _arm->setPayloadKg(kg); // the arm feels it immediately
+  } else if (id == _leftHeldId) {
+    _leftArm->setPayloadKg(kg);
   }
   emit objectsChanged();
 }
 
 void TaskController::removeObject(int id) {
-  if (id == _heldId || busy()) {
+  if (isHeld(id) || busy()) {
     return;
   }
   _objects.erase(std::remove_if(_objects.begin(), _objects.end(),
@@ -507,7 +512,7 @@ void TaskController::removeObject(int id) {
 
 bool TaskController::selectAt(double x, double z) {
   for (const SceneObject &object : _objects) {
-    if (object.id == _heldId) {
+    if (isHeld(object.id)) {
       continue;
     }
     const double reach = shapeOf(object.type, object.mass).footprint + 0.02;
@@ -583,6 +588,9 @@ void TaskController::applyPose(const BodyPose &pose) {
   _pose.hip_bend = pose.hip_bend;
   _pose.hand_roll = industrial() ? 0.0 : pose.hand_roll;
   _arm->setBaseTiltDegrees(to_degrees(pose.hip_bend));
+  if (_leftArm != nullptr) {
+    _leftArm->setBaseTiltDegrees(to_degrees(pose.hip_bend)); // one torso, both arms lean with it
+  }
   if (!pose.arm.empty()) {
     _arm->setJointAnglesRadians(pose.arm);
   }
@@ -710,9 +718,10 @@ bool TaskController::guidedReach(double x, double y, double z, double handAngleR
 }
 
 bool TaskController::guidedReach(double x, double y, double z, double handAngleRadians, double seconds) {
-  if (busy() || _finishingId != -1) {
+  if (busy() || _finishingId != -1 || _leftFinishingId != -1) {
     return false;
   }
+  _rightLiveClock.start(); // the right arm steers the body now (see reachLeft)
   if (seconds > kLiveGap) {
     forgetIntent();
     seconds = 0.0;
@@ -824,7 +833,7 @@ const TaskController::SceneObject *TaskController::nearestToHand(double reach) c
     const Shape shape = shapeOf(object.type, object.mass);
     const Eigen::Vector3d grip_center = object.base + Eigen::Vector3d(0.0, shape.grip_height, 0.0);
     const double distance = (handGripPoint(shape.grip_radius) - grip_center).norm();
-    if (object.id != _heldId && distance < nearest_distance) {
+    if (!isHeld(object.id) && distance < nearest_distance) {
       nearest = &object;
       nearest_distance = distance;
     }
@@ -1027,9 +1036,7 @@ void TaskController::cancelReach() {
     return;
   }
   _following = false;
-  if (_steps.empty()) {
-    _ticker.stop();
-  }
+  stopTickerIfIdle();
   emit stateChanged();
 }
 
@@ -1063,6 +1070,7 @@ void TaskController::followGoal(double seconds) {
       grabNearHand();
     }
     cancelReach();
+    finishLeftGrabIfArrived();
     return;
   }
 
@@ -1076,6 +1084,12 @@ void TaskController::followGoal(double seconds) {
     next.arm[i] = now.arm[i] + k * gap[4 + i];
   }
   applyPose(next);
+}
+
+void TaskController::stopTickerIfIdle() {
+  if (_steps.empty() && !_following && !_leftFollowing) {
+    _ticker.stop();
+  }
 }
 
 void TaskController::startTicker() {
@@ -1147,6 +1161,10 @@ bool TaskController::pickUp(int id) {
   }
   if (_heldId != -1) {
     setStatus(QStringLiteral("Already holding something - put it down first"));
+    return false;
+  }
+  if (isHeld(id)) {
+    setStatus(QStringLiteral("The left hand is holding that"));
     return false;
   }
   const SceneObject *object = findObject(id);
@@ -1303,12 +1321,15 @@ void TaskController::stop() {
   }
   _steps.clear();
   _stepStarted = false;
-  _ticker.stop();
+  stopTickerIfIdle();
   setStatus(QStringLiteral("Stopped"));
   emit stateChanged();
 }
 
 void TaskController::advance(double seconds) {
+  if (_leftFollowing && seconds > 0.0) {
+    followLeft(seconds);
+  }
   if (_steps.empty()) {
     if (_following && seconds > 0.0) {
       followGoal(seconds);
@@ -1349,7 +1370,7 @@ void TaskController::advance(double seconds) {
         on_arrive();
       }
       if (_steps.empty()) {
-        _ticker.stop();
+        stopTickerIfIdle();
         emit stateChanged();
       }
     }
@@ -1404,6 +1425,278 @@ void TaskController::handleClick(double x, double z) {
 void TaskController::setStatus(const QString &status) {
   _status = status;
   emit stateChanged();
+}
+
+// ---- the left arm ----------------------------------------------------------
+//
+// Planned as the right arm of the mirrored robot (see mirrored() in
+// core/pick_planner): mirror the point and the pose, plan, mirror back.
+
+void TaskController::setLeftArm(ArmController *arm, HandController *hand) {
+  _leftArm = arm;
+  _leftHand = hand;
+  if (_leftArm != nullptr) {
+    _leftArm->setBaseTiltDegrees(to_degrees(_pose.hip_bend));
+    _leftGoalArm = _leftArm->jointAnglesRadians();
+  }
+  emit leftArmChanged();
+}
+
+QVariantMap TaskController::leftHeldObject() const {
+  const SceneObject *object = findObject(_leftHeldId);
+  return object == nullptr ? QVariantMap() : toVariant(*object);
+}
+
+double TaskController::leftHandRollDegrees() const { return to_degrees(_leftRoll); }
+
+BodyPose TaskController::leftPose() const {
+  BodyPose pose = _pose;
+  pose.arm = _leftArm->jointAnglesRadians();
+  pose.hand_roll = _leftRoll;
+  return pose;
+}
+
+Eigen::Vector3d TaskController::leftGripPoint(double grip_radius) const {
+  const ArmConfig &config = _leftArm->config();
+  const double hand_link = config.joints.empty() ? 0.0 : config.joints.back().dh.a;
+  return mirrored(grip_point_in_world(config, _geometry, mirrored(leftPose()), gripPalmar(grip_radius),
+                                      gripForward(grip_radius) - hand_link));
+}
+
+bool TaskController::reachLeft(double x, double y, double z, double handAngleRadians) {
+  const bool right_steering = _rightLiveClock.isValid() && _rightLiveClock.elapsed() < kRightLeadsMs;
+  return reachLeft(x, y, z, handAngleRadians, !right_steering);
+}
+
+bool TaskController::reachLeft(double x, double y, double z, double handAngleRadians, bool leads) {
+  if (_leftArm == nullptr || busy() || _leftFinishingId != -1) {
+    return false;
+  }
+  leads = leads && _finishingId == -1; // the right hand is moving in for a grab: the body is its
+  double hand_angle = handAngleRadians;
+  const double *angle = std::isfinite(hand_angle) ? &hand_angle : nullptr;
+  // From the goals both are heading for, so successive targets stay
+  // consistent (as reachToward does).
+  BodyPose from = _following ? _goal : currentPose();
+  from.arm = _leftFollowing ? _leftGoalArm : _leftArm->jointAnglesRadians();
+  from.hand_roll = _leftGoalRoll;
+  const Eigen::Vector3d point = mirrored(Eigen::Vector3d(x, y, z));
+
+  PickPlan plan;
+  if (leads) {
+    plan = plan_reach(_leftArm->config(), _geometry, point, mirrored(from), angle);
+    if (plan.pose.arm.size() != from.arm.size()) {
+      return false;
+    }
+    // The body goes where the left arm needs it; the right arm rides along.
+    const BodyPose body = mirrored(plan.pose);
+    BodyPose goal = _following ? _goal : currentPose();
+    goal.yaw = body.yaw;
+    goal.hip_height = body.hip_height;
+    goal.hip_bend = body.hip_bend;
+    _goal = goal;
+    if (!_following) {
+      _following = true;
+      emit stateChanged();
+    }
+  } else {
+    plan = plan_arm_reach(_leftArm->config(), _geometry, point, mirrored(from), angle);
+  }
+  _leftGoalArm = plan.pose.arm;
+  if (!_leftFollowing) {
+    _leftFollowing = true;
+    emit stateChanged();
+  }
+  startTicker();
+  return plan.ok;
+}
+
+void TaskController::setLeftHandRoll(double radians) {
+  if (_leftArm == nullptr || busy() || !std::isfinite(radians) || _leftFinishingId != -1) {
+    return;
+  }
+  _leftGoalRoll = std::clamp(radians, -kMaxHandRoll, kMaxHandRoll);
+  if (!_leftFollowing) {
+    _leftGoalArm = _leftArm->jointAnglesRadians();
+    _leftFollowing = true;
+  }
+  startTicker();
+}
+
+void TaskController::cancelLeftReach() {
+  _leftFinishingId = -1;
+  if (!_leftFollowing) {
+    return;
+  }
+  _leftFollowing = false;
+  stopTickerIfIdle();
+  emit stateChanged();
+}
+
+void TaskController::followLeft(double seconds) {
+  const std::vector<double> now = _leftArm->jointAnglesRadians();
+  if (now.size() != _leftGoalArm.size()) {
+    cancelLeftReach();
+    return;
+  }
+  // Like followGoal: exponential, no joint faster than it can go, all
+  // finishing together.
+  std::vector<double> gap = {_leftGoalRoll - _leftRoll};
+  std::vector<double> top = {kMaxRollSpeed};
+  for (size_t i = 0; i < now.size(); i++) {
+    gap.push_back(_leftGoalArm[i] - now[i]);
+    top.push_back(kMaxJointSpeed);
+  }
+  const double fraction = 1.0 - std::exp(-kFollowRate * seconds);
+  double slow_down = 1.0;
+  double remaining = 0.0;
+  for (size_t i = 0; i < gap.size(); i++) {
+    slow_down = std::max(slow_down, std::abs(gap[i] * fraction) / (top[i] * seconds));
+    remaining = std::max(remaining, std::abs(gap[i]));
+  }
+  if (remaining < kArrived) {
+    _leftRoll = _leftGoalRoll;
+    _leftArm->setJointAnglesRadians(_leftGoalArm);
+    _leftFollowing = false;
+    emit bodyChanged();
+    emit stateChanged();
+    stopTickerIfIdle();
+    finishLeftGrabIfArrived();
+    return;
+  }
+  const double k = fraction / slow_down;
+  _leftRoll += k * gap[0];
+  std::vector<double> next = now;
+  for (size_t i = 0; i < now.size(); i++) {
+    next[i] += k * gap[1 + i];
+  }
+  _leftArm->setJointAnglesRadians(next);
+  emit bodyChanged();
+}
+
+const TaskController::SceneObject *TaskController::nearestToLeftHand(double reach) const {
+  const SceneObject *nearest = nullptr;
+  double nearest_distance = reach;
+  for (const SceneObject &object : _objects) {
+    const Shape shape = shapeOf(object.type, object.mass);
+    const Eigen::Vector3d grip_center = object.base + Eigen::Vector3d(0.0, shape.grip_height, 0.0);
+    const double distance = (leftGripPoint(shape.grip_radius) - grip_center).norm();
+    if (!isHeld(object.id) && distance < nearest_distance) {
+      nearest = &object;
+      nearest_distance = distance;
+    }
+  }
+  return nearest;
+}
+
+void TaskController::setLeftGrip(double amount) {
+  if (_leftArm == nullptr || busy()) {
+    return;
+  }
+  _leftGrip = std::clamp(amount, 0.0, 1.0);
+  if (!_leftGripClosed && _leftGrip >= kGrabAt) {
+    _leftGripClosed = true;
+    if (_leftHeldId == -1 && !grabNearLeftHand()) {
+      const SceneObject *near = nearestToLeftHand(kFinishReach);
+      if (near == nullptr || !leftMoveInToGrab(*near)) {
+        setStatus(QStringLiteral("Nothing in the left hand to grab - bring it closer to an object"));
+      }
+    }
+  } else if (_leftGripClosed && _leftGrip <= kReleaseAt) {
+    if (_leftFinishingId != -1) {
+      _leftFinishingId = -1; // opened before it got there
+      cancelLeftReach();
+    }
+    _leftGripClosed = _leftHeldId != -1 && !releaseUnderLeftHand();
+  }
+  const SceneObject *held = findObject(_leftHeldId);
+  if (_leftHand != nullptr) {
+    _leftHand->setGrasp(held != nullptr ? gripClosure(shapeOf(held->type, held->mass).grip_radius) : _leftGrip);
+  }
+  emit stateChanged();
+}
+
+bool TaskController::grabNearLeftHand() {
+  const SceneObject *found = nearestToLeftHand(kGrabReach);
+  SceneObject *object = found != nullptr ? findObject(found->id) : nullptr;
+  if (object == nullptr) {
+    return false;
+  }
+  const Shape shape = shapeOf(object->type, object->mass);
+  object->grasp_mode = QStringLiteral("hand");
+  object->grasp_height = shape.grip_height;
+  _leftHeldId = object->id;
+  _leftArm->setPayloadKg(object->mass);
+  _leftArm->setGripperOpen(false);
+  if (_leftHand != nullptr) {
+    _leftHand->setGrasp(gripClosure(shape.grip_radius));
+  }
+  setStatus(QStringLiteral("Left hand holding the %1 (%2)").arg(object->type, massText(object->mass)));
+  emit objectsChanged();
+  emit stateChanged();
+  return true;
+}
+
+bool TaskController::releaseUnderLeftHand() {
+  SceneObject *object = findObject(_leftHeldId);
+  if (object == nullptr) {
+    return false;
+  }
+  const Shape shape = shapeOf(object->type, object->mass);
+  const Eigen::Vector3d center = leftGripPoint(shape.grip_radius);
+  const double support = supportHeightAt(center.x(), center.z(), shape.footprint);
+  if (support < 0.0) {
+    setStatus(QStringLiteral("Can't let go here - over a table edge or the robot's base"));
+    return false;
+  }
+  if (!spotIsFree(center.x(), center.z(), shape.footprint, object->id)) {
+    setStatus(QStringLiteral("Can't let go here - another object is right below"));
+    return false;
+  }
+  object->base = Eigen::Vector3d(center.x(), support, center.z());
+  object->grasp_mode.clear();
+  _leftHeldId = -1;
+  _leftArm->setPayloadKg(0.0);
+  _leftArm->setGripperOpen(true);
+  setStatus(QStringLiteral("Left hand put the %1 down").arg(object->type));
+  emit objectsChanged();
+  emit stateChanged();
+  return true;
+}
+
+bool TaskController::leftMoveInToGrab(const SceneObject &object) {
+  // The grasp as the mirrored robot's right hand would make it.
+  const Shape shape = shapeOf(object.type, object.mass);
+  GraspOption option = graspOption(object, object.base, QStringLiteral("hand"), shape.grip_height);
+  option.target.grip_point = mirrored(option.target.grip_point);
+  const PickPlan plan = plan_grasp(_leftArm->config(), _geometry, option.target, _pose.hip_height);
+  if (!plan.ok) {
+    return false;
+  }
+  const BodyPose pose = mirrored(plan.pose);
+  BodyPose goal = _following ? _goal : currentPose();
+  goal.yaw = pose.yaw;
+  goal.hip_height = pose.hip_height;
+  goal.hip_bend = pose.hip_bend;
+  _finishingId = -1;
+  _goal = goal;
+  _following = true;
+  _leftGoalArm = pose.arm;
+  _leftGoalRoll = 0.0;
+  _leftFollowing = true;
+  _leftFinishingId = object.id;
+  startTicker();
+  emit stateChanged();
+  setStatus(QStringLiteral("Left hand taking the %1").arg(object.type));
+  return true;
+}
+
+void TaskController::finishLeftGrabIfArrived() {
+  if (_leftFinishingId == -1 || _leftFollowing || _following) {
+    return;
+  }
+  _leftFinishingId = -1;
+  grabNearLeftHand();
 }
 
 } // namespace robotarm
