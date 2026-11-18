@@ -5,9 +5,10 @@ import Humanoid.Geometry
 import Humanoid.Backend
 
 // The humanoid's upper body: pelvis, a hip joint that lets the torso lean
-// forward, segmented abdomen, chest, shoulder yoke, neck and head, a
-// passive left arm, and the analyzed right arm (HumanoidArm3D) at the
-// right shoulder.
+// forward, segmented abdomen, chest, shoulder yoke, neck and head, and
+// the two analyzed arms (HumanoidArm3D): the right one, and the left one
+// mirrored onto the left shoulder (or a passive hanging left arm, when
+// there's no working one).
 //
 // Frames (all from TaskController):
 //   * this node: at the hip joint, turned by the waist yaw - the pelvis
@@ -190,11 +191,31 @@ Node {
             }
         }
 
-        // ---- left arm: passive, hanging under gravity ----------------------
+        // ---- left arm: the working one (TaskController.leftArm) -------------
+        // The right arm's model, mirrored onto the left shoulder (z -> -z),
+        // driven by the left arm's own controllers - as core/pick_planner's
+        // mirrored() plans it.
+        Node {
+            visible: TaskController.leftArm !== null
+            position: Qt.vector3d(0, root.hipToShoulder, -root.shoulderLateral)
+            scale: Qt.vector3d(1, 1, -1)
+
+            HumanoidArm3D {
+                visible: TaskController.leftArm !== null
+                arm: TaskController.leftArm !== null ? TaskController.leftArm : ArmController
+                hand: TaskController.leftHand !== null ? TaskController.leftHand : HandController
+                handRollDegrees: TaskController.leftHandRollDegrees
+                heldObject: TaskController.leftHeldObject
+                mirrored: true
+            }
+        }
+
+        // ---- left arm: passive, hanging under gravity (no working one) ------
         // Counter-turned by half the bend (it swings forward a little as the
         // torso leans), and the elbow folds up as the shoulder gets close to
         // the floor so the hand never sinks into the base.
         Node {
+            visible: TaskController.leftArm === null
             readonly property real shoulderHeight: TaskController.hipHeight
                                                    + root.hipToShoulder * Math.cos(root.bend * Math.PI / 180)
             readonly property real elbowFold: Math.min(110, 18 + Math.max(0, 1.0 - shoulderHeight) * 180)

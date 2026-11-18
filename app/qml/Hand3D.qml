@@ -22,13 +22,21 @@ import Humanoid.Backend
 // differently-proportioned hand config renders correctly with no QML
 // changes.
 //
-// HandController.jointPositionsForChain()/etc. are Q_INVOKABLE methods
+// root.controller.jointPositionsForChain()/etc. are Q_INVOKABLE methods
 // (they take a chain name, which a Q_PROPERTY can't), so a binding that
 // calls them doesn't re-run on its own when the pose changes. _data
-// reads HandController.revision (bumped on every recompute) to give it a
+// reads root.controller.revision (bumped on every recompute) to give it a
 // real dependency.
 Node {
     id: root
+
+    // The hand's joints: the right hand's (HandController), or the left's.
+    property var controller: HandController
+
+    // Drawn mirrored (the left arm is the right one with z -> -z): that
+    // turns every triangle inside out, so the other side gets culled.
+    property bool mirrored: false
+    readonly property int cullMode: mirrored ? Material.FrontFaceCulling : Material.BackFaceCulling
 
     // Whether the payload dumbbell is in the hand, and how heavy it is.
     property bool holdingPayload: false
@@ -50,7 +58,7 @@ Node {
     function widthOf(chain) { return fingerWidths[chain] !== undefined ? fingerWidths[chain] : 0.018 }
 
     function _flatten() {
-        const names = HandController.chainNames
+        const names = root.controller.chainNames
         const links = []
         const pins = []
         const roots = []
@@ -60,10 +68,10 @@ Node {
             if (name === "wrist") continue // pure rotations at one point - the palm stands in for it
             const width = widthOf(name)
 
-            const positions = HandController.jointPositionsForChain(name)
-            const mids = HandController.linkMidpointsForChain(name)
-            const lens = HandController.linkLengthsForChain(name)
-            const frames = HandController.linkFramesForChain(name)
+            const positions = root.controller.jointPositionsForChain(name)
+            const mids = root.controller.linkMidpointsForChain(name)
+            const lens = root.controller.linkLengthsForChain(name)
+            const frames = root.controller.linkFramesForChain(name)
             for (let i = 0; i < mids.length; i++) {
                 // Fingers taper a little toward the tip.
                 const w = width * (1.0 - 0.07 * i)
@@ -73,25 +81,26 @@ Node {
                 pins.push({ position: positions[i], rotation: frames[i], width: w, thickness: w * 0.9 })
             }
 
-            const rootMid = HandController.rootSegmentMidpointForChain(name)
+            const rootMid = root.controller.rootSegmentMidpointForChain(name)
             if (rootMid.length > 0) {
                 roots.push({ name: name, position: rootMid[0],
-                             rotation: HandController.rootSegmentFrameForChain(name)[0],
-                             length: HandController.rootSegmentLengthForChain(name)[0],
-                             width: width, base: HandController.chainBasePosition(name) })
+                             rotation: root.controller.rootSegmentFrameForChain(name)[0],
+                             length: root.controller.rootSegmentLengthForChain(name)[0],
+                             width: width, base: root.controller.chainBasePosition(name) })
             }
         }
         return { links: links, pins: pins, roots: roots }
     }
 
     readonly property var _data: {
-        HandController.revision // forces re-evaluation on every recompute, see note above
+        root.controller.revision // forces re-evaluation on every recompute, see note above
         return root._flatten()
     }
 
     // ---- materials -------------------------------------------------------
 
     PrincipledMaterial {
+        cullMode: root.cullMode
         id: shellMaterial
         baseColor: "#7f91a3"
         metalness: 0.0
@@ -99,33 +108,39 @@ Node {
         specularAmount: 0.45
     }
     PrincipledMaterial {
+        cullMode: root.cullMode
         id: shellDarkMaterial
         baseColor: "#6c7e90"
         metalness: 0.0
         roughness: 0.55
     }
     PrincipledMaterial {
+        cullMode: root.cullMode
         id: holeMaterial
         baseColor: "#161b21"
         roughness: 0.9
     }
     PrincipledMaterial {
+        cullMode: root.cullMode
         id: hingeMaterial
         baseColor: "#4b545e"
         metalness: 0.7
         roughness: 0.35
     }
     PrincipledMaterial {
+        cullMode: root.cullMode
         id: rubberMaterial
         baseColor: "#2c333b"
         roughness: 0.92
     }
     PrincipledMaterial {
+        cullMode: root.cullMode
         id: padMaterial
         baseColor: "#55636f"
         roughness: 0.9
     }
     PrincipledMaterial {
+        cullMode: root.cullMode
         id: steelMaterial
         baseColor: "#c8cdd3"
         metalness: 1.0
@@ -200,8 +215,8 @@ Node {
     // The palm follows the wrist chain's own roll/deviation.
     Node {
         id: palm
-        position: { HandController.revision; return HandController.palmPosition }
-        rotation: { HandController.revision; return HandController.palmRotation }
+        position: { root.controller.revision; return root.controller.palmPosition }
+        rotation: { root.controller.revision; return root.controller.palmRotation }
 
         // Main palm shell: narrower at the wrist, widening toward the
         // knuckles, and turned a few degrees about the palm normal so its
@@ -338,7 +353,7 @@ Node {
 
     // Thumb base (CMC) housing where the thumb pivots out of the palm.
     Model {
-        readonly property vector3d base: { HandController.revision; return HandController.chainBasePosition("thumb") }
+        readonly property vector3d base: { root.controller.revision; return root.controller.chainBasePosition("thumb") }
         position: base
         geometry: RoundedBoxGeometry {
             size: Qt.vector3d(0.030, 0.028, 0.026)
@@ -363,7 +378,7 @@ Node {
             source: "#Cylinder"
             eulerRotation.x: 90
             scale: Qt.vector3d(0.025 / root.meshUnit, (2 * dumbbell.innerZ + 0.004) / root.meshUnit, 0.025 / root.meshUnit)
-            materials: PrincipledMaterial { baseColor: "#5b6168"; metalness: 1.0; roughness: 0.45 }
+            materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#5b6168"; metalness: 1.0; roughness: 0.45 }
         }
 
         Repeater3D {
@@ -386,7 +401,7 @@ Node {
                     position: Qt.vector3d(0, 0, parent.side * (dumbbell.innerZ + dumbbell.plateThickness / 2))
                     scale: Qt.vector3d(2 * dumbbell.plateRadius / root.meshUnit, dumbbell.plateThickness / root.meshUnit,
                                        2 * dumbbell.plateRadius / root.meshUnit)
-                    materials: PrincipledMaterial { baseColor: "#1b1d21"; roughness: 0.8 }
+                    materials: PrincipledMaterial { cullMode: root.cullMode; baseColor: "#1b1d21"; roughness: 0.8 }
                 }
                 // Steel end cap.
                 Model {
@@ -403,6 +418,7 @@ Node {
     // ---- a scene object carried by TaskController ------------------------
 
     SceneObject3D {
+        mirrored: root.mirrored
         readonly property var held: root.heldObject
         visible: held.id !== undefined
         type: held.type !== undefined ? held.type : "bottle"
