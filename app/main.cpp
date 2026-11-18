@@ -4,6 +4,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickWindow>
+#include <QStandardPaths>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
@@ -20,6 +21,7 @@
 #include "qml_hot_reloader.hpp"
 #ifdef ROBOTARM_HAS_SENSOR_BRIDGE
 #include "sensor_bridge_server.hpp"
+#include "session_recorder.hpp"
 #endif
 #include "task_controller.hpp"
 
@@ -90,10 +92,14 @@ int main(int argc, char *argv[]) {
                                            "Accept outside control from other computers on the network, not just "
                                            "this one (no authentication: trusted networks only).");
   const QCommandLineOption noBridgeOption("no-bridge", "Don't accept outside control at all.");
+  // Every outside-control session is written down (see session_recorder.hpp).
+  const QCommandLineOption recordDirOption(
+      "record-dir", "Where outside-control sessions are recorded (default: the app's data folder, sessions/).", "dir");
+  const QCommandLineOption noRecordOption("no-record", "Don't record outside-control sessions.");
   parser.addOptions({poseOption, payloadOption, openHandOption, cameraOption, focusOption, screenshotOption,
                      delayOption, scanOption, pickOption, putOption, atOption, sizeOption,
                      industrialOption, tableOption, addOption, bridgePortOption,
-                     bridgeLanOption, noBridgeOption});
+                     bridgeLanOption, noBridgeOption, recordDirOption, noRecordOption});
   parser.process(app);
 
 
@@ -201,8 +207,17 @@ int main(int argc, char *argv[]) {
 
 #ifdef ROBOTARM_HAS_SENSOR_BRIDGE
   // Outside control (the webcam program, scripts...) - see sensor_bridge_server.hpp.
+  // The recorder first, so it outlives the bridge that writes to it.
+  const QString recordDir =
+      parser.isSet(recordDirOption)
+          ? parser.value(recordDirOption)
+          : QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/sessions");
+  robotarm::SessionRecorder sessionRecorder(&taskController, &controller, recordDir);
   robotarm::SensorBridgeServer sensorBridge(&taskController, &controller,
                                             static_cast<quint16>(parser.value(bridgePortOption).toUInt()));
+  if (!parser.isSet(noRecordOption)) {
+    sensorBridge.setRecorder(&sessionRecorder);
+  }
   if (!parser.isSet(noBridgeOption) && sensorBridge.start(parser.isSet(bridgeLanOption))) {
     QObject::connect(&sensorBridge, &robotarm::SensorBridgeServer::clientCountChanged, &taskController,
                      [&sensorBridge, &taskController]() {

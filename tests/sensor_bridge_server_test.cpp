@@ -6,7 +6,10 @@
 #include <QEventLoop>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QDir>
+#include <QFile>
 #include <QJsonObject>
+#include <QTemporaryDir>
 #include <QThread>
 #include <QTimer>
 #include <QWebSocket>
@@ -18,11 +21,13 @@
 #include "arm_controller.hpp"
 #include "hand_controller.hpp"
 #include "sensor_bridge_server.hpp"
+#include "session_recorder.hpp"
 #include "task_controller.hpp"
 
 using robotarm::ArmController;
 using robotarm::HandController;
 using robotarm::SensorBridgeServer;
+using robotarm::SessionRecorder;
 using robotarm::TaskController;
 
 namespace {
@@ -170,6 +175,40 @@ TEST(SensorBridge, WorksOverARealWebSocket) {
 
   client.close();
   EXPECT_TRUE(waitFor([&]() { return rig.bridge.clientCount() == 0; }));
+}
+
+TEST(SensorBridge, RecordsEachSessionOverARealWebSocket) {
+  Rig rig;
+  QTemporaryDir directory;
+  SessionRecorder recorder(&rig.task, &rig.arm, directory.path());
+  rig.bridge.setRecorder(&recorder);
+  ASSERT_TRUE(rig.bridge.start());
+
+  QWebSocket client;
+  bool hello = false;
+  QObject::connect(&client, &QWebSocket::textMessageReceived, [&](const QString &) { hello = true; });
+  client.open(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(rig.bridge.port())));
+  ASSERT_TRUE(waitFor([&]() { return hello; }));
+  EXPECT_TRUE(recorder.recording());
+
+  client.sendTextMessage(R"({"type": "grip", "amount": 0.4})");
+  client.sendTextMessage(R"({"type": "ping"})");         // not a command: not recorded
+  client.sendTextMessage(R"({"type": "grip", "amount": "x"})"); // ignored: not recorded
+  client.sendTextMessage(R"({"type": "reach", "x": 0.5, "y": 0.9, "z": 0.3})");
+  ASSERT_TRUE(waitFor([&]() { return rig.task.reaching(); }));
+  client.close();
+  ASSERT_TRUE(waitFor([&]() { return !recorder.recording(); }));
+
+  QFile file(recorder.path());
+  ASSERT_TRUE(file.open(QIODevice::ReadOnly | QIODevice::Text));
+  QStringList types;
+  while (!file.atEnd()) {
+    const QJsonObject line = QJsonDocument::fromJson(file.readLine()).object();
+    types.append(line["type"].toString() + (line.contains("message")
+                                                ? ":" + line["message"].toObject()["type"].toString()
+                                                : QString()));
+  }
+  EXPECT_EQ(types, QStringList({"start", "input:grip", "input:reach", "end"}));
 }
 
 int main(int argc, char **argv) {

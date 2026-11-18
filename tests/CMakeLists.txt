@@ -106,6 +106,12 @@ target_compile_definitions(task_controller_tests PRIVATE PROJECT_ROOT_DIR="${CMA
 
 add_test(NAME task_controller_tests COMMAND task_controller_tests)
 
+add_executable(session_recorder_tests session_recorder_test.cpp)
+target_link_libraries(session_recorder_tests PRIVATE robotarm_app_core gtest_main)
+target_compile_definitions(session_recorder_tests PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
+
+add_test(NAME session_recorder_tests COMMAND session_recorder_tests)
+
 # Loads a little QML through the engine, the way the app does: the
 # Humanoid.Backend module must register the controllers as singletons.
 add_executable(qml_module_tests qml_module_test.cpp)

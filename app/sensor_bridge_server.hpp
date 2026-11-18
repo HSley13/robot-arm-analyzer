@@ -11,6 +11,7 @@ class QWebSocketServer;
 namespace robotarm {
 
 class ArmController;
+class SessionRecorder;
 class TaskController;
 
 // The robot's door to the outside world: a WebSocket server that takes
@@ -64,6 +65,10 @@ public:
   QString handleMessage(const QString &text);
   // What a client is told when it connects.
   QJsonObject hello() const;
+  // Writes every session down (not owned; nullptr = don't): it starts
+  // when the first client connects, logs each command the controllers
+  // acted on (not pings or ignored ones), and ends when the last leaves.
+  void setRecorder(SessionRecorder *recorder) { _recorder = recorder; }
 
 signals:
   void clientCountChanged();
@@ -71,12 +76,14 @@ signals:
 private:
   void onNewConnection();
   void onClientDisconnected();
+  void record(const QJsonObject &message);
 
   TaskController *_task;
   ArmController *_arm;
   quint16 _port;
   QWebSocketServer *_server;
   QList<QWebSocket *> _clients;
+  SessionRecorder *_recorder = nullptr;
 };
 
 } // namespace robotarm
