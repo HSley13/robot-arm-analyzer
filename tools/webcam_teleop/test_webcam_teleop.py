@@ -10,7 +10,8 @@ from teleop_math import P
 import numpy as np
 
 from test_teleop_math import curled_hand, turned_hand
-from webcam_teleop import RIGHT_INDEX, RIGHT_PINKY, RIGHT_WRIST, Controller, find_hand, right_hand
+from webcam_teleop import (RIGHT_INDEX, RIGHT_PINKY, RIGHT_WRIST, Controller, find_hand, preview_message,
+                           right_hand)
 
 
 class FakeRobot:
@@ -152,9 +153,16 @@ class FakeDetector:
 
 
 class FakeCv2:
+    IMWRITE_JPEG_QUALITY = 1
+
     @staticmethod
     def resize(patch, size):
         return np.zeros((size[1], size[0], 3), dtype=np.uint8)
+
+    @staticmethod
+    def imencode(ext, image, params):
+        FakeCv2.encoded = (ext, image.shape, params)
+        return True, np.frombuffer(b"jpeg!", dtype=np.uint8)
 
 
 class FakeMp:
@@ -230,3 +238,12 @@ class RightHand(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Preview(unittest.TestCase):
+    def test_the_preview_goes_to_the_app_small_and_as_base64_jpeg(self):
+        message = preview_message(FakeCv2, np.zeros((720, 1280, 3), dtype=np.uint8))
+        self.assertEqual(message, {"type": "preview", "jpeg": "anBlZyE="})  # base64 of b"jpeg!"
+        ext, shape, params = FakeCv2.encoded
+        self.assertEqual((ext, shape), (".jpg", (202, 360, 3)))  # 360 wide, same proportions
+        self.assertEqual(params, [FakeCv2.IMWRITE_JPEG_QUALITY, 60])

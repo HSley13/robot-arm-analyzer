@@ -31,6 +31,7 @@ How it works, frame by frame:
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import math
 import sys
@@ -80,6 +81,12 @@ DEFAULT_HAND = 0.095
 
 # A hand last seen longer ago than this (s) no longer steers the robot's hand.
 HAND_TIMEOUT = 0.3
+
+# The preview sent to the app (--stream-preview): this wide, at most this
+# often, this JPEG quality - a few kB a frame.
+PREVIEW_WIDTH = 360
+PREVIEW_INTERVAL = 1 / 12
+PREVIEW_QUALITY = 60
 
 
 # ---- the link to the app --------------------------------------------------
@@ -395,6 +402,7 @@ def run_camera(args, robot: Robot) -> None:
     control = Controller(robot, args.mirror, follow_wrist=not args.no_wrist)
     start = time.monotonic()
     stamp = -1
+    last_preview = -math.inf
 
     while True:
         ok, frame = camera.read()
@@ -424,8 +432,14 @@ def run_camera(args, robot: Robot) -> None:
             control.lost()
             hand_image = None
 
+        stream = args.stream_preview and now - last_preview >= PREVIEW_INTERVAL
+        if stream or not args.no_preview:
+            view = draw_preview(cv2, frame, seen if found else None, hand_image, control)
+        if stream:
+            last_preview = now
+            robot.send(preview_message(cv2, view))
         if not args.no_preview:
-            draw_preview(cv2, frame, seen if found else None, hand_image, control)
+            cv2.imshow("Robot arm - webcam control (space: pause, a: assist, q: quit)", view)
             key = cv2.waitKey(1) & 0xFF
             if key in (ord("q"), 27):
                 break
@@ -438,7 +452,15 @@ def run_camera(args, robot: Robot) -> None:
     robot.close()
 
 
-def draw_preview(cv2, frame, pose_landmarks, hand_landmarks, control: Controller) -> None:
+def preview_message(cv2, view) -> dict:
+    """A preview image as a message for the app: small, JPEG, base64."""
+    height, width = view.shape[:2]
+    small = cv2.resize(view, (PREVIEW_WIDTH, max(1, round(height * PREVIEW_WIDTH / width))))
+    _, jpeg = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, PREVIEW_QUALITY])
+    return {"type": "preview", "jpeg": base64.b64encode(jpeg.tobytes()).decode("ascii")}
+
+
+def draw_preview(cv2, frame, pose_landmarks, hand_landmarks, control: Controller):
     """The camera image as a mirror (what people expect), with the tracked
     arm, the grip, and the state of things."""
     height, width = frame.shape[:2]
@@ -482,7 +504,7 @@ def draw_preview(cv2, frame, pose_landmarks, hand_landmarks, control: Controller
     cv2.putText(view, status, (20, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
     assist = "assist: on (a: off)" if control.robot.assist else "assist: off (a: on)"
     cv2.putText(view, assist, (20, 66), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-    cv2.imshow("Robot arm - webcam control (space: pause, a: assist, q: quit)", view)
+    return view
 
 
 def run_demo(robot: Robot, seconds: float) -> None:
@@ -511,6 +533,8 @@ def main() -> None:
     parser.add_argument("--camera", type=int, default=0, help="camera index (default 0)")
     parser.add_argument("--mirror", action="store_true", help="flip left/right if the robot mirrors you the wrong way")
     parser.add_argument("--no-preview", action="store_true", help="don't show the camera window")
+    parser.add_argument("--stream-preview", action="store_true",
+                        help="send the preview to the app instead (the app starts this program that way)")
     parser.add_argument("--no-wrist", action="store_true",
                         help="don't copy your hand's tilt and twist: leave the robot's wrist to its planner")
     parser.add_argument("--no-assist", action="store_true",
