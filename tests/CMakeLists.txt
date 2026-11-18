@@ -112,6 +112,11 @@ target_compile_definitions(session_recorder_tests PRIVATE PROJECT_ROOT_DIR="${CM
 
 add_test(NAME session_recorder_tests COMMAND session_recorder_tests)
 
+add_executable(webcam_controller_tests webcam_controller_test.cpp)
+target_link_libraries(webcam_controller_tests PRIVATE robotarm_app_core gtest)
+
+add_test(NAME webcam_controller_tests COMMAND webcam_controller_tests)
+
 # Loads a little QML through the engine, the way the app does: the
 # Humanoid.Backend module must register the controllers as singletons.
 add_executable(qml_module_tests qml_module_test.cpp)

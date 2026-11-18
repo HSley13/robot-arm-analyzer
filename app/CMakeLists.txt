@@ -27,6 +27,8 @@ add_library(robotarm_app_core STATIC
     hand_controller.cpp
     task_controller.cpp
     session_recorder.cpp
+    webcam_controller.cpp
+    webcam_controller.hpp
     qml_singleton.hpp
 )
 set_target_properties(robotarm_app_core PROPERTIES AUTOMOC ON)
