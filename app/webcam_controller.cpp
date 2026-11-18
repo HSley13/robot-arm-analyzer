@@ -2,6 +2,8 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QProcessEnvironment>
+#include <QRegularExpression>
 #include <QStandardPaths>
 
 #include "qml_singleton.hpp"
@@ -71,6 +73,11 @@ void WebcamController::start() {
   _stopping = false;
   setStatus(QStringLiteral("Starting the webcam..."));
   _process.setWorkingDirectory(_launch.workingDirectory);
+  // MediaPipe's (and TensorFlow Lite's) own logging: errors only.
+  QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+  environment.insert(QStringLiteral("GLOG_minloglevel"), QStringLiteral("2"));
+  environment.insert(QStringLiteral("TF_CPP_MIN_LOG_LEVEL"), QStringLiteral("2"));
+  _process.setProcessEnvironment(environment);
   _process.start(_launch.program, _launch.arguments);
 }
 
@@ -95,11 +102,13 @@ void WebcamController::showPreview(const QByteArray &jpeg_base64) {
 }
 
 void WebcamController::readOutput() {
-  // Each line it prints is its latest news; the last one is the status.
+  // Each line it prints is its latest news; the last one is the status -
+  // but not MediaPipe's internal log lines ("W0000 00:00:... file.cc:81]").
+  static const QRegularExpression library_log(QStringLiteral(R"(^[IWEF]\d{4} |^INFO: |^WARNING: All log messages)"));
   QString last;
   while (_process.canReadLine()) {
     const QString line = QString::fromUtf8(_process.readLine()).trimmed();
-    if (!line.isEmpty()) {
+    if (!line.isEmpty() && !library_log.match(line).hasMatch()) {
       last = line;
     }
   }

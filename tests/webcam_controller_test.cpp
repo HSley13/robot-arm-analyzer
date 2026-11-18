@@ -68,9 +68,14 @@ TEST(WebcamController, RunsTheProgramShowsWhatItSaysAndStopsIt) {
   if (QStandardPaths::findExecutable(QStringLiteral("python3")).isEmpty()) {
     GTEST_SKIP() << "no python3";
   }
-  WebcamController webcam(python("import time\nprint('waiting for the robot app')\nprint('connected')\ntime.sleep(30)"));
+  WebcamController webcam(python("import time\nprint('waiting for the robot app')\nprint('connected')\n"
+                                 "print('W0000 00:00:1794977930.708657 15932908 landmark_projection_calculator.cc:81] noise')\n"
+                                 "time.sleep(30)"));
   webcam.start();
   ASSERT_TRUE(waitFor([&]() { return webcam.status() == "connected"; })) << webcam.status().toStdString();
+  QThread::msleep(200);
+  QCoreApplication::processEvents();
+  EXPECT_EQ(webcam.status(), QString("connected")); // MediaPipe's own log line isn't news
   EXPECT_TRUE(webcam.running());
   webcam.stop();
   EXPECT_FALSE(webcam.running());
