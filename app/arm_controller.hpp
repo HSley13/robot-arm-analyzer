@@ -117,6 +117,15 @@ public:
   const ArmConfig &config() const { return _config; }
   std::vector<double> jointAnglesRadians() const { return _jointAnglesRadians; }
   void setJointAnglesRadians(const std::vector<double> &radians);
+  // The motion the arm is actually making (TaskController, every tick):
+  // joint velocities and accelerations (radians), and its base's own
+  // motion from the moving body (arm frame). Dynamic mode computes the
+  // loads of this motion, and the joint cards' velocity / acceleration
+  // sliders show it. Static mode ignores motion, so only Dynamic mode
+  // recomputes. Sizes must match the joint count.
+  void setMotion(const std::vector<double> &velocities, const std::vector<double> &accelerations,
+                 const BaseMotion &base);
+  const BaseMotion &baseMotion() const { return _baseMotion; }
 
   double payloadKg() const { return _payloadKg; }
   void setPayloadKg(double kg);
@@ -224,6 +233,9 @@ private:
   Eigen::Vector3d gravity() const;
   std::vector<double> surrogateAngles(std::vector<double> angles) const;
   TrajectoryState effectiveState() const;
+  // The base's motion Dynamic mode uses: none in Static mode or while
+  // scrubbing a recorded trajectory (that plays the arm alone).
+  BaseMotion effectiveBaseMotion() const;
   double effectivePayloadKg() const { return _gripperOpen ? 0.0 : _payloadKg; }
 
   static constexpr double kTrajectoryDurationSeconds = 2.0;
@@ -244,6 +256,7 @@ private:
   bool _aiMode = false;
   bool _dynamicMode = false;
   double _baseTiltRadians = 0.0;
+  BaseMotion _baseMotion;
 
   bool _trajectoryScrubMode = false;
   double _trajectoryProgress = 0.0;

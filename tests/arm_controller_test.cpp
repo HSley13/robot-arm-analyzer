@@ -970,3 +970,33 @@ TEST(ArmController, TheHumanoidSurrogateDoesntApplyToAnIndustrialArm) {
   controller.convertToIndustrial();
   EXPECT_FALSE(controller.aiModeAvailable());
 }
+
+TEST(ArmController, DynamicModeFeelsTheBodyMoving) {
+  // The lift accelerating the shoulder upward at 2 m/s^2 loads a still arm
+  // like gravity of 9.81 + 2 - in Dynamic mode only.
+  ArmController controller(config_path(), surrogate_path());
+  controller.setJointAngleDegrees(0, 0.0);
+  controller.setJointAngleDegrees(1, 0.0);
+  const QVariantList at_rest = controller.jointTorques();
+
+  robotarm::BaseMotion lifting;
+  lifting.linear_acceleration = Eigen::Vector3d(0.0, 2.0, 0.0);
+  const std::vector<double> still = {0.0, 0.0};
+  controller.setMotion(still, still, lifting);
+  EXPECT_NEAR(controller.jointTorques()[0].toDouble(), at_rest[0].toDouble(), 1e-9); // Static ignores motion
+
+  controller.setDynamicMode(true);
+  const double scale = (9.81 + 2.0) / 9.81;
+  EXPECT_NEAR(controller.jointTorques()[0].toDouble(), scale * at_rest[0].toDouble(), 1e-9);
+  EXPECT_NEAR(controller.jointTorques()[1].toDouble(), scale * at_rest[1].toDouble(), 1e-9);
+}
+
+TEST(ArmController, SetMotionShowsTheArmsOwnRates) {
+  ArmController controller(config_path(), surrogate_path());
+  controller.setDynamicMode(true);
+  controller.setMotion({0.5, -1.0}, {2.0, 0.0}, {});
+  EXPECT_NEAR(controller.jointVelocitiesDegrees()[0].toDouble(), 0.5 * 180.0 / 3.14159265358979323846, 1e-9);
+  EXPECT_NEAR(controller.jointAccelerationsDegrees()[0].toDouble(), 2.0 * 180.0 / 3.14159265358979323846, 1e-9);
+  controller.setMotion({0.5}, {2.0}, {}); // wrong size: ignored
+  EXPECT_NEAR(controller.jointVelocitiesDegrees()[1].toDouble(), -1.0 * 180.0 / 3.14159265358979323846, 1e-9);
+}

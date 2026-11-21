@@ -211,6 +211,25 @@ void ArmController::moveToTarget(double xMeters, double yMeters) {
   recompute();
 }
 
+void ArmController::setMotion(const std::vector<double> &velocities, const std::vector<double> &accelerations,
+                              const BaseMotion &base) {
+  if (velocities.size() != _jointVelocitiesRadians.size() || accelerations.size() != _jointAccelerationsRadians.size()) {
+    return;
+  }
+  if (velocities == _jointVelocitiesRadians && accelerations == _jointAccelerationsRadians &&
+      base.angular_velocity == _baseMotion.angular_velocity &&
+      base.angular_acceleration == _baseMotion.angular_acceleration &&
+      base.linear_acceleration == _baseMotion.linear_acceleration) {
+    return;
+  }
+  _jointVelocitiesRadians = velocities;
+  _jointAccelerationsRadians = accelerations;
+  _baseMotion = base;
+  if (_dynamicMode) {
+    recompute();
+  }
+}
+
 void ArmController::setJointVelocityDegrees(int index, double degreesPerSecond) {
   if (index < 0 || static_cast<size_t>(index) >= _jointVelocitiesRadians.size()) return;
   if (_trajectoryScrubMode) return;
@@ -510,14 +529,21 @@ TrajectoryState ArmController::effectiveState() const {
   return state;
 }
 
+BaseMotion ArmController::effectiveBaseMotion() const {
+  return (_dynamicMode && !_trajectoryScrubMode) ? _baseMotion : BaseMotion();
+}
+
 void ArmController::recompute() {
   const TrajectoryState state = effectiveState();
+  const BaseMotion base = effectiveBaseMotion();
   const std::vector<double> &positions = state.position;
   const std::vector<double> &velocities = state.velocity;
   const std::vector<double> &accelerations = state.acceleration;
   const double payload = effectivePayloadKg();
 
   if (_dynamicMode) {
+    // The network learned a fixed base: in AI mode the body's own motion
+    // isn't part of its answer.
     if (_aiMode && _dynamicSurrogate) {
       std::vector<double> raw_input = surrogateAngles(positions);
       raw_input.insert(raw_input.end(), velocities.begin(), velocities.end());
@@ -526,7 +552,7 @@ void ArmController::recompute() {
       _jointTorques = _dynamicSurrogate->predict_raw(raw_input);
     } else {
       const Eigen::VectorXd tau =
-          inverse_dynamics(_arm, positions, velocities, accelerations, _inertialLinks, payload, gravity());
+          inverse_dynamics(_arm, positions, velocities, accelerations, _inertialLinks, payload, gravity(), base);
       _jointTorques.assign(static_cast<size_t>(tau.size()), 0.0);
       for (Eigen::Index i = 0; i < tau.size(); i++) _jointTorques[static_cast<size_t>(i)] = tau(i);
     }
@@ -540,7 +566,8 @@ void ArmController::recompute() {
     }
   }
 
-  _breakdown = decompose_torque(_arm, positions, velocities, accelerations, _inertialLinks, payload, gravity());
+  _breakdown =
+      decompose_torque(_arm, positions, velocities, accelerations, _inertialLinks, payload, gravity(), base);
 
   const std::vector<Eigen::Matrix4d> frames = _arm.forward_kinematics(positions);
   _jointPositions.clear();
@@ -565,7 +592,7 @@ void ArmController::recompute() {
   auto exact_evaluator = [&](double candidate_payload) -> Eigen::VectorXd {
     if (_dynamicMode) {
       return inverse_dynamics(_arm, positions, velocities, accelerations, _inertialLinks, candidate_payload,
-                              gravity());
+                              gravity(), base);
     }
     return static_joint_torques(_arm, positions, _links, candidate_payload, gravity());
   };
