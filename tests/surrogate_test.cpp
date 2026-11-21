@@ -8,6 +8,7 @@
 
 #include <gtest/gtest.h>
 
+#include "robotarm/arm_config.hpp"
 #include "robotarm/arm_model.hpp"
 #include "robotarm/dh.hpp"
 #include "robotarm/statics.hpp"
@@ -41,7 +42,11 @@ std::string humanoid_weights_path() {
   return std::string(PROJECT_ROOT_DIR) + "/ml/models/humanoid_arm.surrogate.json";
 }
 ArmModel humanoid_exact_arm() { return ArmModel({DHParameter(0.30), DHParameter(0.27), DHParameter(0.095)}); }
-std::vector<LinkMass> humanoid_exact_links() { return {LinkMass(2.4), LinkMass(1.7), LinkMass(0.75)}; }
+// Each link a uniform rod (the config gives no center_of_mass), as the
+// training data was generated.
+std::vector<LinkMass> humanoid_exact_links() {
+  return robotarm::to_link_masses(robotarm::load_arm_config(std::string(PROJECT_ROOT_DIR) + "/config/humanoid_arm.json"));
+}
 
 } // namespace
 

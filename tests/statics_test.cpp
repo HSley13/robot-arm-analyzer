@@ -93,3 +93,47 @@ TEST(Statics, MatchesPotentialEnergyGradient) {
   EXPECT_NEAR(tau(0), expected_tau[0], 1e-5);
   EXPECT_NEAR(tau(1), expected_tau[1], 1e-5);
 }
+
+TEST(Statics, CenterOfMassOffsetMatchesPotentialEnergyGradient) {
+  // Each link's weight acts at its own center of mass (here: halfway back
+  // along the link, and a little off it), not at the joint-frame origin.
+  const double l1 = 1.0;
+  const double l2 = 0.5;
+  ArmModel arm({DHParameter(l1), DHParameter(l2)});
+  const std::vector<LinkMass> links = {LinkMass(2.0, Eigen::Vector3d(-l1 / 2.0, 0.1, 0.0)),
+                                       LinkMass(1.0, Eigen::Vector3d(-l2 / 2.0, 0.0, 0.0))};
+  const double payload = 0.5;
+  const std::vector<double> theta = {30.0 * kPi / 180.0, 45.0 * kPi / 180.0};
+
+  auto potential_energy = [&](const std::vector<double> &q) {
+    const std::vector<Eigen::Matrix4d> poses = arm.forward_kinematics(q);
+    double energy = payload * kG * poses[1](1, 3);
+    for (size_t k = 0; k < 2; k++) {
+      const Eigen::Vector3d com = poses[k].block<3, 1>(0, 3) + poses[k].block<3, 3>(0, 0) * links[k].center_of_mass;
+      energy += links[k].mass * kG * com.y();
+    }
+    return energy;
+  };
+
+  const double h = 1e-6;
+  const Eigen::VectorXd tau = static_joint_torques(arm, theta, links, payload, kGravityDownY);
+  ASSERT_EQ(tau.size(), 2);
+  for (size_t i = 0; i < 2; i++) {
+    std::vector<double> q_plus = theta;
+    std::vector<double> q_minus = theta;
+    q_plus[i] += h;
+    q_minus[i] -= h;
+    const double expected = (potential_energy(q_plus) - potential_energy(q_minus)) / (2.0 * h);
+    EXPECT_NEAR(tau(static_cast<Eigen::Index>(i)), expected, 1e-5);
+  }
+}
+
+TEST(Statics, HorizontalRodNeedsHalfThePointMassTorque) {
+  // A uniform rod's weight acts at its middle: m*g*L/2, not m*g*L.
+  const double length = 2.0;
+  const double mass = 3.0;
+  ArmModel arm({DHParameter(length)});
+  const Eigen::VectorXd tau = static_joint_torques(
+      arm, {0.0}, {LinkMass(mass, Eigen::Vector3d(-length / 2.0, 0.0, 0.0))}, 0.0, kGravityDownY);
+  EXPECT_NEAR(tau(0), mass * kG * length / 2.0, 1e-9);
+}

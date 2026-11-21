@@ -587,7 +587,9 @@ TEST(ArmController, CurrentMaxSafePayloadKgMatchesADirectComputationAtTheSamePos
   // gravity vector), not max_safe_payload() itself (already covered
   // by payload_capacity_tests).
   const robotarm::ArmModel arm({robotarm::DHParameter(1.0), robotarm::DHParameter(0.5)});
-  const std::vector<robotarm::LinkMass> links = {robotarm::LinkMass(2.0), robotarm::LinkMass(1.0)};
+  // The fixture gives no center_of_mass: uniform rods, weight mid-link.
+  const std::vector<robotarm::LinkMass> links = {robotarm::LinkMass(2.0, Eigen::Vector3d(-0.5, 0.0, 0.0)),
+                                                 robotarm::LinkMass(1.0, Eigen::Vector3d(-0.25, 0.0, 0.0))};
   const Eigen::Vector3d gravity_down_y(0.0, -9.81, 0.0);
   const std::vector<double> joint_values = {0.0, 0.0};
   const std::vector<double> limits = {50.0, 25.0};
