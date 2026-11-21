@@ -7,6 +7,7 @@
 
 #include "arm_controller.hpp"
 #include "hand_controller.hpp"
+#include "robotarm/trajectory.hpp"
 #include "robotarm/units.hpp"
 
 namespace robotarm {
@@ -1153,6 +1154,10 @@ void TaskController::followGoal(double seconds) {
 
   const FollowStep step = followStep(gap, _goalSpeed, top, top_accel, seconds);
   _goalSpeed = step.speed;
+  _bodyVelocity = {step.speed[0], step.speed[1], step.speed[2]};
+  _bodyAcceleration = {step.acceleration[0], step.acceleration[1], step.acceleration[2]};
+  _armVelocity.assign(step.speed.begin() + 4, step.speed.end());
+  _armAcceleration.assign(step.acceleration.begin() + 4, step.acceleration.end());
   BodyPose next = now;
   next.yaw = now.yaw + step.move[0];
   next.hip_height = now.hip_height + step.move[1];
@@ -1167,6 +1172,31 @@ void TaskController::followGoal(double seconds) {
 void TaskController::stopTickerIfIdle() {
   if (_steps.empty() && !_following && !_leftFollowing) {
     _ticker.stop();
+    clearMotion(); // nothing moves any more
+    publishMotion();
+  }
+}
+
+void TaskController::clearMotion() {
+  _bodyVelocity = {};
+  _bodyAcceleration = {};
+  _armVelocity.assign(static_cast<size_t>(_arm->jointCount()), 0.0);
+  _armAcceleration.assign(static_cast<size_t>(_arm->jointCount()), 0.0);
+  if (_leftArm != nullptr) {
+    _leftArmVelocity.assign(static_cast<size_t>(_leftArm->jointCount()), 0.0);
+    _leftArmAcceleration.assign(static_cast<size_t>(_leftArm->jointCount()), 0.0);
+  }
+}
+
+void TaskController::publishMotion() {
+  // Both shoulders ride the same torso; the left arm's frame is mirrored.
+  _arm->setMotion(_armVelocity, _armAcceleration,
+                  shoulder_motion(_geometry, _pose.hip_bend, _bodyVelocity, _bodyAcceleration,
+                                  _geometry.shoulder_lateral));
+  if (_leftArm != nullptr) {
+    _leftArm->setMotion(_leftArmVelocity, _leftArmAcceleration,
+                        shoulder_motion(_geometry, _pose.hip_bend, _bodyVelocity, _bodyAcceleration,
+                                        -_geometry.shoulder_lateral, true));
   }
 }
 
@@ -1216,14 +1246,16 @@ BodyPose TaskController::sideOffPose(BodyPose pose, const Eigen::Vector3d &grip_
 }
 
 double TaskController::stepDuration(const BodyPose &from, const BodyPose &to) const {
-  double seconds = std::abs(wrap(to.yaw - from.yaw)) * 0.9;
-  seconds = std::max(seconds, std::abs(to.hip_height - from.hip_height) * 3.0);
-  seconds = std::max(seconds, std::abs(to.hip_bend - from.hip_bend) * 1.2);
-  seconds = std::max(seconds, std::abs(to.hand_roll - from.hand_roll) * 0.5);
+  // A minimum-jerk move peaks at 1.875x its average speed (a smoothstep
+  // at 1.5x), so these allow 1.25x the time to keep the same peaks.
+  double seconds = std::abs(wrap(to.yaw - from.yaw)) * 1.125;
+  seconds = std::max(seconds, std::abs(to.hip_height - from.hip_height) * 3.75);
+  seconds = std::max(seconds, std::abs(to.hip_bend - from.hip_bend) * 1.5);
+  seconds = std::max(seconds, std::abs(to.hand_roll - from.hand_roll) * 0.625);
   for (size_t i = 0; i < std::min(from.arm.size(), to.arm.size()); i++) {
-    seconds = std::max(seconds, std::abs(to.arm[i] - from.arm[i]) * 0.8);
+    seconds = std::max(seconds, std::abs(to.arm[i] - from.arm[i]) * 1.0);
   }
-  return std::clamp(seconds + 0.5, 0.7, 2.6);
+  return std::clamp(seconds + 0.5, 0.7, 3.25);
 }
 
 void TaskController::queue(const BodyPose &target, double duration, std::function<void()> on_arrive) {
@@ -1405,6 +1437,7 @@ void TaskController::stop() {
 }
 
 void TaskController::advance(double seconds) {
+  clearMotion(); // whatever moves this step sets its own rates
   if (_leftFollowing && seconds > 0.0) {
     followLeft(seconds);
   }
@@ -1412,8 +1445,13 @@ void TaskController::advance(double seconds) {
     if (_following && seconds > 0.0) {
       followGoal(seconds);
     }
-    return;
+  } else {
+    runSteps(seconds);
   }
+  publishMotion();
+}
+
+void TaskController::runSteps(double seconds) {
   while (seconds > 0.0 && !_steps.empty()) {
     if (!_stepStarted) {
       _stepStart = currentPose();
@@ -1425,9 +1463,13 @@ void TaskController::advance(double seconds) {
     _stepElapsed += std::max(0.0, used);
     seconds -= std::max(used, 1e-12);
 
-    // Smoothstep easing: starts and stops gently, like a real joint.
+    // Minimum-jerk easing: starts and stops gently, like a real joint -
+    // speed and acceleration both start and end at zero.
     const double u = step.duration > 0.0 ? std::clamp(_stepElapsed / step.duration, 0.0, 1.0) : 1.0;
-    const double s = u * u * (3.0 - 2.0 * u);
+    const Easing easing = minimum_jerk(u);
+    const double s = easing.s;
+    const double rate = step.duration > 0.0 ? easing.ds / step.duration : 0.0;
+    const double accel = step.duration > 0.0 ? easing.dds / (step.duration * step.duration) : 0.0;
 
     BodyPose pose;
     pose.yaw = _stepStart.yaw + s * wrap(step.target.yaw - _stepStart.yaw);
@@ -1437,6 +1479,16 @@ void TaskController::advance(double seconds) {
     pose.arm = _stepStart.arm;
     for (size_t i = 0; i < std::min(pose.arm.size(), step.target.arm.size()); i++) {
       pose.arm[i] = _stepStart.arm[i] + s * (step.target.arm[i] - _stepStart.arm[i]);
+    }
+    const double yaw_change = wrap(step.target.yaw - _stepStart.yaw);
+    const double lift_change = step.target.hip_height - _stepStart.hip_height;
+    const double bend_change = step.target.hip_bend - _stepStart.hip_bend;
+    _bodyVelocity = {rate * yaw_change, rate * lift_change, rate * bend_change};
+    _bodyAcceleration = {accel * yaw_change, accel * lift_change, accel * bend_change};
+    for (size_t i = 0; i < std::min({pose.arm.size(), step.target.arm.size(), _armVelocity.size()}); i++) {
+      const double change = step.target.arm[i] - _stepStart.arm[i];
+      _armVelocity[i] = rate * change;
+      _armAcceleration[i] = accel * change;
     }
     applyPose(pose);
 
@@ -1667,6 +1719,8 @@ void TaskController::followLeft(double seconds) {
   }
   const FollowStep step = followStep(gap, _leftGoalSpeed, top, top_accel, seconds);
   _leftGoalSpeed = step.speed;
+  _leftArmVelocity.assign(step.speed.begin() + 1, step.speed.end());
+  _leftArmAcceleration.assign(step.acceleration.begin() + 1, step.acceleration.end());
   _leftRoll += step.move[0];
   std::vector<double> next = now;
   for (size_t i = 0; i < now.size(); i++) {
