@@ -396,6 +396,11 @@ private:
   // approaches from and retreats to, so it never sweeps through the object.
   BodyPose sideOffPose(BodyPose pose, const Eigen::Vector3d &grip_point, double palmar_offset, double clearance) const;
   double stepDuration(const BodyPose &from, const BodyPose &to) const;
+  // How long a move holding `mass` should take: stepDuration, or longer if
+  // that's what keeps every joint under kMoveLoadLimit all the way along
+  // (check_move_loads). Negative if even the slowest allowed is too much,
+  // with `reason` naming the joint.
+  double heldMoveDuration(const BodyPose &from, const BodyPose &to, double mass, QString &reason) const;
   void applyPose(const BodyPose &pose);
   bool reachToward(const Eigen::Vector3d &point, const double *hand_angle);
   // The arm's end-effector point in the world, for the current pose.

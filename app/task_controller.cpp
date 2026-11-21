@@ -61,6 +61,12 @@ constexpr double kMaxJointAccel = 10.0;    // rad/s^2
 constexpr double kMaxRollAccel = 20.0;     // rad/s^2
 constexpr double kMaxHandRoll = kPi / 2.0; // rad, palm straight up or down
 constexpr double kArrived = 1e-3;          // rad or m left to go
+// A planned move holding an object never takes a joint into the gauges'
+// red zone (90 % of its limit), counting the loads of moving it.
+constexpr double kMoveLoadLimit = 0.9;
+// How much longer than its usual time a held move may take to stay under
+// kMoveLoadLimit - moving slower lowers the inertial loads.
+constexpr double kMoveSlowDowns[] = {1.0, 1.5, 2.0, 3.0};
 
 double wrap(double angle) {
   while (angle > kPi) {
@@ -1258,6 +1264,23 @@ double TaskController::stepDuration(const BodyPose &from, const BodyPose &to) co
   return std::clamp(seconds + 0.5, 0.7, 3.25);
 }
 
+double TaskController::heldMoveDuration(const BodyPose &from, const BodyPose &to, double mass, QString &reason) const {
+  const double usual = stepDuration(from, to);
+  MoveLoads loads;
+  for (const double slow_down : kMoveSlowDowns) {
+    loads = check_move_loads(_arm->config(), _geometry, from, to, usual * slow_down, mass, _geometry.shoulder_lateral);
+    if (loads.peak_load_ratio <= kMoveLoadLimit) {
+      return usual * slow_down;
+    }
+  }
+  const std::string &name = _arm->config().joints[loads.worst_joint].name;
+  reason = QStringLiteral("%1 would need %2 N·m on the way (limit %3), even moving slowly")
+               .arg(name.empty() ? QStringLiteral("a joint") : QString::fromStdString(name))
+               .arg(loads.worst_torque, 0, 'f', 0)
+               .arg(_arm->config().joints[loads.worst_joint].torque_limit, 0, 'f', 0);
+  return -1.0;
+}
+
 void TaskController::queue(const BodyPose &target, double duration, std::function<void()> on_arrive) {
   _steps.push_back({target, duration, std::move(on_arrive)});
   startTicker();
@@ -1314,6 +1337,17 @@ bool TaskController::pickUp(int id) {
   const BodyPose start = currentPose();
   const BodyPose approach = approachPose(option, grasp, kApproachClearance);
   const BodyPose carry = carryPose(option, lifted);
+
+  // The moves made holding it: loaded all the way along, not just at the
+  // ends - slowed down if that keeps them out of the red, refused if not.
+  QString move_reason;
+  const double lift_seconds = heldMoveDuration(grasp.pose, lifted.pose, object->mass, move_reason);
+  const double carry_seconds =
+      lift_seconds > 0.0 ? heldMoveDuration(lifted.pose, carry, object->mass, move_reason) : -1.0;
+  if (lift_seconds < 0.0 || carry_seconds < 0.0) {
+    setStatus(QStringLiteral("Can't pick up the %1: %2").arg(object->type, move_reason));
+    return false;
+  }
   const double closure = gripClosure(shape.grip_radius);
   const double closed_width = 2.0 * shape.grip_radius;
   const double mass = object->mass;
@@ -1343,8 +1377,8 @@ bool TaskController::pickUp(int id) {
     _arm->setGripperOpen(false);
     emit objectsChanged();
   });
-  queue(lifted.pose, stepDuration(grasp.pose, lifted.pose));
-  queue(carry, stepDuration(lifted.pose, carry), [this, type, mass]() {
+  queue(lifted.pose, lift_seconds);
+  queue(carry, carry_seconds, [this, type, mass]() {
     setStatus(QStringLiteral("Holding the %1 (%2)").arg(type, massText(mass)));
   });
   return true;
@@ -1390,15 +1424,25 @@ bool TaskController::putDown(double x, double z) {
     above = place;
   }
 
-  cancelReach();
+  // Still holding it on the way above the spot and down onto it.
   const BodyPose start = currentPose();
+  QString move_reason;
+  const double above_seconds = heldMoveDuration(start, above.pose, object->mass, move_reason);
+  const double lower_seconds =
+      above_seconds > 0.0 ? heldMoveDuration(above.pose, place.pose, object->mass, move_reason) : -1.0;
+  if (above_seconds < 0.0 || lower_seconds < 0.0) {
+    setStatus(QStringLiteral("Can't put the %1 there: %2").arg(object->type, move_reason));
+    return false;
+  }
+
+  cancelReach();
   const BodyPose retreat = approachPose(option, place, kApproachClearance);
   const int id = object->id;
   const QString type = object->type;
   setStatus(QStringLiteral("Putting the %1 down...").arg(type));
 
-  queue(above.pose, stepDuration(start, above.pose));
-  queue(place.pose, 0.9, [this, id, base]() {
+  queue(above.pose, above_seconds);
+  queue(place.pose, lower_seconds, [this, id, base]() {
     // Let go: the object now stands where the hand put it.
     if (SceneObject *placed = findObject(id)) {
       placed->base = base;

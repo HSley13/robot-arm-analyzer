@@ -317,6 +317,41 @@ TEST(TaskController, TheBodyCrouchingLoadsTheArm) {
   EXPECT_NEAR(rig.arm.baseMotion().angular_velocity.norm(), 0.0, 1e-12);
 }
 
+TEST(TaskController, AHeavyPickUpAndPutDownNeverGoIntoTheRed) {
+  // Frame by frame, in Dynamic mode (so the loads of moving count too):
+  // no joint goes past 90 % of its limit while carrying something heavy,
+  // or the pick-up is refused up front with the reason.
+  for (const double mass : {3.0, 6.0, 9.0, 12.0}) {
+    Rig rig;
+    rig.arm.setDynamicMode(true);
+    const int id = rig.task.addObject("kettlebell", mass, 0.55, 0.30);
+    ASSERT_NE(id, -1);
+    if (!rig.task.pickUp(id)) {
+      EXPECT_NE(rig.task.status().indexOf("Can't pick up"), -1) << rig.task.status().toStdString();
+      continue;
+    }
+    double peak = 0.0;
+    auto watch = [&]() {
+      for (int frame = 0; frame < 60 * 30 && rig.task.busy(); frame++) {
+        rig.task.advance(1.0 / 60.0);
+        const QVariantList torques = rig.arm.jointTorques();
+        const QVariantList limits = rig.arm.jointTorqueLimits();
+        for (int i = 0; i < torques.size(); i++) {
+          peak = std::max(peak, std::abs(torques[i].toDouble()) / limits[i].toDouble());
+        }
+      }
+    };
+    watch();
+    ASSERT_EQ(rig.task.heldId(), id) << mass << " kg";
+    if (rig.task.putDown(0.40, -0.50)) {
+      watch();
+      EXPECT_EQ(rig.task.heldId(), -1);
+    }
+    EXPECT_LE(peak, 0.9 + 0.01) << mass << " kg";
+    EXPECT_GT(peak, 0.05) << mass << " kg";
+  }
+}
+
 TEST(TaskController, TouchingTheBodyCancelsTheReach) {
   Rig rig;
   ASSERT_TRUE(rig.task.reachTo(0.35, 0.30, 0.55));
