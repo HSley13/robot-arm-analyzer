@@ -4,13 +4,21 @@
 
 namespace robotarm {
 
-CubicTrajectory::CubicTrajectory(std::vector<double> start, std::vector<double> end, double duration)
+Easing minimum_jerk(double u) {
+  if (u <= 0.0) return {0.0, 0.0, 0.0};
+  if (u >= 1.0) return {1.0, 0.0, 0.0};
+  const double u2 = u * u;
+  const double u3 = u2 * u;
+  return {u3 * (10.0 - 15.0 * u + 6.0 * u2), 30.0 * u2 * (1.0 - u) * (1.0 - u), 60.0 * u * (1.0 - u) * (1.0 - 2.0 * u)};
+}
+
+QuinticTrajectory::QuinticTrajectory(std::vector<double> start, std::vector<double> end, double duration)
     : _start(std::move(start)), _end(std::move(end)), _duration(duration) {
   assert(_start.size() == _end.size());
   assert(_duration > 0.0);
 }
 
-TrajectoryState CubicTrajectory::evaluate(double t) const {
+TrajectoryState QuinticTrajectory::evaluate(double t) const {
   const size_t n = _start.size();
   TrajectoryState state;
   state.position.resize(n);
@@ -26,17 +34,12 @@ TrajectoryState CubicTrajectory::evaluate(double t) const {
     return state;
   }
 
-  // Standard cubic polynomial trajectory: q(t) = a0 + a1*t + a2*t^2 +
-  // a3*t^3, solved for q(0)=start, q(T)=end, qdot(0)=qdot(T)=0, giving
-  // a0=start, a1=0, a2=3*delta/T^2, a3=-2*delta/T^3.
+  const Easing easing = minimum_jerk(t / _duration);
   for (size_t i = 0; i < n; i++) {
     const double delta = _end[i] - _start[i];
-    const double a2 = 3.0 * delta / (_duration * _duration);
-    const double a3 = -2.0 * delta / (_duration * _duration * _duration);
-
-    state.position[i] = _start[i] + a2 * t * t + a3 * t * t * t;
-    state.velocity[i] = 2.0 * a2 * t + 3.0 * a3 * t * t;
-    state.acceleration[i] = 2.0 * a2 + 6.0 * a3 * t;
+    state.position[i] = _start[i] + easing.s * delta;
+    state.velocity[i] = easing.ds * delta / _duration;
+    state.acceleration[i] = easing.dds * delta / (_duration * _duration);
   }
 
   return state;
