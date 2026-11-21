@@ -38,7 +38,7 @@ struct JointConfig {
   DHParameter dh;
   double min_degrees = -180.0;
   double max_degrees = 180.0;
-  double mass = 0.0;         // kg, at this joint's frame origin - see statics.hpp
+  double mass = 0.0;         // kg, at inertial.center_of_mass
   double torque_limit = 0.0; // N*m (Revolute) or N (Prismatic)
   LinkInertial inertial;
 };
@@ -72,7 +72,9 @@ ArmConfig load_arm_config(const std::filesystem::path &path);
 ArmModel to_arm_model(const ArmConfig &config);
 
 // Converts the mass portion of an ArmConfig into the LinkMass list
-// static_joint_torques() expects.
+// static_joint_torques() expects. Each mass sits at the same center of
+// mass as to_link_inertials() gives it, so static_joint_torques() and
+// inverse_dynamics() at rest are the same numbers for the same config.
 std::vector<LinkMass> to_link_masses(const ArmConfig &config);
 
 // Converts the inertial portion of an ArmConfig into the LinkInertial

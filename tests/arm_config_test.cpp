@@ -12,11 +12,13 @@
 #include <nlohmann/json.hpp>
 
 #include "robotarm/arm_config.hpp"
+#include "robotarm/dynamics.hpp"
 #include "robotarm/statics.hpp"
 
 using robotarm::ArmConfig;
 using robotarm::ArmModel;
 using robotarm::DHParameter;
+using robotarm::inverse_dynamics;
 using robotarm::LinkInertial;
 using robotarm::LinkMass;
 using robotarm::load_arm_config;
@@ -81,7 +83,10 @@ TEST(ArmConfig, ConversionMatchesHandBuiltArmExactly) {
   const Eigen::VectorXd tau_from_config = static_joint_torques(arm, theta, links, payload, gravity_down_y);
 
   const ArmModel hand_built_arm({DHParameter(1.0), DHParameter(0.5)});
-  const std::vector<LinkMass> hand_built_links = {LinkMass(2.0), LinkMass(1.0)};
+  // No center_of_mass in the config: each link is a uniform rod, its
+  // weight halfway back along it.
+  const std::vector<LinkMass> hand_built_links = {LinkMass(2.0, Eigen::Vector3d(-0.5, 0.0, 0.0)),
+                                                  LinkMass(1.0, Eigen::Vector3d(-0.25, 0.0, 0.0))};
   const Eigen::VectorXd tau_hand_built =
       static_joint_torques(hand_built_arm, theta, hand_built_links, payload, gravity_down_y);
 
@@ -313,4 +318,27 @@ TEST(ArmConfig, RejectsNonStringStyle) {
   nlohmann::json doc = two_link_planar_json();
   doc["style"] = 3;
   EXPECT_THROW(parse_arm_config(doc), std::runtime_error);
+}
+
+TEST(ArmConfig, ShippedArmStaticsEqualDynamicsAtRest) {
+  // The app's Static and Dynamic modes must agree on a still arm: both
+  // place each link's weight at the same center of mass.
+  const ArmConfig config = load_arm_config(std::string(PROJECT_ROOT_DIR) + "/config/humanoid_arm.json");
+  const ArmModel arm = to_arm_model(config);
+  const size_t n = config.joints.size();
+  const std::vector<double> rest(n, 0.0);
+  const Eigen::Vector3d gravity(0.0, -9.81, 0.0);
+
+  for (const std::vector<double> &pose : {std::vector<double>{0.0, 0.0, 0.0}, std::vector<double>{-0.6, 1.2, -0.4},
+                                          std::vector<double>{1.0, 0.3, 0.8}}) {
+    for (const double payload : {0.0, 4.0}) {
+      const Eigen::VectorXd tau_static = static_joint_torques(arm, pose, to_link_masses(config), payload, gravity);
+      const Eigen::VectorXd tau_dynamic =
+          inverse_dynamics(arm, pose, rest, rest, to_link_inertials(config), payload, gravity);
+      ASSERT_EQ(tau_static.size(), tau_dynamic.size());
+      for (Eigen::Index i = 0; i < tau_static.size(); i++) {
+        EXPECT_NEAR(tau_static(i), tau_dynamic(i), 1e-9);
+      }
+    }
+  }
 }

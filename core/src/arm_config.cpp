@@ -170,7 +170,7 @@ std::vector<LinkMass> to_link_masses(const ArmConfig &config) {
   std::vector<LinkMass> links;
   links.reserve(config.joints.size());
   for (const JointConfig &joint : config.joints) {
-    links.push_back(LinkMass(joint.mass));
+    links.push_back(LinkMass(joint.mass, joint.inertial.center_of_mass));
   }
   return links;
 }
