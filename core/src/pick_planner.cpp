@@ -328,7 +328,7 @@ PickPlan plan_grasp(const ArmConfig &config, const BodyGeometry &body, const Gra
           candidate.hand_angle = phi_world;
           candidate.peak_load_ratio = ratio;
 
-          if (ratio > 1.0) {
+          if (ratio > kPlanningLoadLimit) {
             if (ratio < best_overloaded.peak_load_ratio) {
               best_overloaded = candidate;
               overloaded_joint = worst;
@@ -362,10 +362,11 @@ PickPlan plan_grasp(const ArmConfig &config, const BodyGeometry &body, const Gra
 
   // Reachable, but every way of reaching it overloads something: report
   // the least-bad pose's worst joint.
-  char message[160];
-  std::snprintf(message, sizeof(message), "too heavy - %s would need %.0f N*m (limit %.0f)",
-                joint_label(config, overloaded_joint).c_str(), overloaded_torque,
-                config.joints[overloaded_joint].torque_limit);
+  const double limit = config.joints[overloaded_joint].torque_limit;
+  char message[200];
+  std::snprintf(message, sizeof(message), "too heavy - %s would need %.0f N*m (plans keep it under %.0f, %.0f %% of its %.0f limit)",
+                joint_label(config, overloaded_joint).c_str(), overloaded_torque, kPlanningLoadLimit * limit,
+                100.0 * kPlanningLoadLimit, limit);
   best_overloaded.ok = false;
   best_overloaded.reason = message;
   return best_overloaded;

@@ -162,7 +162,30 @@ TEST(PickPlanner, RefusesAnObjectTooHeavyForTheJointsAndSaysWhichJoint) {
   const PickPlan plan = robotarm::plan_grasp(humanoid_arm(), BodyGeometry(), heavy, 0.8);
   EXPECT_FALSE(plan.ok);
   EXPECT_NE(plan.reason.find("too heavy"), std::string::npos) << plan.reason;
-  EXPECT_GT(plan.peak_load_ratio, 1.0);
+  EXPECT_GT(plan.peak_load_ratio, robotarm::kPlanningLoadLimit);
+}
+
+TEST(PickPlanner, KeepsAMarginBelowEveryJointsLimit) {
+  // Heavy enough that the lightest-loaded way to hold it uses more than
+  // 80 % but less than 100 % of some joint: refused, though no joint would
+  // be past its limit standing still - there'd be nothing left for moving.
+  GraspTarget target;
+  target.grip_point = Eigen::Vector3d(0.55, 0.10, 0.2);
+  target.palmar_offset = 0.04;
+  double lightest_refused = 0.0;
+  for (double mass = 1.0; mass < 60.0; mass += 0.5) {
+    target.mass = mass;
+    const PickPlan plan = robotarm::plan_grasp(humanoid_arm(), BodyGeometry(), target, 0.8);
+    if (!plan.ok) {
+      lightest_refused = mass;
+      EXPECT_GT(plan.peak_load_ratio, robotarm::kPlanningLoadLimit);
+      EXPECT_LT(plan.peak_load_ratio, 1.0) << "refused only once something is overloaded at " << mass << " kg";
+      EXPECT_NE(plan.reason.find("80 %"), std::string::npos) << plan.reason;
+      break;
+    }
+    EXPECT_LE(plan.peak_load_ratio, robotarm::kPlanningLoadLimit + 1e-12);
+  }
+  EXPECT_GT(lightest_refused, 0.0);
 }
 
 TEST(PickPlanner, MayTiltTheHandForObjectsThatDontNeedToStayUpright) {
