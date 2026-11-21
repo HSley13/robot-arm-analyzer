@@ -47,7 +47,7 @@ The same torque computation runs two ways: the exact physics engine, and a small
 
 ![Payload capacity scan, exact engine vs. AI](image/05-payload-scan.png)
 
-The neural network's curve follows the exact one closely and is about **9× faster** (0.57 ms vs. 5.19 ms for 40 poses in the run above).
+The neural network's curve follows the exact one closely, but it is **not faster**: the exact capacity has a closed form (below), so for 40 poses the exact engine takes 0.036 ms and the network 0.25 ms (optimized build). An earlier version of this project reported the network as 9× faster. That measured a slow search loop around the exact engine, not the physics itself.
 
 ### Driven with the mouse
 
@@ -122,13 +122,24 @@ flowchart LR
 | Validation mean abs. error | **1.12 N·m** (≈1.2 % of the shoulder's 90 N·m limit) | **0.86 N·m** |
 | Validation max abs. error | 13.4 N·m | 16.6 N·m |
 
+A single error number hides the safety question, because the joints' limits differ eightfold. Per joint, against its own limit (`python/evaluate_surrogate.py`):
+
+| Joint (limit) | Static: mean / worst error | Dynamic: mean / worst error |
+| --- | --- | --- |
+| Shoulder (90 N·m) | 1.9 % / 14.9 % | 1.5 % / 18.4 % |
+| Elbow (45 N·m) | 2.7 % / 21.4 % | 2.1 % / 20.8 % |
+| Wrist (12 N·m) | 3.2 % / **32.5 %** | 2.4 % / 28.1 % |
+
+The network's worst miss at the wrist is a third of that joint's limit. That is why **the network never decides what is safe**: the planner, the "safe now" payload and every pick-up check use the exact engine. AI mode only changes what the gauges display.
+
 - **Labels come from the project's own physics engine**, called from C++, never re-derived in Python, so the network learns exactly the function it replaces.
 - **Training:** full-batch Adam (learning rate 10⁻³, step decay) on mean squared error, with inputs and outputs normalized. The normalization is then folded into the first and last layers, so the C++ side is just three matrix multiplies and two ReLUs, with no ML library at runtime.
+- **What the network is (and isn't) good for here.** This three-joint arm's exact torques are cheap, and exactly linear in the payload, so imitating them buys no speed. The network is a demonstration of supervised learning on a function we can check exactly, which is also what makes its errors measurable. Learning pays off where no cheap exact model exists, for example how a person reaches (the recorded sessions below are the data for that).
 - **Generalization has limits, and the app respects them.** The network was trained for one arm. Change a limb's length or mass, or add a joint, and the training data no longer describes the arm. AI mode then switches off and the exact engine takes over, a concrete case of distribution shift.
 
 ### 3. Search
 
-- **Payload capacity is a binary search.** It finds the largest payload whose torques stay within every joint's limit, using either the exact engine or the neural network as the evaluator.
+- **Payload capacity: closed form, or a binary search.** Torque is exactly linear in the payload's mass, τ(m) = τ(0) + m·b, so for the exact engine each joint's breakeven is (L − sign(b)·τ(0)) / |b| and the capacity is the smallest of those, from two evaluations. The neural network's output isn't exactly linear, so for it the app binary-searches the largest payload whose torques stay within every limit.
 - **Grasp planning is generate-and-test search over body poses.** The candidates are a grid of lift heights × hip leans: every 2 cm × 5° for the humanoid arm, every 5 cm × 7.5° for other joint counts, where each candidate costs a numeric IK solve. For each, the waist yaw and the arm's angles are solved, and the pose is checked against the constraints: joint ranges, the floor, torque limits, and the hand's required orientation. The poses that pass are scored by a cost function: mainly the peak joint load (lightest wins), plus small penalties for leaning, for tilting the hand away from its preferred angle, and for moving the lift far. Grasp *options* are searched in order too: the gripper tries from above before from the side.
 - **Reaching for a dragged point is a cost-based choice.** The robot prefers the pose that changes its body least (waist turn, lift, lean and arm all weighted). Past its reach, it picks the posture that gets closest *without* swinging to a very different one from one mouse move to the next.
 
