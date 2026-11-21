@@ -142,6 +142,30 @@ bool is_planar_3r(const ArmConfig &config);
 // solve_planar_ik()).
 bool is_planar_revolute(const ArmConfig &config);
 
+// The loads of one planned move, start to finish, while holding a
+// payload: the worst joint's peak |torque| / limit, which joint, how much
+// torque, and when (seconds into the move).
+struct MoveLoads {
+  double peak_load_ratio = 0.0;
+  size_t worst_joint = 0;
+  double worst_torque = 0.0;
+  double worst_time = 0.0;
+};
+
+// Walks a move from `from` to `to` taking `duration` seconds, along the
+// minimum-jerk profile TaskController plays queued moves with (every
+// degree of freedom, body and arm, eased together), and at `samples`
+// instants computes the arm's full inverse dynamics holding
+// `payload_mass`: its joints' own speeds and accelerations, gravity turned
+// by the hip's lean, and what the moving body does to the shoulder (see
+// shoulder_motion; `shoulder_lateral` and `mirrored` as there). A move
+// that only checks its end poses misses loads in the middle - a heavy
+// object swung through level is heaviest half-way - and the inertia of
+// moving it at all.
+MoveLoads check_move_loads(const ArmConfig &config, const BodyGeometry &body, const BodyPose &from,
+                           const BodyPose &to, double duration, double payload_mass, double shoulder_lateral,
+                           bool mirrored = false, int samples = 48);
+
 // The most of any joint's torque limit a planned pose may use holding
 // still. The rest is headroom: for the loads of moving there (inertia,
 // the body's motion - see check_move_loads), and for what the model
