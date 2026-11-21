@@ -51,7 +51,7 @@ The neural network's curve follows the exact one closely and is about **9× fast
 
 ### Driven with the mouse
 
-Grab the hand and drag it anywhere. The robot plans a whole-body pose for that point and **moves** there at speeds its joints could manage: it turns, crouches and leans, all parts finishing together, with no jumps. You can also grab the torso, the lift column or the round base to lean, lift or turn the waist yourself.
+Grab the hand and drag it anywhere. The robot plans a whole-body pose for that point and **moves** there at speeds and accelerations its joints could manage: it turns, crouches and leans, all parts speeding up, slowing down and finishing together, with no jumps. You can also grab the torso, the lift column or the round base to lean, lift or turn the waist yourself.
 
 Picking things up takes no menus: **double-click an object** and the robot picks it up, and double-click a spot to put it down there. Or drag the hand near an object yourself: an amber ring shows what is in reach, and **clicking the hand** grabs it. Within 20 cm, the hand moves in the rest of the way first. Click the hand again to let go.
 
@@ -98,7 +98,7 @@ This project touches several of the main ideas of an introductory AI course.
 | **Actuators**   | Waist (turn), lift (up/down), hip (lean), arm joints, 17 finger joints or a gripper                                     |
 | **Sensors**     | Object positions and sizes, the robot's own joint angles, the torque each joint must produce, and a webcam watching the person who controls it |
 
-Each request is a **perceive → plan → act** cycle. The robot reads where the object is, plans a sequence of poses, then executes them with smooth, speed-limited motion. If the plan fails, it reports the reason instead of acting.
+Each request is a **perceive → plan → act** cycle. The robot reads where the object is, plans a sequence of poses, then executes them with smooth motion, limited in speed and acceleration. If the plan fails, it reports the reason instead of acting.
 
 ### 2. Supervised learning: a neural network that imitates physics
 
@@ -162,7 +162,7 @@ A webcam judges depth poorly, so aiming the robot's hand within a few centimetre
 
 ### 7. Planning and acting
 
-A pick-up is a short plan of sub-goals: **approach → grasp → lift → carry**. A put-down is **move above → lower → release → retreat → home**. Each step is a target pose; the controller interpolates between them with eased motion, closes the hand or gripper at the right moment, and hands the object's mass to the physics as payload. Some steps are planned only when reached (the home pose is computed from wherever the arm actually ended up), which is a small form of replanning.
+A pick-up is a short plan of sub-goals: **approach → grasp → lift → carry**. A put-down is **move above → lower → release → retreat → home**. Each step is a target pose; the controller moves between them along a minimum-jerk profile (speed and acceleration start and end at zero), closes the hand or gripper at the right moment, and hands the object's mass to the physics as payload. Some steps are planned only when reached (the home pose is computed from wherever the arm actually ended up), which is a small form of replanning.
 
 ---
 
@@ -191,8 +191,8 @@ flowchart LR
 
 - **Kinematics:** each joint is described with Denavit-Hartenberg parameters; forward kinematics chains the transforms to get every joint's position. The hand is a kinematic *tree*: five finger chains branch off the wrist, each placed in the palm with a URDF-style origin (needed for the off-axis thumb).
 - **Statics:** the torque each joint needs to hold the pose, from the weight of every link and the payload, through the arm's Jacobian.
-- **Dynamics:** the full Recursive Newton-Euler algorithm, with gravity, inertia and Coriolis terms computed separately (tests check they add up exactly to the total).
-- **The body:** turning the waist and raising the lift don't change gravity torques. Leaning at the hip tilts the arm within its own plane, which is the same as rotating gravity in the arm's frame, so the analysis stays exact while the robot crouches and leans.
+- **Dynamics:** the full Recursive Newton-Euler algorithm, with gravity, inertia and Coriolis terms computed separately (tests check they add up exactly to the total). Dynamic mode computes the motion the robot is actually making, every frame: its joints' speeds and accelerations, and its shoulder's own motion as the body moves. Statics is the same model at rest: both put each link's weight at its center of mass.
+- **The body:** turning the waist and raising the lift don't change gravity torques. Leaning at the hip tilts the arm within its own plane, which is the same as rotating gravity in the arm's frame, so the analysis stays exact while the robot crouches and leans. While the body moves, Dynamic mode adds what that motion does to each shoulder: the lift's acceleration, the lean, and the waist's turn (its centrifugal pull, and the push forward or back that turning faster gives a shoulder off the waist's axis).
 
 **The interface (`app/`, Qt 6 Quick 3D):**
 
@@ -227,7 +227,7 @@ flowchart LR
 | Click the **floor** or a **table** | Put down here · reach here · add an object or furniture |
 | Drag empty space                   | Orbit the camera; right-drag pans; the wheel zooms      |
 
-The side panel switches **Humanoid / Warehouse**, adds or removes joints, and has sliders for the body, a demo payload and hand gestures. Each card in the bottom bar is one joint: its angle, its load gauge, and editable torque limit, length and mass. The bottom-left switches choose **Exact / AI** and **Static / Dynamic**.
+The side panel switches **Humanoid / Warehouse**, adds or removes joints, and has sliders for the body, a demo payload and hand gestures. Each card in the bottom bar is one joint: its angle, its load gauge, and editable torque limit, length and mass. The bottom-left switches choose **Exact / AI** and **Static / Dynamic**. In Dynamic mode each card's speed and acceleration follow the robot's own motion; while it stands still you can set them by hand to ask "what if".
 
 ---
 

@@ -1,7 +1,7 @@
 // Verifies RecordedTrajectory: boundary conditions across a multi-segment
-// recording, that each segment matches a plain CubicTrajectory computed
+// recording, that each segment matches a plain QuinticTrajectory computed
 // independently for that same pair of waypoints (the whole class is just
-// a sequencing layer over CubicTrajectory, so this is the real
+// a sequencing layer over QuinticTrajectory, so this is the real
 // correctness check), before/after clamping, and that add_waypoint()
 // extends playback.
 #include <gtest/gtest.h>
@@ -9,7 +9,7 @@
 #include "robotarm/recorded_trajectory.hpp"
 #include "robotarm/trajectory.hpp"
 
-using robotarm::CubicTrajectory;
+using robotarm::QuinticTrajectory;
 using robotarm::RecordedTrajectory;
 using robotarm::TrajectoryState;
 
@@ -39,7 +39,7 @@ TEST(RecordedTrajectory, StartsAndEndsAtTheFirstAndLastWaypointAtRest) {
 }
 
 TEST(RecordedTrajectory, StopsAtRestAtTheMiddleWaypointToo) {
-  // Each segment is independently a CubicTrajectory with zero velocity
+  // Each segment is independently a QuinticTrajectory with zero velocity
   // at both its own ends, so chaining them means the recording comes to
   // rest at every waypoint, not just the first and last - a real
   // property of this design (independent segments), not a bug, worth
@@ -50,7 +50,7 @@ TEST(RecordedTrajectory, StopsAtRestAtTheMiddleWaypointToo) {
   EXPECT_NEAR(at_middle.velocity[0], 0.0, 1e-9);
 }
 
-TEST(RecordedTrajectory, EachSegmentMatchesAStandaloneCubicTrajectory) {
+TEST(RecordedTrajectory, EachSegmentMatchesAStandaloneQuinticTrajectory) {
   const RecordedTrajectory trajectory({kWaypoint0, kWaypoint1, kWaypoint2}, kSegmentDuration);
 
   // A time within the second segment (waypoint1 -> waypoint2).
@@ -58,7 +58,7 @@ TEST(RecordedTrajectory, EachSegmentMatchesAStandaloneCubicTrajectory) {
   const double t_global = kSegmentDuration + t_in_segment;
 
   const TrajectoryState from_recording = trajectory.evaluate(t_global);
-  const CubicTrajectory standalone_segment(kWaypoint1, kWaypoint2, kSegmentDuration);
+  const QuinticTrajectory standalone_segment(kWaypoint1, kWaypoint2, kSegmentDuration);
   const TrajectoryState from_standalone = standalone_segment.evaluate(t_in_segment);
 
   EXPECT_NEAR(from_recording.position[0], from_standalone.position[0], 1e-12);

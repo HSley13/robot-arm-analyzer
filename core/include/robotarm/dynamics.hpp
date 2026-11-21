@@ -32,13 +32,31 @@ struct LinkInertial {
   static LinkInertial rod(double mass, double length);
 };
 
+// How the arm's base (frame 0, the shoulder mount) itself is moving at
+// this instant, everything in frame 0's own axes: its angular velocity and
+// angular acceleration, and the linear acceleration of its origin. Zero
+// (the default) is a base bolted to the ground. A humanoid's shoulder
+// rides on a torso that turns, lifts and leans - those motions load the
+// arm's joints exactly as the joints' own motion does.
+struct BaseMotion {
+  Eigen::Vector3d angular_velocity = Eigen::Vector3d::Zero();     // rad/s
+  Eigen::Vector3d angular_acceleration = Eigen::Vector3d::Zero(); // rad/s^2
+  Eigen::Vector3d linear_acceleration = Eigen::Vector3d::Zero();  // m/s^2, of frame 0's origin
+};
+
 // Full inverse dynamics via the Recursive Newton-Euler Algorithm (RNEA):
 // the joint torque/force needed to produce the given motion
 // (joint_velocities, joint_accelerations - same units as joint_values:
 // rad/s and rad/s^2 for Revolute, m/s and m/s^2 for Prismatic) under
 // gravity and an optional point-mass payload at the end-effector.
 //
-// Setting joint_velocities and joint_accelerations to all zero collapses
+// `base` is the base's own motion (default: fixed). A base accelerating
+// upward at a is indistinguishable from gravity stronger by a; a base
+// turning about joint 1's axis is indistinguishable from joint 1 turning
+// that much faster (both verified in dynamics_test.cpp).
+//
+// Setting joint_velocities and joint_accelerations to all zero (and the
+// base fixed) collapses
 // this exactly to static_joint_torques() (verified in dynamics_test.cpp)
 // - per the roadmap, static analysis IS the dynamic equations with zero
 // velocity and zero acceleration, so Phase 1's work isn't thrown away.
@@ -54,7 +72,8 @@ Eigen::VectorXd inverse_dynamics(const ArmModel &arm, const std::vector<double> 
                                   const std::vector<double> &joint_velocities,
                                   const std::vector<double> &joint_accelerations,
                                   const std::vector<LinkInertial> &links, double payload_mass,
-                                  const Eigen::Vector3d &gravity = Eigen::Vector3d(0.0, 0.0, -9.81));
+                                  const Eigen::Vector3d &gravity = Eigen::Vector3d(0.0, 0.0, -9.81),
+                                  const BaseMotion &base = {});
 
 // The joint torque decomposed into its three physical causes - per the
 // roadmap's NovaSolver lesson: showing "here's a torque" tells an
@@ -80,10 +99,14 @@ struct TorqueBreakdown {
   Eigen::VectorXd total;
 };
 
+//
+// The base's motion splits the same way: its angular and linear
+// acceleration count as inertia, its angular velocity as Coriolis.
 TorqueBreakdown decompose_torque(const ArmModel &arm, const std::vector<double> &joint_values,
                                   const std::vector<double> &joint_velocities,
                                   const std::vector<double> &joint_accelerations,
                                   const std::vector<LinkInertial> &links, double payload_mass,
-                                  const Eigen::Vector3d &gravity = Eigen::Vector3d(0.0, 0.0, -9.81));
+                                  const Eigen::Vector3d &gravity = Eigen::Vector3d(0.0, 0.0, -9.81),
+                                  const BaseMotion &base = {});
 
 } // namespace robotarm

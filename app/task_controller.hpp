@@ -419,6 +419,13 @@ private:
   void showWhatsInReach(const Eigen::Vector3d &point);
   // One time step of moving toward _goal (see reachTo).
   void followGoal(double seconds);
+  // One time step of the queued sequence (pick-up, put-down...).
+  void runSteps(double seconds);
+  // The motion being made this time step - each step of advance() starts
+  // from still and whatever moves sets its rates - and handing it to both
+  // arms' dynamics (with what the moving torso does to each shoulder).
+  void clearMotion();
+  void publishMotion();
   void startTicker();
   // Stops the timer once nothing moves any more (no sequence, no goal for
   // either arm).
@@ -464,6 +471,16 @@ private:
   // reachTo()'s goal, while the body is still on its way there.
   BodyPose _goal;
   bool _following = false;
+  // How fast each degree of freedom is moving toward _goal (followGoal's
+  // order: yaw, lift, bend, roll, then the arm's joints); empty = still.
+  std::vector<double> _goalSpeed;
+  // The motion being made this time step (see publishMotion).
+  BodyRates _bodyVelocity;
+  BodyRates _bodyAcceleration;
+  std::vector<double> _armVelocity;
+  std::vector<double> _armAcceleration;
+  std::vector<double> _leftArmVelocity;
+  std::vector<double> _leftArmAcceleration;
   // Whether live input last closed the hand (past the grab threshold) -
   // grab and release fire when this flips, not on every update.
   bool _gripClosed = false;
@@ -483,6 +500,7 @@ private:
   HandController *_leftHand = nullptr;
   std::vector<double> _leftGoalArm;
   bool _leftFollowing = false;
+  std::vector<double> _leftGoalSpeed; // roll, then the joints (as _goalSpeed)
   double _leftRoll = 0.0;
   double _leftGoalRoll = 0.0;
   int _leftHeldId = -1;

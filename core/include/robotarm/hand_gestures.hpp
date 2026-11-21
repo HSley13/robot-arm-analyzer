@@ -18,7 +18,7 @@ namespace robotarm {
 // This class only produces TARGETS, never animates - it has no notion of
 // "the hand's current pose," so it needs no QObject/timer machinery and
 // is plain GTest-testable. Smoothly moving toward a target is the
-// caller's job (HandController), via CubicTrajectory/RecordedTrajectory.
+// caller's job (HandController), via QuinticTrajectory/RecordedTrajectory.
 class HandGestures {
 public:
   explicit HandGestures(HandConfig config) : _config(std::move(config)) {}

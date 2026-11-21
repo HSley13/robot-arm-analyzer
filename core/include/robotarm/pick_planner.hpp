@@ -21,9 +21,8 @@ namespace robotarm {
 // one changes the gravity torque at any arm joint. Turning about the
 // gravity axis keeps the arm's plane vertical, and lifting is a pure
 // translation - so every torque/safety number the analyzer shows stays
-// exact while the body moves. (Dynamic mode still treats the waist as
-// stationary; a fast waist turn would add sideways inertial loads that
-// the planar model doesn't see.)
+// exact while the body holds still. While it moves, shoulder_motion()
+// below gives Dynamic mode the loads the moving torso adds.
 //
 // World frame used here (the 3D view's): +Y up, the floor at y = 0, the
 // waist axis through the origin. At yaw 0 the torso faces +X and the
@@ -65,6 +64,25 @@ struct BodyPose {
 // Shoulder position in the arm's plane (x forward from the waist axis,
 // y up from the floor) for a given hip height and bend.
 Eigen::Vector2d shoulder_in_plane(const BodyGeometry &body, double hip_height, double hip_bend);
+
+// How fast the body's own degrees of freedom are changing (or their
+// accelerations): waist yaw (rad/s), hip height (m/s), hip bend (rad/s).
+struct BodyRates {
+  double yaw = 0.0;
+  double hip_height = 0.0;
+  double hip_bend = 0.0;
+};
+
+// The motion of an arm's base - its shoulder mount - caused by the body
+// moving: the waist turning, the lift raising, the hip leaning (by
+// hip_bend, at the given rates and accelerations). Expressed in the arm's
+// own base frame, the frame its joint angles and ArmController's gravity
+// use (the torso's x-y plane turned by +hip_bend), ready for
+// inverse_dynamics(). `shoulder_lateral` is that shoulder's signed offset
+// along the torso's z (+ for the right arm); `mirrored` reflects the
+// result into a mirrored (left) arm's frame, z -> -z.
+BaseMotion shoulder_motion(const BodyGeometry &body, double hip_bend, const BodyRates &velocity,
+                           const BodyRates &acceleration, double shoulder_lateral, bool mirrored = false);
 
 struct GraspTarget {
   Eigen::Vector3d grip_point = Eigen::Vector3d::Zero(); // world, where the object's grip center must end up

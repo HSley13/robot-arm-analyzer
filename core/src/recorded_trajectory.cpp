@@ -31,7 +31,7 @@ TrajectoryState RecordedTrajectory::evaluate(double t) const {
   segment_index = std::max<long>(0, std::min<long>(num_segments - 1, segment_index));
 
   const double local_t = t - static_cast<double>(segment_index) * _segmentDuration;
-  const CubicTrajectory segment(_waypoints[static_cast<size_t>(segment_index)],
+  const QuinticTrajectory segment(_waypoints[static_cast<size_t>(segment_index)],
                                  _waypoints[static_cast<size_t>(segment_index) + 1], _segmentDuration);
   return segment.evaluate(local_t);
 }

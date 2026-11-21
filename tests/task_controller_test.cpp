@@ -221,6 +221,102 @@ TEST(TaskController, AFarReachIsAVisibleMotionNotAJump) {
   EXPECT_GT(frames, 20);
 }
 
+TEST(TaskController, AReachSpeedsUpAndSlowsDownWithinItsAccelerationLimits) {
+  // Speed changes gradually, frame by frame - no instant jump to full
+  // speed at the start, no instant stop at the end (the joints' torque
+  // would have to be unbounded for either).
+  Rig rig;
+  ASSERT_TRUE(rig.task.reachTo(0.35, 0.30, 0.55));
+  const double dt = 1.0 / 60.0;
+  double yaw = rig.task.waistYawDegrees() * M_PI / 180.0;
+  double lift = rig.task.hipHeight();
+  double shoulder = rig.arm.jointAnglesRadians()[0];
+  double yaw_speed = 0.0;
+  double lift_speed = 0.0;
+  double shoulder_speed = 0.0;
+  for (int frame = 0; frame < 600 && rig.task.reaching(); frame++) {
+    rig.task.advance(dt);
+    if (!rig.task.reaching()) {
+      break; // the last frame snaps the final millimetre
+    }
+    const double new_yaw = rig.task.waistYawDegrees() * M_PI / 180.0;
+    const double new_lift = rig.task.hipHeight();
+    const double new_shoulder = rig.arm.jointAnglesRadians()[0];
+    const double new_yaw_speed = (new_yaw - yaw) / dt;
+    const double new_lift_speed = (new_lift - lift) / dt;
+    const double new_shoulder_speed = (new_shoulder - shoulder) / dt;
+    EXPECT_LE(std::abs(new_yaw_speed - yaw_speed), 6.0 * dt + 1e-6) << "frame " << frame;
+    EXPECT_LE(std::abs(new_lift_speed - lift_speed), 2.0 * dt + 1e-6) << "frame " << frame;
+    EXPECT_LE(std::abs(new_shoulder_speed - shoulder_speed), 10.0 * dt + 1e-6) << "frame " << frame;
+    yaw = new_yaw;
+    lift = new_lift;
+    shoulder = new_shoulder;
+    yaw_speed = new_yaw_speed;
+    lift_speed = new_lift_speed;
+    shoulder_speed = new_shoulder_speed;
+  }
+  EXPECT_FALSE(rig.task.reaching());
+  EXPECT_LT(std::abs(yaw_speed), 0.2); // nearly stopped by the time it arrives
+}
+
+TEST(TaskController, DynamicModeFeelsThePickUpBeingMade) {
+  // While the robot moves, the arm's Dynamic-mode loads are those of the
+  // motion it is actually making: the joint rates it reports match how
+  // its angles change frame to frame, and the inertia part of the load is
+  // non-zero. Once it stops, everything is back at rest.
+  Rig rig;
+  rig.arm.setDynamicMode(true);
+  const int id = rig.task.addObject("bottle", 1.5, 0.62, 0.30);
+  ASSERT_TRUE(rig.task.pickUp(id)) << rig.task.status().toStdString();
+
+  const double dt = 1.0 / 60.0;
+  double peak_speed = 0.0;
+  double peak_inertia = 0.0;
+  for (int frame = 0; frame < 60 * 30 && rig.task.busy(); frame++) {
+    const std::vector<double> before = rig.arm.jointAnglesRadians();
+    rig.task.advance(dt);
+    const std::vector<double> after = rig.arm.jointAnglesRadians();
+    const QVariantList speeds = rig.arm.jointVelocitiesDegrees();
+    for (size_t i = 0; i < after.size(); i++) {
+      const double reported = speeds[static_cast<int>(i)].toDouble() * M_PI / 180.0;
+      const double measured = (after[i] - before[i]) / dt;
+      EXPECT_NEAR(reported, measured, 0.1) << "joint " << i << ", frame " << frame;
+      peak_speed = std::max(peak_speed, std::abs(reported));
+      peak_inertia = std::max(peak_inertia, std::abs(rig.arm.inertiaTorques()[static_cast<int>(i)].toDouble()));
+    }
+  }
+  EXPECT_FALSE(rig.task.busy());
+  EXPECT_GT(peak_speed, 0.3);
+  EXPECT_GT(peak_inertia, 0.05);
+  for (const QVariant &speed : rig.arm.jointVelocitiesDegrees()) {
+    EXPECT_DOUBLE_EQ(speed.toDouble(), 0.0);
+  }
+  for (const QVariant &torque : rig.arm.inertiaTorques()) {
+    EXPECT_NEAR(torque.toDouble(), 0.0, 1e-12);
+  }
+}
+
+TEST(TaskController, TheBodyCrouchingLoadsTheArm) {
+  // Lowering the lift and leaning accelerate the shoulder: the arm's
+  // dynamics see its base move, and only while the body moves.
+  Rig rig;
+  rig.arm.setDynamicMode(true);
+  const double start = rig.task.hipHeight();
+  ASSERT_TRUE(rig.task.reachTo(0.35, 0.30, 0.55)); // a big turn + crouch + lean
+  double peak_vertical = 0.0;
+  double peak_turn = 0.0;
+  for (int frame = 0; frame < 600 && rig.task.reaching(); frame++) {
+    rig.task.advance(1.0 / 60.0);
+    peak_vertical = std::max(peak_vertical, std::abs(rig.arm.baseMotion().linear_acceleration.y()));
+    peak_turn = std::max(peak_turn, rig.arm.baseMotion().angular_velocity.norm());
+  }
+  EXPECT_LT(rig.task.hipHeight(), start - 0.04);
+  EXPECT_GT(peak_vertical, 0.3);
+  EXPECT_GT(peak_turn, 0.3);
+  EXPECT_NEAR(rig.arm.baseMotion().linear_acceleration.norm(), 0.0, 1e-12);
+  EXPECT_NEAR(rig.arm.baseMotion().angular_velocity.norm(), 0.0, 1e-12);
+}
+
 TEST(TaskController, TouchingTheBodyCancelsTheReach) {
   Rig rig;
   ASSERT_TRUE(rig.task.reachTo(0.35, 0.30, 0.55));

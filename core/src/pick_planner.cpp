@@ -100,6 +100,51 @@ Eigen::Vector2d shoulder_in_plane(const BodyGeometry &body, double hip_height, d
   return {body.hip_to_shoulder * std::sin(hip_bend), hip_height + body.hip_to_shoulder * std::cos(hip_bend)};
 }
 
+BaseMotion shoulder_motion(const BodyGeometry &body, double hip_bend, const BodyRates &velocity,
+                           const BodyRates &acceleration, double shoulder_lateral, bool mirrored) {
+  // In the torso's frame (x forward, y up, z lateral), which turns with
+  // the waist at w = (0, yaw rate, 0): the shoulder sits at
+  // s = (L sin b, h + L cos b, lateral), and the lean turns the arm by -b
+  // about z.
+  const double length = body.hip_to_shoulder;
+  const double sin_b = std::sin(hip_bend);
+  const double cos_b = std::cos(hip_bend);
+  const double b_dot = velocity.hip_bend;
+  const double b_ddot = acceleration.hip_bend;
+  const double yaw_dot = velocity.yaw;
+  const double yaw_ddot = acceleration.yaw;
+
+  const Eigen::Vector3d s(length * sin_b, 0.0, shoulder_lateral); // height doesn't enter w x s
+  const Eigen::Vector3d s_dot(length * cos_b * b_dot, velocity.hip_height - length * sin_b * b_dot, 0.0);
+  const Eigen::Vector3d s_ddot(length * (cos_b * b_ddot - sin_b * b_dot * b_dot),
+                               acceleration.hip_height - length * (sin_b * b_ddot + cos_b * b_dot * b_dot), 0.0);
+  const Eigen::Vector3d w(0.0, yaw_dot, 0.0);
+  const Eigen::Vector3d w_dot(0.0, yaw_ddot, 0.0);
+
+  // The shoulder's acceleration seen from the turning torso frame.
+  const Eigen::Vector3d accel = s_ddot + w_dot.cross(s) + w.cross(w.cross(s)) + 2.0 * w.cross(s_dot);
+  // The arm's angular velocity: the waist's turn plus the lean (-b about
+  // the torso's z, which the waist carries round).
+  const Eigen::Vector3d z(0.0, 0.0, 1.0);
+  const Eigen::Vector3d omega = w - b_dot * z;
+  const Eigen::Vector3d omega_dot = w_dot - b_ddot * z + w.cross(-b_dot * z);
+
+  // Into the arm's frame: the torso's turned by +b about z.
+  const Eigen::Matrix3d to_arm = Eigen::AngleAxisd(hip_bend, z).toRotationMatrix();
+  BaseMotion base;
+  base.linear_acceleration = to_arm * accel;
+  base.angular_velocity = to_arm * omega;
+  base.angular_acceleration = to_arm * omega_dot;
+  if (mirrored) {
+    // A reflection z -> -z: a position-like vector flips its z, an
+    // axis-like one (angular velocity) everything but its z.
+    base.linear_acceleration.z() = -base.linear_acceleration.z();
+    base.angular_velocity.head<2>() = -base.angular_velocity.head<2>();
+    base.angular_acceleration.head<2>() = -base.angular_acceleration.head<2>();
+  }
+  return base;
+}
+
 namespace {
 
 std::vector<JointLimit> limits_of(const ArmConfig &config) {

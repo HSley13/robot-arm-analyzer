@@ -172,3 +172,68 @@ TEST(Dynamics, BreakdownComponentsAreZeroWhenTheirCauseIsAbsent) {
   EXPECT_NEAR(breakdown.coriolis(0), 0.0, 1e-12);
   EXPECT_NEAR(breakdown.gravity(0), breakdown.total(0), 1e-9);
 }
+
+TEST(Dynamics, BaseAcceleratingUpwardIsStrongerGravity) {
+  // An elevator accelerating up at a: every joint feels g + a.
+  const ArmModel arm({DHParameter(0.3), DHParameter(0.27), DHParameter(0.095)});
+  const std::vector<LinkInertial> links = {LinkInertial::rod(2.4, 0.3), LinkInertial::rod(1.7, 0.27),
+                                           LinkInertial::rod(0.75, 0.095)};
+  const std::vector<double> theta = {-0.4, 0.9, 0.2};
+  const std::vector<double> zero = {0.0, 0.0, 0.0};
+  const double lift_acceleration = 2.0;
+
+  robotarm::BaseMotion base;
+  base.linear_acceleration = Eigen::Vector3d(0.0, lift_acceleration, 0.0);
+  const Eigen::VectorXd lifting =
+      inverse_dynamics(arm, theta, zero, zero, links, 3.0, Eigen::Vector3d(0.0, -9.81, 0.0), base);
+  const Eigen::VectorXd heavier =
+      inverse_dynamics(arm, theta, zero, zero, links, 3.0, Eigen::Vector3d(0.0, -9.81 - lift_acceleration, 0.0));
+  for (Eigen::Index i = 0; i < 3; i++) {
+    EXPECT_NEAR(lifting(i), heavier(i), 1e-9) << "joint " << i;
+  }
+}
+
+TEST(Dynamics, BaseTurningAboutTheFirstAxisIsTheFirstJointTurning) {
+  // Frame 0 spinning about its own z (joint 1's axis) moves every link
+  // exactly as joint 1 spinning that much faster would.
+  const ArmModel arm({DHParameter(1.0), DHParameter(0.5)});
+  const std::vector<LinkInertial> links = {LinkInertial::rod(2.0, 1.0), LinkInertial::rod(1.0, 0.5)};
+  const std::vector<double> theta = {0.6, -1.1};
+  const std::vector<double> velocity = {1.3, -0.9};
+  const std::vector<double> acceleration = {2.5, 1.7};
+  const Eigen::Vector3d gravity(0.0, -9.81, 0.0);
+  const double base_rate = 0.7;
+  const double base_acceleration = -1.4;
+
+  robotarm::BaseMotion base;
+  base.angular_velocity = Eigen::Vector3d(0.0, 0.0, base_rate);
+  base.angular_acceleration = Eigen::Vector3d(0.0, 0.0, base_acceleration);
+  const Eigen::VectorXd turning = inverse_dynamics(arm, theta, velocity, acceleration, links, 1.5, gravity, base);
+  const Eigen::VectorXd faster =
+      inverse_dynamics(arm, theta, {velocity[0] + base_rate, velocity[1]},
+                       {acceleration[0] + base_acceleration, acceleration[1]}, links, 1.5, gravity);
+  for (Eigen::Index i = 0; i < 2; i++) {
+    EXPECT_NEAR(turning(i), faster(i), 1e-9) << "joint " << i;
+  }
+}
+
+TEST(Dynamics, BreakdownWithAMovingBaseStillSumsExactly) {
+  const ArmModel arm({DHParameter(1.0), DHParameter(0.5)});
+  const std::vector<LinkInertial> links = {LinkInertial::rod(2.0, 1.0), LinkInertial::rod(1.0, 0.5)};
+  const std::vector<double> theta = {0.6, -1.1};
+  const std::vector<double> velocity = {1.3, -0.9};
+  const std::vector<double> acceleration = {2.5, 1.7};
+  const Eigen::Vector3d gravity(0.0, -9.81, 0.0);
+  robotarm::BaseMotion base;
+  base.angular_velocity = Eigen::Vector3d(-0.3, 0.8, -0.5); // a waist turn seen from a leaning torso
+  base.angular_acceleration = Eigen::Vector3d(0.4, -1.2, 0.9);
+  base.linear_acceleration = Eigen::Vector3d(1.1, 0.6, -0.2);
+
+  const robotarm::TorqueBreakdown breakdown =
+      robotarm::decompose_torque(arm, theta, velocity, acceleration, links, 1.5, gravity, base);
+  const Eigen::VectorXd direct = inverse_dynamics(arm, theta, velocity, acceleration, links, 1.5, gravity, base);
+  for (Eigen::Index i = 0; i < 2; i++) {
+    EXPECT_NEAR(breakdown.total(i), direct(i), 1e-9);
+    EXPECT_NEAR(breakdown.gravity(i) + breakdown.inertia(i) + breakdown.coriolis(i), direct(i), 1e-9);
+  }
+}
