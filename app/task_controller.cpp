@@ -43,8 +43,9 @@ constexpr double kTypicalGripRadius = 0.03; // m, for where "the hand" is while 
 constexpr double kMoved = 0.03; // m
 
 // Following a reachTo() goal: every degree of freedom closes the gap
-// exponentially (fast for small moves, so dragging feels direct), and no
-// faster than its top speed - all slowed together, so a big move is one
+// exponentially (fast for small moves, so dragging feels direct), no
+// faster than its top speed, and speeding up or slowing down no faster
+// than its top acceleration - all together, so a big move is one
 // coordinated motion whose parts finish at the same time.
 constexpr double kFollowRate = 10.0;       // 1/s
 constexpr double kMaxYawSpeed = 1.8;       // rad/s (~100 deg/s)
@@ -52,6 +53,11 @@ constexpr double kMaxLiftSpeed = 0.45;     // m/s
 constexpr double kMaxBendSpeed = 1.2;      // rad/s (~70 deg/s)
 constexpr double kMaxJointSpeed = 2.6;     // rad/s (~150 deg/s)
 constexpr double kMaxRollSpeed = 3.5;      // rad/s (~200 deg/s), a forearm twisting
+constexpr double kMaxYawAccel = 6.0;       // rad/s^2
+constexpr double kMaxLiftAccel = 2.0;      // m/s^2
+constexpr double kMaxBendAccel = 5.0;      // rad/s^2
+constexpr double kMaxJointAccel = 10.0;    // rad/s^2
+constexpr double kMaxRollAccel = 20.0;     // rad/s^2
 constexpr double kMaxHandRoll = kPi / 2.0; // rad, palm straight up or down
 constexpr double kArrived = 1e-3;          // rad or m left to go
 
@@ -63,6 +69,53 @@ double wrap(double angle) {
     angle += 2.0 * kPi;
   }
   return angle;
+}
+
+// One time step of following: what each degree of freedom moves by, and
+// its new speed and its acceleration over the step. They all head for
+// their gaps at one common rate (so they arrive together): kFollowRate,
+// lowered until none goes faster than its top speed, nor faster than it
+// could still stop from in the distance left (braking at its top
+// acceleration in steps of `seconds`: v^2 / 2a + v * seconds / 2 <= gap).
+// The speeds then change toward that, together, by no more than any top
+// acceleration allows.
+struct FollowStep {
+  std::vector<double> move;
+  std::vector<double> speed;
+  std::vector<double> acceleration;
+};
+
+FollowStep followStep(const std::vector<double> &gap, const std::vector<double> &speed,
+                      const std::vector<double> &top_speed, const std::vector<double> &top_accel, double seconds) {
+  double rate = kFollowRate;
+  for (size_t i = 0; i < gap.size(); i++) {
+    const double distance = std::abs(gap[i]);
+    if (distance > 1e-12) {
+      const double half_step = top_accel[i] * seconds / 2.0;
+      const double stoppable = std::sqrt(half_step * half_step + 2.0 * top_accel[i] * distance) - half_step;
+      rate = std::min({rate, top_speed[i] / distance, stoppable / distance});
+    }
+  }
+  double share = 1.0;
+  for (size_t i = 0; i < gap.size(); i++) {
+    const double change = std::abs(rate * gap[i] - speed[i]);
+    if (change > top_accel[i] * seconds) {
+      share = std::min(share, top_accel[i] * seconds / change);
+    }
+  }
+
+  FollowStep step;
+  for (size_t i = 0; i < gap.size(); i++) {
+    const double v = speed[i] + share * (rate * gap[i] - speed[i]);
+    double move = v * seconds;
+    if (move * gap[i] > 0.0 && std::abs(move) > std::abs(gap[i])) {
+      move = gap[i]; // never past the goal
+    }
+    step.move.push_back(move);
+    step.speed.push_back(v);
+    step.acceleration.push_back((v - speed[i]) / seconds);
+  }
+  return step;
 }
 
 QString labelOf(const QString &type) {
@@ -1051,6 +1104,7 @@ bool TaskController::releaseUnderHand() {
 
 void TaskController::cancelReach() {
   _finishingId = -1;
+  _goalSpeed.clear(); // stopped where it is
   if (!_following) {
     return;
   }
@@ -1066,23 +1120,27 @@ void TaskController::followGoal(double seconds) {
     return;
   }
 
-  // The gap per degree of freedom, and each one's speed limit.
+  // The gap per degree of freedom, and each one's speed and acceleration
+  // limits.
   std::vector<double> gap = {wrap(_goal.yaw - now.yaw), _goal.hip_height - now.hip_height,
                              _goal.hip_bend - now.hip_bend, _goal.hand_roll - now.hand_roll};
   std::vector<double> top = {kMaxYawSpeed, kMaxLiftSpeed, kMaxBendSpeed, kMaxRollSpeed};
+  std::vector<double> top_accel = {kMaxYawAccel, kMaxLiftAccel, kMaxBendAccel, kMaxRollAccel};
   for (size_t i = 0; i < now.arm.size(); i++) {
     gap.push_back(_goal.arm[i] - now.arm[i]);
     top.push_back(kMaxJointSpeed);
+    top_accel.push_back(kMaxJointAccel);
+  }
+  if (_goalSpeed.size() != gap.size()) {
+    _goalSpeed.assign(gap.size(), 0.0);
   }
 
-  const double fraction = 1.0 - std::exp(-kFollowRate * seconds);
-  double slow_down = 1.0;
   double remaining = 0.0;
-  for (size_t i = 0; i < gap.size(); i++) {
-    slow_down = std::max(slow_down, std::abs(gap[i] * fraction) / (top[i] * seconds));
-    remaining = std::max(remaining, std::abs(gap[i]));
+  for (const double g : gap) {
+    remaining = std::max(remaining, std::abs(g));
   }
   if (remaining < kArrived) {
+    _goalSpeed.assign(gap.size(), 0.0);
     applyPose(_goal);
     if (_finishingId != -1) {
       _finishingId = -1;
@@ -1093,14 +1151,15 @@ void TaskController::followGoal(double seconds) {
     return;
   }
 
-  const double k = fraction / slow_down;
+  const FollowStep step = followStep(gap, _goalSpeed, top, top_accel, seconds);
+  _goalSpeed = step.speed;
   BodyPose next = now;
-  next.yaw = now.yaw + k * gap[0];
-  next.hip_height = now.hip_height + k * gap[1];
-  next.hip_bend = now.hip_bend + k * gap[2];
-  next.hand_roll = now.hand_roll + k * gap[3];
+  next.yaw = now.yaw + step.move[0];
+  next.hip_height = now.hip_height + step.move[1];
+  next.hip_bend = now.hip_bend + step.move[2];
+  next.hand_roll = now.hand_roll + step.move[3];
   for (size_t i = 0; i < now.arm.size(); i++) {
-    next.arm[i] = now.arm[i] + k * gap[4 + i];
+    next.arm[i] = now.arm[i] + step.move[4 + i];
   }
   applyPose(next);
 }
@@ -1563,6 +1622,7 @@ void TaskController::setLeftHandRoll(double radians) {
 
 void TaskController::cancelLeftReach() {
   _leftFinishingId = -1;
+  _leftGoalSpeed.clear();
   if (!_leftFollowing) {
     return;
   }
@@ -1577,22 +1637,25 @@ void TaskController::followLeft(double seconds) {
     cancelLeftReach();
     return;
   }
-  // Like followGoal: exponential, no joint faster than it can go, all
-  // finishing together.
+  // Like followGoal: exponential, no joint faster or harder than it can
+  // go, all finishing together.
   std::vector<double> gap = {_leftGoalRoll - _leftRoll};
   std::vector<double> top = {kMaxRollSpeed};
+  std::vector<double> top_accel = {kMaxRollAccel};
   for (size_t i = 0; i < now.size(); i++) {
     gap.push_back(_leftGoalArm[i] - now[i]);
     top.push_back(kMaxJointSpeed);
+    top_accel.push_back(kMaxJointAccel);
   }
-  const double fraction = 1.0 - std::exp(-kFollowRate * seconds);
-  double slow_down = 1.0;
+  if (_leftGoalSpeed.size() != gap.size()) {
+    _leftGoalSpeed.assign(gap.size(), 0.0);
+  }
   double remaining = 0.0;
-  for (size_t i = 0; i < gap.size(); i++) {
-    slow_down = std::max(slow_down, std::abs(gap[i] * fraction) / (top[i] * seconds));
-    remaining = std::max(remaining, std::abs(gap[i]));
+  for (const double g : gap) {
+    remaining = std::max(remaining, std::abs(g));
   }
   if (remaining < kArrived) {
+    _leftGoalSpeed.assign(gap.size(), 0.0);
     _leftRoll = _leftGoalRoll;
     _leftArm->setJointAnglesRadians(_leftGoalArm);
     _leftFollowing = false;
@@ -1602,11 +1665,12 @@ void TaskController::followLeft(double seconds) {
     finishLeftGrabIfArrived();
     return;
   }
-  const double k = fraction / slow_down;
-  _leftRoll += k * gap[0];
+  const FollowStep step = followStep(gap, _leftGoalSpeed, top, top_accel, seconds);
+  _leftGoalSpeed = step.speed;
+  _leftRoll += step.move[0];
   std::vector<double> next = now;
   for (size_t i = 0; i < now.size(); i++) {
-    next[i] += k * gap[1 + i];
+    next[i] += step.move[1 + i];
   }
   _leftArm->setJointAnglesRadians(next);
   emit bodyChanged();

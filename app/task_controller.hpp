@@ -464,6 +464,9 @@ private:
   // reachTo()'s goal, while the body is still on its way there.
   BodyPose _goal;
   bool _following = false;
+  // How fast each degree of freedom is moving toward _goal (followGoal's
+  // order: yaw, lift, bend, roll, then the arm's joints); empty = still.
+  std::vector<double> _goalSpeed;
   // Whether live input last closed the hand (past the grab threshold) -
   // grab and release fire when this flips, not on every update.
   bool _gripClosed = false;
@@ -483,6 +486,7 @@ private:
   HandController *_leftHand = nullptr;
   std::vector<double> _leftGoalArm;
   bool _leftFollowing = false;
+  std::vector<double> _leftGoalSpeed; // roll, then the joints (as _goalSpeed)
   double _leftRoll = 0.0;
   double _leftGoalRoll = 0.0;
   int _leftHeldId = -1;

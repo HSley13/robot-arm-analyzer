@@ -221,6 +221,44 @@ TEST(TaskController, AFarReachIsAVisibleMotionNotAJump) {
   EXPECT_GT(frames, 20);
 }
 
+TEST(TaskController, AReachSpeedsUpAndSlowsDownWithinItsAccelerationLimits) {
+  // Speed changes gradually, frame by frame - no instant jump to full
+  // speed at the start, no instant stop at the end (the joints' torque
+  // would have to be unbounded for either).
+  Rig rig;
+  ASSERT_TRUE(rig.task.reachTo(0.35, 0.30, 0.55));
+  const double dt = 1.0 / 60.0;
+  double yaw = rig.task.waistYawDegrees() * M_PI / 180.0;
+  double lift = rig.task.hipHeight();
+  double shoulder = rig.arm.jointAnglesRadians()[0];
+  double yaw_speed = 0.0;
+  double lift_speed = 0.0;
+  double shoulder_speed = 0.0;
+  for (int frame = 0; frame < 600 && rig.task.reaching(); frame++) {
+    rig.task.advance(dt);
+    if (!rig.task.reaching()) {
+      break; // the last frame snaps the final millimetre
+    }
+    const double new_yaw = rig.task.waistYawDegrees() * M_PI / 180.0;
+    const double new_lift = rig.task.hipHeight();
+    const double new_shoulder = rig.arm.jointAnglesRadians()[0];
+    const double new_yaw_speed = (new_yaw - yaw) / dt;
+    const double new_lift_speed = (new_lift - lift) / dt;
+    const double new_shoulder_speed = (new_shoulder - shoulder) / dt;
+    EXPECT_LE(std::abs(new_yaw_speed - yaw_speed), 6.0 * dt + 1e-6) << "frame " << frame;
+    EXPECT_LE(std::abs(new_lift_speed - lift_speed), 2.0 * dt + 1e-6) << "frame " << frame;
+    EXPECT_LE(std::abs(new_shoulder_speed - shoulder_speed), 10.0 * dt + 1e-6) << "frame " << frame;
+    yaw = new_yaw;
+    lift = new_lift;
+    shoulder = new_shoulder;
+    yaw_speed = new_yaw_speed;
+    lift_speed = new_lift_speed;
+    shoulder_speed = new_shoulder_speed;
+  }
+  EXPECT_FALSE(rig.task.reaching());
+  EXPECT_LT(std::abs(yaw_speed), 0.2); // nearly stopped by the time it arrives
+}
+
 TEST(TaskController, TouchingTheBodyCancelsTheReach) {
   Rig rig;
   ASSERT_TRUE(rig.task.reachTo(0.35, 0.30, 0.55));
