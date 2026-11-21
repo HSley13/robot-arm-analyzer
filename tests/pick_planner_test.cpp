@@ -162,7 +162,30 @@ TEST(PickPlanner, RefusesAnObjectTooHeavyForTheJointsAndSaysWhichJoint) {
   const PickPlan plan = robotarm::plan_grasp(humanoid_arm(), BodyGeometry(), heavy, 0.8);
   EXPECT_FALSE(plan.ok);
   EXPECT_NE(plan.reason.find("too heavy"), std::string::npos) << plan.reason;
-  EXPECT_GT(plan.peak_load_ratio, 1.0);
+  EXPECT_GT(plan.peak_load_ratio, robotarm::kPlanningLoadLimit);
+}
+
+TEST(PickPlanner, KeepsAMarginBelowEveryJointsLimit) {
+  // Heavy enough that the lightest-loaded way to hold it uses more than
+  // 80 % but less than 100 % of some joint: refused, though no joint would
+  // be past its limit standing still - there'd be nothing left for moving.
+  GraspTarget target;
+  target.grip_point = Eigen::Vector3d(0.55, 0.10, 0.2);
+  target.palmar_offset = 0.04;
+  double lightest_refused = 0.0;
+  for (double mass = 1.0; mass < 60.0; mass += 0.5) {
+    target.mass = mass;
+    const PickPlan plan = robotarm::plan_grasp(humanoid_arm(), BodyGeometry(), target, 0.8);
+    if (!plan.ok) {
+      lightest_refused = mass;
+      EXPECT_GT(plan.peak_load_ratio, robotarm::kPlanningLoadLimit);
+      EXPECT_LT(plan.peak_load_ratio, 1.0) << "refused only once something is overloaded at " << mass << " kg";
+      EXPECT_NE(plan.reason.find("80 %"), std::string::npos) << plan.reason;
+      break;
+    }
+    EXPECT_LE(plan.peak_load_ratio, robotarm::kPlanningLoadLimit + 1e-12);
+  }
+  EXPECT_GT(lightest_refused, 0.0);
 }
 
 TEST(PickPlanner, MayTiltTheHandForObjectsThatDontNeedToStayUpright) {
@@ -549,4 +572,66 @@ TEST(ShoulderMotion, AMirroredArmSeesTheSameInPlaneMotion) {
   const double left_forward = robotarm::shoulder_motion(body, 0.0, {}, turning, -0.2, true).linear_acceleration.x();
   EXPECT_NEAR(right_forward, 2.0 * 0.2, 1e-12);
   EXPECT_NEAR(left_forward, -right_forward, 1e-12);
+}
+
+namespace {
+
+double static_ratio(const ArmConfig &config, const robotarm::BodyPose &pose, double payload) {
+  const Eigen::Vector3d gravity(9.81 * std::sin(pose.hip_bend), -9.81 * std::cos(pose.hip_bend), 0.0);
+  const Eigen::VectorXd tau = robotarm::static_joint_torques(robotarm::to_arm_model(config), pose.arm,
+                                                             robotarm::to_link_masses(config), payload, gravity);
+  double ratio = 0.0;
+  for (size_t i = 0; i < config.joints.size(); i++) {
+    ratio = std::max(ratio, std::abs(tau(static_cast<Eigen::Index>(i))) / config.joints[i].torque_limit);
+  }
+  return ratio;
+}
+
+} // namespace
+
+TEST(MoveLoads, StayingPutIsTheStaticLoad) {
+  const ArmConfig config = humanoid_arm();
+  robotarm::BodyPose pose;
+  pose.hip_bend = 0.4;
+  pose.arm = {-0.5, 1.0, 0.2};
+  const robotarm::MoveLoads loads =
+      robotarm::check_move_loads(config, BodyGeometry(), pose, pose, 1.0, 3.0, BodyGeometry().shoulder_lateral);
+  EXPECT_NEAR(loads.peak_load_ratio, static_ratio(config, pose, 3.0), 1e-9);
+}
+
+TEST(MoveLoads, FindsTheHeaviestPointInTheMiddleOfAMove) {
+  // Swinging a straight arm from hanging low to raised high passes
+  // through level, where holding it is hardest - neither end shows that.
+  const ArmConfig config = humanoid_arm();
+  robotarm::BodyPose low;
+  low.hip_bend = 0.0;
+  low.arm = {-1.3, 0.0, 0.0};
+  robotarm::BodyPose high = low;
+  high.arm = {1.3, 0.0, 0.0};
+  robotarm::BodyPose level = low;
+  level.arm = {0.0, 0.0, 0.0};
+  const double payload = 4.0;
+
+  const robotarm::MoveLoads slow =
+      robotarm::check_move_loads(config, BodyGeometry(), low, high, 20.0, payload, BodyGeometry().shoulder_lateral);
+  EXPECT_GT(slow.peak_load_ratio, 2.0 * std::max(static_ratio(config, low, payload), static_ratio(config, high, payload)));
+  EXPECT_NEAR(slow.peak_load_ratio, static_ratio(config, level, payload), 0.01); // slow: nearly static
+  EXPECT_NEAR(slow.worst_time, 10.0, 1.0);
+  EXPECT_EQ(slow.worst_joint, 0u);
+}
+
+TEST(MoveLoads, MovingFasterLoadsTheJointsMore) {
+  const ArmConfig config = humanoid_arm();
+  robotarm::BodyPose from;
+  from.hip_height = 0.9;
+  from.arm = {-0.3, 0.8, 0.0};
+  robotarm::BodyPose to = from;
+  to.yaw = 1.2;
+  to.hip_height = 0.6;
+  to.hip_bend = 0.5;
+  to.arm = {-0.9, 0.4, 0.3};
+  const double lateral = BodyGeometry().shoulder_lateral;
+  const double fast = robotarm::check_move_loads(config, BodyGeometry(), from, to, 0.5, 5.0, lateral).peak_load_ratio;
+  const double slow = robotarm::check_move_loads(config, BodyGeometry(), from, to, 3.0, 5.0, lateral).peak_load_ratio;
+  EXPECT_GT(fast, slow + 0.05);
 }

@@ -105,7 +105,7 @@ struct PickPlan {
   std::string reason; // human-readable, set whenever ok is false
   BodyPose pose;
   double hand_angle = 0.0;      // rad, the hand link's direction in the world (0 = level)
-  double peak_load_ratio = 0.0; // max |torque| / limit over the arm joints, holding `mass`
+  double peak_load_ratio = 0.0; // max |torque| / limit over the arm joints, holding `mass` still
 };
 
 // Closed-form inverse kinematics for a planar three-revolute arm with the
@@ -142,6 +142,38 @@ bool is_planar_3r(const ArmConfig &config);
 // solve_planar_ik()).
 bool is_planar_revolute(const ArmConfig &config);
 
+// The loads of one planned move, start to finish, while holding a
+// payload: the worst joint's peak |torque| / limit, which joint, how much
+// torque, and when (seconds into the move).
+struct MoveLoads {
+  double peak_load_ratio = 0.0;
+  size_t worst_joint = 0;
+  double worst_torque = 0.0;
+  double worst_time = 0.0;
+};
+
+// Walks a move from `from` to `to` taking `duration` seconds, along the
+// minimum-jerk profile TaskController plays queued moves with (every
+// degree of freedom, body and arm, eased together), and at `samples`
+// instants computes the arm's full inverse dynamics holding
+// `payload_mass`: its joints' own speeds and accelerations, gravity turned
+// by the hip's lean, and what the moving body does to the shoulder (see
+// shoulder_motion; `shoulder_lateral` and `mirrored` as there). A move
+// that only checks its end poses misses loads in the middle - a heavy
+// object swung through level is heaviest half-way - and the inertia of
+// moving it at all.
+MoveLoads check_move_loads(const ArmConfig &config, const BodyGeometry &body, const BodyPose &from,
+                           const BodyPose &to, double duration, double payload_mass, double shoulder_lateral,
+                           bool mirrored = false, int samples = 48);
+
+// The most of any joint's torque limit a planned pose may use holding
+// still. The rest is headroom: for the loads of moving there (inertia,
+// the body's motion - see check_move_loads), and for what the model
+// doesn't know exactly (the real object's mass, where it sits in the hand,
+// friction). A plan that needs a joint at 99 % at rest would overload it
+// the moment it moved.
+constexpr double kPlanningLoadLimit = 0.8;
+
 // Finds a body pose that puts the hand around `target`.
 //
 // Searches hip heights across the lift's range, hip bends from upright to
@@ -149,9 +181,11 @@ bool is_planar_revolute(const ArmConfig &config);
 // fan of hand angles), keeps the solutions that respect every joint's
 // travel and keep the arm off the floor, and picks the one that loads the
 // joints least while holding target.mass - with small preferences for
-// standing upright and not moving the lift far from `current_hip_height`. If nothing is reachable, or
-// everything reachable overloads a joint, ok is false and `reason` says
-// which ("out of reach", "too heavy - shoulder would need 112 N*m of 90").
+// standing upright and not moving the lift far from `current_hip_height`.
+// A pose counts as overloaded past kPlanningLoadLimit of a joint's limit.
+// If nothing is reachable, or everything reachable is overloaded, ok is
+// false and `reason` says which ("out of reach", "too heavy - Shoulder
+// would need 112 N*m (plans keep it under 72, 80 % of its 90 limit)").
 PickPlan plan_grasp(const ArmConfig &config, const BodyGeometry &body, const GraspTarget &target,
                     double current_hip_height,
                     const Eigen::Vector3d &gravity = Eigen::Vector3d(0.0, -9.81, 0.0));

@@ -6,8 +6,10 @@
 #include <limits>
 
 #include "robotarm/arm_model.hpp"
+#include "robotarm/dynamics.hpp"
 #include "robotarm/inverse_kinematics.hpp"
 #include "robotarm/statics.hpp"
+#include "robotarm/trajectory.hpp"
 #include "robotarm/units.hpp"
 
 namespace robotarm {
@@ -143,6 +145,53 @@ BaseMotion shoulder_motion(const BodyGeometry &body, double hip_bend, const Body
     base.angular_acceleration.head<2>() = -base.angular_acceleration.head<2>();
   }
   return base;
+}
+
+MoveLoads check_move_loads(const ArmConfig &config, const BodyGeometry &body, const BodyPose &from,
+                           const BodyPose &to, double duration, double payload_mass, double shoulder_lateral,
+                           bool mirrored, int samples) {
+  const ArmModel arm = to_arm_model(config);
+  const std::vector<LinkInertial> links = to_link_inertials(config);
+  const size_t n = config.joints.size();
+  const double yaw_change = wrap_angle(to.yaw - from.yaw);
+  const double lift_change = to.hip_height - from.hip_height;
+  const double bend_change = to.hip_bend - from.hip_bend;
+
+  MoveLoads loads;
+  for (int k = 0; k <= samples; k++) {
+    const double t = duration * static_cast<double>(k) / static_cast<double>(samples);
+    const Easing easing = minimum_jerk(duration > 0.0 ? t / duration : 1.0);
+    const double rate = duration > 0.0 ? easing.ds / duration : 0.0;
+    const double accel = duration > 0.0 ? easing.dds / (duration * duration) : 0.0;
+
+    std::vector<double> q(n), q_dot(n), q_ddot(n);
+    for (size_t i = 0; i < n; i++) {
+      const double change = (i < from.arm.size() && i < to.arm.size()) ? to.arm[i] - from.arm[i] : 0.0;
+      q[i] = (i < from.arm.size() ? from.arm[i] : 0.0) + easing.s * change;
+      q_dot[i] = rate * change;
+      q_ddot[i] = accel * change;
+    }
+    const double bend = from.hip_bend + easing.s * bend_change;
+    const BodyRates velocity{rate * yaw_change, rate * lift_change, rate * bend_change};
+    const BodyRates acceleration{accel * yaw_change, accel * lift_change, accel * bend_change};
+    const BaseMotion base = shoulder_motion(body, bend, velocity, acceleration, shoulder_lateral, mirrored);
+    // Gravity in the arm's frame: the world's turned by the lean (as
+    // ArmController::gravity()).
+    const Eigen::Vector3d gravity(9.81 * std::sin(bend), -9.81 * std::cos(bend), 0.0);
+
+    const Eigen::VectorXd tau = inverse_dynamics(arm, q, q_dot, q_ddot, links, payload_mass, gravity, base);
+    for (size_t i = 0; i < n; i++) {
+      const double limit = config.joints[i].torque_limit;
+      const double torque = std::abs(tau(static_cast<Eigen::Index>(i)));
+      if (limit > 0.0 && torque / limit > loads.peak_load_ratio) {
+        loads.peak_load_ratio = torque / limit;
+        loads.worst_joint = i;
+        loads.worst_torque = torque;
+        loads.worst_time = t;
+      }
+    }
+  }
+  return loads;
 }
 
 namespace {
@@ -328,7 +377,7 @@ PickPlan plan_grasp(const ArmConfig &config, const BodyGeometry &body, const Gra
           candidate.hand_angle = phi_world;
           candidate.peak_load_ratio = ratio;
 
-          if (ratio > 1.0) {
+          if (ratio > kPlanningLoadLimit) {
             if (ratio < best_overloaded.peak_load_ratio) {
               best_overloaded = candidate;
               overloaded_joint = worst;
@@ -362,10 +411,11 @@ PickPlan plan_grasp(const ArmConfig &config, const BodyGeometry &body, const Gra
 
   // Reachable, but every way of reaching it overloads something: report
   // the least-bad pose's worst joint.
-  char message[160];
-  std::snprintf(message, sizeof(message), "too heavy - %s would need %.0f N*m (limit %.0f)",
-                joint_label(config, overloaded_joint).c_str(), overloaded_torque,
-                config.joints[overloaded_joint].torque_limit);
+  const double limit = config.joints[overloaded_joint].torque_limit;
+  char message[200];
+  std::snprintf(message, sizeof(message), "too heavy - %s would need %.0f N*m (plans keep it under %.0f, %.0f %% of its %.0f limit)",
+                joint_label(config, overloaded_joint).c_str(), overloaded_torque, kPlanningLoadLimit * limit,
+                100.0 * kPlanningLoadLimit, limit);
   best_overloaded.ok = false;
   best_overloaded.reason = message;
   return best_overloaded;

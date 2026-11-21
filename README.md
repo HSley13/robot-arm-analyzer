@@ -29,7 +29,9 @@ A humanoid robot on a mobile lift base, simulated in real time. You put objects 
 
 ### Picks things up, planned with the physics
 
-Click an object, choose *Pick up*, and the robot works out how to reach it. It turns its waist toward it, lowers the lift, leans at the hip, and solves the arm's joint angles with the hand kept upright. Among all the poses that work, it prefers the one that loads the joints least. Then it approaches, grasps, lifts, carries, and puts the object down wherever you click. If it can't, it says why, for example *"too heavy - Shoulder would need 112 N·m (limit 90)"*.
+Click an object, choose *Pick up*, and the robot works out how to reach it. It turns its waist toward it, lowers the lift, leans at the hip, and solves the arm's joint angles with the hand kept upright. Among all the poses that work, it prefers the one that loads the joints least. Then it approaches, grasps, lifts, carries, and puts the object down wherever you click. If it can't, it says why, for example *"too heavy - Shoulder would need 112 N·m (plans keep it under 72, 80 % of its 90 limit)"*.
+
+It plans with a safety margin. Holding still, a planned pose uses at most 80 % of any joint's limit; the rest is headroom for moving and for what the model can't know exactly (the real object's weight, where it sits in the hand). Before it moves, every move it will make holding the object is checked **all the way along**, with the full dynamics: a heavy object swung through level is heaviest half-way, and moving it fast adds inertia. If a move would take a joint past 90 %, the robot does it slower (up to 3× its usual time). If even that isn't enough, it refuses before moving.
 
 ![Pick and place in four steps](image/03-pick-and-place.png)
 
@@ -140,7 +142,7 @@ The network's worst miss at the wrist is a third of that joint's limit. That is 
 ### 3. Search
 
 - **Payload capacity: closed form, or a binary search.** Torque is exactly linear in the payload's mass, τ(m) = τ(0) + m·b, so for the exact engine each joint's breakeven is (L − sign(b)·τ(0)) / |b| and the capacity is the smallest of those, from two evaluations. The neural network's output isn't exactly linear, so for it the app binary-searches the largest payload whose torques stay within every limit.
-- **Grasp planning is generate-and-test search over body poses.** The candidates are a grid of lift heights × hip leans: every 2 cm × 5° for the humanoid arm, every 5 cm × 7.5° for other joint counts, where each candidate costs a numeric IK solve. For each, the waist yaw and the arm's angles are solved, and the pose is checked against the constraints: joint ranges, the floor, torque limits, and the hand's required orientation. The poses that pass are scored by a cost function: mainly the peak joint load (lightest wins), plus small penalties for leaning, for tilting the hand away from its preferred angle, and for moving the lift far. Grasp *options* are searched in order too: the gripper tries from above before from the side.
+- **Grasp planning is generate-and-test search over body poses.** The candidates are a grid of lift heights × hip leans: every 2 cm × 5° for the humanoid arm, every 5 cm × 7.5° for other joint counts, where each candidate costs a numeric IK solve. For each, the waist yaw and the arm's angles are solved, and the pose is checked against the constraints: joint ranges, the floor, torque limits (with a 20 % margin), and the hand's required orientation. The poses that pass are scored by a cost function: mainly the peak joint load (lightest wins), plus small penalties for leaning, for tilting the hand away from its preferred angle, and for moving the lift far. Grasp *options* are searched in order too: the gripper tries from above before from the side.
 - **Reaching for a dragged point is a cost-based choice.** The robot prefers the pose that changes its body least (waist turn, lift, lean and arm all weighted). Past its reach, it picks the posture that gets closest *without* swinging to a very different one from one mouse move to the next.
 
 ### 4. Optimization
@@ -173,7 +175,7 @@ A webcam judges depth poorly, so aiming the robot's hand within a few centimetre
 
 ### 7. Planning and acting
 
-A pick-up is a short plan of sub-goals: **approach → grasp → lift → carry**. A put-down is **move above → lower → release → retreat → home**. Each step is a target pose; the controller moves between them along a minimum-jerk profile (speed and acceleration start and end at zero), closes the hand or gripper at the right moment, and hands the object's mass to the physics as payload. Some steps are planned only when reached (the home pose is computed from wherever the arm actually ended up), which is a small form of replanning.
+A pick-up is a short plan of sub-goals: **approach → grasp → lift → carry**. A put-down is **move above → lower → release → retreat → home**. Each step is a target pose; the controller moves between them along a minimum-jerk profile (speed and acceleration start and end at zero), closes the hand or gripper at the right moment, and hands the object's mass to the physics as payload. Some steps are planned only when reached (the home pose is computed from wherever the arm actually ended up), which is a small form of replanning. The moves made holding the object are checked against the joints' limits over their whole path and timing, and slowed down when that keeps them safe.
 
 ---
 
