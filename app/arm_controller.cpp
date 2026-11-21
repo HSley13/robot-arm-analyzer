@@ -468,7 +468,8 @@ void ArmController::runPayloadScan(int sampleCount) {
       }
       return static_joint_torques(_arm, pose, _links, candidate_payload, gravity());
     };
-    exact_payload_kg[static_cast<size_t>(i)] = max_safe_payload(evaluator, limits, kPayloadSearchCeilingKg);
+    // The exact torques are linear in the payload: closed form, no search.
+    exact_payload_kg[static_cast<size_t>(i)] = max_safe_payload_linear(evaluator, limits, kPayloadSearchCeilingKg);
   }
   const auto exact_end = std::chrono::steady_clock::now();
   _scanExactMilliseconds = std::chrono::duration<double, std::milli>(exact_end - exact_start).count();
@@ -596,7 +597,7 @@ void ArmController::recompute() {
     }
     return static_joint_torques(_arm, positions, _links, candidate_payload, gravity());
   };
-  _currentMaxSafePayloadKg = max_safe_payload(exact_evaluator, limits, kPayloadSearchCeilingKg);
+  _currentMaxSafePayloadKg = max_safe_payload_linear(exact_evaluator, limits, kPayloadSearchCeilingKg);
 
   emit resultsChanged();
 }

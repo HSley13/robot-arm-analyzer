@@ -510,16 +510,22 @@ Rectangle {
                     spacing: 5
 
                     Label {
+                        // Whichever one is faster, and by how much.
+                        function fasterText(exactMs, aiMs) {
+                            if (!(exactMs > 0 && aiMs > 0))
+                                return ""
+                            return aiMs < exactMs ? "  (AI " + (exactMs / aiMs).toFixed(1) + "x faster)"
+                                                  : "  (exact " + (aiMs / exactMs).toFixed(1) + "x faster)"
+                        }
+
                         color: "#9aa0ab"
                         font.pixelSize: 11
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                         text: ArmController.scanAiAvailable
                             ? "Exact: " + ArmController.scanExactMilliseconds.toFixed(2) + " ms  ·  AI: "
-                                + ArmController.scanAiMilliseconds.toFixed(2) + " ms  ("
-                                + (ArmController.scanAiMilliseconds > 0
-                                    ? (ArmController.scanExactMilliseconds / ArmController.scanAiMilliseconds).toFixed(1)
-                                    : "?") + "x faster)"
+                                + ArmController.scanAiMilliseconds.toFixed(2) + " ms" + fasterText(
+                                    ArmController.scanExactMilliseconds, ArmController.scanAiMilliseconds)
                             : "Exact: " + ArmController.scanExactMilliseconds.toFixed(2)
                                 + " ms  ·  AI unavailable for this arm"
                     }
