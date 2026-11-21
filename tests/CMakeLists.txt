@@ -64,6 +64,7 @@ add_test(NAME recorded_trajectory_tests COMMAND recorded_trajectory_tests)
 
 add_executable(payload_capacity_tests payload_capacity_test.cpp)
 target_link_libraries(payload_capacity_tests PRIVATE robotarm_core gtest_main)
+target_compile_definitions(payload_capacity_tests PRIVATE PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}")
 
 add_test(NAME payload_capacity_tests COMMAND payload_capacity_tests)
 

@@ -6,11 +6,14 @@
 // directly - the actual point of the function is to drive a real torque
 // evaluator, not just an abstract one.
 #include <cmath>
+#include <string>
 
 #include <gtest/gtest.h>
 
+#include "robotarm/arm_config.hpp"
 #include "robotarm/arm_model.hpp"
 #include "robotarm/dh.hpp"
+#include "robotarm/dynamics.hpp"
 #include "robotarm/payload_capacity.hpp"
 #include "robotarm/statics.hpp"
 
@@ -18,6 +21,7 @@ using robotarm::ArmModel;
 using robotarm::DHParameter;
 using robotarm::LinkMass;
 using robotarm::max_safe_payload;
+using robotarm::max_safe_payload_linear;
 using robotarm::static_joint_torques;
 
 TEST(PayloadCapacity, PicksTheBindingJointsOwnBreakevenPoint) {
@@ -124,4 +128,47 @@ TEST(PayloadCapacity, MatchesStaticJointTorquesDirectlyOnARealArm) {
   double max_ratio_just_past = 0.0;
   for (int i = 0; i < 2; i++) max_ratio_just_past = std::max(max_ratio_just_past, std::abs(just_past(i)) / limits[static_cast<size_t>(i)]);
   EXPECT_GT(max_ratio_just_past, 1.0);
+}
+
+TEST(PayloadCapacity, ClosedFormHandlesEverySignOfLoad) {
+  // Joint 0 loaded the "negative" way (payload pushes it further from
+  // zero below), joint 1 helped by the payload at first (it starts at -6
+  // and the payload pulls it through zero toward +10).
+  const Eigen::VectorXd at_zero = (Eigen::VectorXd(2) << -2.0, -6.0).finished();
+  const Eigen::VectorXd per_kg = (Eigen::VectorXd(2) << -1.0, 1.0).finished();
+  const std::vector<double> limits = {20.0, 10.0};
+  // Joint 0: -2 - m >= -20 -> m <= 18. Joint 1: -6 + m <= 10 -> m <= 16.
+  EXPECT_DOUBLE_EQ(max_safe_payload_linear(at_zero, per_kg, limits), 16.0);
+  // A joint the payload doesn't load never binds; nothing binds -> ceiling.
+  EXPECT_DOUBLE_EQ(max_safe_payload_linear(at_zero, Eigen::VectorXd::Zero(2), limits, 50.0), 50.0);
+  // Already overloaded with nothing in the hand.
+  EXPECT_DOUBLE_EQ(max_safe_payload_linear((Eigen::VectorXd(2) << 25.0, 0.0).finished(), per_kg, limits), 0.0);
+}
+
+TEST(PayloadCapacity, ClosedFormMatchesTheSearchOnTheRealArm) {
+  // Static and dynamic torques of the shipped arm are exactly linear in
+  // the payload, so the closed form and the bisection must agree, at
+  // every pose and motion.
+  const robotarm::ArmConfig config =
+      robotarm::load_arm_config(std::string(PROJECT_ROOT_DIR) + "/config/humanoid_arm.json");
+  const ArmModel arm = robotarm::to_arm_model(config);
+  const std::vector<LinkMass> links = robotarm::to_link_masses(config);
+  const std::vector<robotarm::LinkInertial> inertials = robotarm::to_link_inertials(config);
+  std::vector<double> limits;
+  for (const robotarm::JointConfig &joint : config.joints) limits.push_back(joint.torque_limit);
+  const Eigen::Vector3d gravity(0.0, -9.81, 0.0);
+
+  const std::vector<std::vector<double>> poses = {{0.0, 0.0, 0.0}, {-0.6, 1.4, -0.2}, {-1.57, 0.0, 0.0},
+                                                  {1.2, 0.5, 0.8}, {-2.0, 2.2, -0.9}};
+  const std::vector<double> velocity = {1.2, -0.8, 2.0};
+  const std::vector<double> acceleration = {-3.0, 6.0, 4.0};
+  for (const std::vector<double> &pose : poses) {
+    auto statics = [&](double payload) { return static_joint_torques(arm, pose, links, payload, gravity); };
+    auto dynamics = [&](double payload) {
+      return robotarm::inverse_dynamics(arm, pose, velocity, acceleration, inertials, payload, gravity);
+    };
+    EXPECT_NEAR(max_safe_payload_linear(statics, limits, 200.0), max_safe_payload(statics, limits, 200.0, 1e-6), 1e-5);
+    EXPECT_NEAR(max_safe_payload_linear(dynamics, limits, 200.0), max_safe_payload(dynamics, limits, 200.0, 1e-6),
+                1e-5);
+  }
 }
