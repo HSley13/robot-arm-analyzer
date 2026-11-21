@@ -302,7 +302,7 @@ Only the commands are recorded, no camera images. `--record-dir DIR` records som
 | **MediaPipe · OpenCV** | webcam control: pose and hand tracking, camera and preview |
 | **Qt WebSockets** | the bridge that lets outside programs (the webcam control) drive the robot |
 | **nlohmann/json** | robot configs and network weights |
-| **GoogleTest · unittest** | 290 unit and integration tests (C++ and Python) |
+| **GoogleTest · unittest** | 419 unit and integration tests (C++ and Python) |
 | **CMake** | build (with `qt_add_qml_module`) |
 
 ---
@@ -335,7 +335,7 @@ Optional launch flags, mostly for reproducible scenes and screenshots:
 ctest --test-dir build
 ```
 
-394 tests in 25 suites cover every physics module (kinematics, kinematic trees, statics, dynamics, trajectories, inverse kinematics, payload capacity, grasp and reach planning, the arm-only reach and left-right mirroring, intent guessing, the neural-network surrogates, config parsing). They also cover the application layer, including whole pick-and-place sequences stepped in simulated time with both the hand and the gripper, for every object type, and QML loading the C++ module. The webcam path is covered too: grab and release with either hand, the hand that moved last steering the body, the assist (guessing, switching mid-gesture, pulling a near miss onto the object, finishing and cancelling a grab), session recording, starting the webcam program from the app, the bridge (including a real local WebSocket connection), hand tilt and twist, and the Python retargeting, steady waist, hand twist, grip and its gate, holding still while grabbing, filter, zoomed-in hand search and control rules.
+419 tests (357 C++ in 25 suites, 62 Python) cover every physics module (kinematics, kinematic trees, statics, dynamics, trajectories, inverse kinematics, payload capacity, grasp and reach planning, the arm-only reach and left-right mirroring, intent guessing, the neural-network surrogates, config parsing). They also cover the application layer, including whole pick-and-place sequences stepped in simulated time with both the hand and the gripper, for every object type, and QML loading the C++ module. The webcam path is covered too: grab and release with either hand, the hand that moved last steering the body, the assist (guessing, switching mid-gesture, pulling a near miss onto the object, finishing and cancelling a grab), session recording, starting the webcam program from the app, the bridge (including a real local WebSocket connection), hand tilt and twist, and the Python retargeting, steady waist, hand twist, grip and its gate, holding still while grabbing, filter, zoomed-in hand search and control rules.
 
 ## Retraining the neural network
 
