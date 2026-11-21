@@ -16,24 +16,29 @@ namespace robotarm {
 // earlier link in the chain.
 Eigen::MatrixXd geometric_jacobian(const ArmModel &arm, const std::vector<double> &joint_values, size_t target_joint);
 
-// One link's mass, treated as a point mass located at its own joint frame's
-// origin (the far end of the link, where the next joint attaches) - not an
-// arbitrary center-of-mass offset. A documented simplification matching the
-// project's original 2D "sum of moments" formula, extended into 3D; a
-// per-link center-of-mass offset can be layered in later without changing
-// the method.
+// One link's mass and where it sits: `center_of_mass` is expressed in the
+// link's own joint frame (frame_i, whose origin is the far end of the
+// link, where the next joint attaches) - the same frame and the same
+// point LinkInertial::center_of_mass uses, so statics and dynamics agree
+// on where every link's weight acts. The default (zero) is a point mass
+// at the joint-frame origin, the project's original 2D "sum of moments"
+// simplification.
 struct LinkMass {
-  double mass = 0.0; // kg
+  double mass = 0.0;                                        // kg
+  Eigen::Vector3d center_of_mass = Eigen::Vector3d::Zero(); // meters, in frame_i
 
   LinkMass() = default;
-  explicit LinkMass(double mass_) : mass(mass_) {}
+  explicit LinkMass(double mass_, const Eigen::Vector3d &center_of_mass_ = Eigen::Vector3d::Zero())
+      : mass(mass_), center_of_mass(center_of_mass_) {}
 };
 
 // Static joint torques via the Jacobian-transpose method - the textbook 3D
 // generalization of "sum of moments about each joint", and, per the
 // roadmap, exactly the dynamic equations (Phase 2) with zero velocity and
 // zero acceleration. Sums every link's gravity load (applied at its own
-// joint-frame origin) plus the payload's weight at the end-effector.
+// center of mass, so a LinkMass built from the same config as a
+// LinkInertial gives exactly inverse_dynamics() at rest) plus the
+// payload's weight at the end-effector.
 //
 // Sign convention (stated explicitly, per the roadmap's DH-convention
 // warning about silent sign bugs): returns the ACTUATOR torque needed to
