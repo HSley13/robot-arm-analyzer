@@ -462,3 +462,91 @@ TEST(Mirror, TheLeftArmIsTheRightArmOfTheMirroredRobot) {
   EXPECT_LT(robotarm::mirrored(robotarm::grip_point_in_world(config, body, robotarm::mirrored(ahead), 0.0, 0.0)).z(),
             0.0);
 }
+
+TEST(ShoulderMotion, MatchesTheShoulderTrajectoryDifferentiatedNumerically) {
+  // Waist, lift and lean all moving at once (smooth made-up curves): the
+  // shoulder's world position and the arm frame's orientation, differenced
+  // numerically, must give what shoulder_motion() computes in closed form.
+  const BodyGeometry body;
+  const double lateral = body.shoulder_lateral;
+  auto yaw = [](double t) { return 0.3 + 0.8 * t + 0.5 * t * t; };
+  auto hip = [](double t) { return 0.7 + 0.2 * t - 0.6 * t * t; };
+  auto bend = [](double t) { return 0.4 + 0.9 * t + 0.7 * t * t; };
+  auto arm_frame = [&](double t) -> Eigen::Matrix3d {
+    return (Eigen::AngleAxisd(yaw(t), Eigen::Vector3d::UnitY()) *
+            Eigen::AngleAxisd(-bend(t), Eigen::Vector3d::UnitZ()))
+        .toRotationMatrix();
+  };
+  auto shoulder = [&](double t) -> Eigen::Vector3d {
+    const Eigen::Vector3d in_torso(body.hip_to_shoulder * std::sin(bend(t)),
+                                   hip(t) + body.hip_to_shoulder * std::cos(bend(t)), lateral);
+    return Eigen::AngleAxisd(yaw(t), Eigen::Vector3d::UnitY()) * in_torso;
+  };
+  auto omega_in_arm = [&](double t, double h) -> Eigen::Vector3d {
+    const Eigen::Matrix3d skew = arm_frame(t).transpose() * (arm_frame(t + h) - arm_frame(t - h)) / (2.0 * h);
+    return Eigen::Vector3d(skew(2, 1), skew(0, 2), skew(1, 0));
+  };
+
+  const double t = 0.3;
+  const double h = 1e-4;
+  const double h2 = 1e-3;
+  robotarm::BodyRates velocity;
+  velocity.yaw = 0.8 + 1.0 * t;
+  velocity.hip_height = 0.2 - 1.2 * t;
+  velocity.hip_bend = 0.9 + 1.4 * t;
+  robotarm::BodyRates acceleration;
+  acceleration.yaw = 1.0;
+  acceleration.hip_height = -1.2;
+  acceleration.hip_bend = 1.4;
+  const robotarm::BaseMotion base = robotarm::shoulder_motion(body, bend(t), velocity, acceleration, lateral);
+
+  const Eigen::Vector3d accel_world = (shoulder(t + h) - 2.0 * shoulder(t) + shoulder(t - h)) / (h * h);
+  const Eigen::Vector3d accel = arm_frame(t).transpose() * accel_world;
+  const Eigen::Vector3d omega = omega_in_arm(t, h);
+  const Eigen::Vector3d omega_dot = (omega_in_arm(t + h2, h) - omega_in_arm(t - h2, h)) / (2.0 * h2);
+  for (int i = 0; i < 3; i++) {
+    EXPECT_NEAR(base.linear_acceleration(i), accel(i), 1e-4) << "linear acceleration " << i;
+    EXPECT_NEAR(base.angular_velocity(i), omega(i), 1e-6) << "angular velocity " << i;
+    EXPECT_NEAR(base.angular_acceleration(i), omega_dot(i), 1e-4) << "angular acceleration " << i;
+  }
+}
+
+TEST(ShoulderMotion, AStillBodyLeavesTheBaseStill) {
+  const robotarm::BaseMotion base = robotarm::shoulder_motion(BodyGeometry(), 0.5, {}, {}, 0.2);
+  EXPECT_NEAR(base.linear_acceleration.norm(), 0.0, 1e-12);
+  EXPECT_NEAR(base.angular_velocity.norm(), 0.0, 1e-12);
+  EXPECT_NEAR(base.angular_acceleration.norm(), 0.0, 1e-12);
+}
+
+TEST(ShoulderMotion, TheLiftAcceleratingIsTheShoulderAccelerating) {
+  robotarm::BodyRates acceleration;
+  acceleration.hip_height = 1.5;
+  const robotarm::BaseMotion base = robotarm::shoulder_motion(BodyGeometry(), 0.0, {}, acceleration, 0.2);
+  EXPECT_NEAR(base.linear_acceleration.y(), 1.5, 1e-12);
+  EXPECT_NEAR(base.linear_acceleration.x(), 0.0, 1e-12);
+}
+
+TEST(ShoulderMotion, AMirroredArmSeesTheSameInPlaneMotion) {
+  // The left arm, mirrored z -> -z, with the shoulder on the other side:
+  // the same forward/up acceleration... except what the waist's turn adds
+  // through the lateral offset, which pushes one shoulder forward and the
+  // other back.
+  robotarm::BodyRates velocity;
+  velocity.hip_bend = 0.6;
+  robotarm::BodyRates acceleration;
+  acceleration.hip_bend = 0.9;
+  acceleration.hip_height = 0.4;
+  const BodyGeometry body;
+  const robotarm::BaseMotion right = robotarm::shoulder_motion(body, 0.3, velocity, acceleration, 0.2);
+  const robotarm::BaseMotion left = robotarm::shoulder_motion(body, 0.3, velocity, acceleration, -0.2, true);
+  EXPECT_NEAR(left.linear_acceleration.x(), right.linear_acceleration.x(), 1e-12);
+  EXPECT_NEAR(left.linear_acceleration.y(), right.linear_acceleration.y(), 1e-12);
+  EXPECT_NEAR(left.angular_velocity.z(), right.angular_velocity.z(), 1e-12);
+
+  robotarm::BodyRates turning;
+  turning.yaw = 2.0;
+  const double right_forward = robotarm::shoulder_motion(body, 0.0, {}, turning, 0.2).linear_acceleration.x();
+  const double left_forward = robotarm::shoulder_motion(body, 0.0, {}, turning, -0.2, true).linear_acceleration.x();
+  EXPECT_NEAR(right_forward, 2.0 * 0.2, 1e-12);
+  EXPECT_NEAR(left_forward, -right_forward, 1e-12);
+}
