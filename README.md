@@ -119,8 +119,8 @@ flowchart LR
 | Input | 3 joint angles + payload (4) | angles, velocities, accelerations + payload (10) |
 | Network | 4 → 32 → 32 → 3, ReLU | 10 → 96 → 96 → 3, ReLU |
 | Output | 3 joint torques (N·m) | 3 joint torques (N·m) |
-| Validation mean abs. error | **1.15 N·m** (≈1.3 % of the shoulder's 90 N·m limit) | **0.86 N·m** |
-| Validation max abs. error | 19.9 N·m | 16.6 N·m |
+| Validation mean abs. error | **1.12 N·m** (≈1.2 % of the shoulder's 90 N·m limit) | **0.86 N·m** |
+| Validation max abs. error | 13.4 N·m | 16.6 N·m |
 
 - **Labels come from the project's own physics engine**, called from C++, never re-derived in Python, so the network learns exactly the function it replaces.
 - **Training:** full-batch Adam (learning rate 10⁻³, step decay) on mean squared error, with inputs and outputs normalized. The normalization is then folded into the first and last layers, so the C++ side is just three matrix multiplies and two ReLUs, with no ML library at runtime.
