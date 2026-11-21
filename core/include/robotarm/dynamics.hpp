@@ -8,12 +8,11 @@
 
 namespace robotarm {
 
-// One link's full inertial properties for dynamics (Phase 2) - a strict
-// generalization of statics.hpp's LinkMass point-mass simplification.
-// `center_of_mass` and `inertia` are both expressed in the link's own
-// joint frame (frame_i, the SAME frame LinkMass's point mass sits at in
-// Phase 1 statics) - not the base frame, and not necessarily at that
-// frame's origin.
+// One link's full inertial properties for dynamics (Phase 2) - statics.hpp's
+// LinkMass plus a rotational inertia. `center_of_mass` and `inertia` are
+// both expressed in the link's own joint frame (frame_i, the SAME frame
+// and point LinkMass::center_of_mass uses) - not the base frame, and not
+// necessarily at that frame's origin.
 struct LinkInertial {
   double mass = 0.0;
   Eigen::Vector3d center_of_mass = Eigen::Vector3d::Zero(); // meters, in frame_i
