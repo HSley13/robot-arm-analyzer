@@ -18,7 +18,7 @@ Eigen::VectorXd inverse_dynamics(const ArmModel &arm, const std::vector<double> 
                                   const std::vector<double> &joint_velocities,
                                   const std::vector<double> &joint_accelerations,
                                   const std::vector<LinkInertial> &links, double payload_mass,
-                                  const Eigen::Vector3d &gravity) {
+                                  const Eigen::Vector3d &gravity, const BaseMotion &base) {
   const size_t n = arm.num_joints();
   assert(joint_velocities.size() == n);
   assert(joint_accelerations.size() == n);
@@ -42,11 +42,12 @@ Eigen::VectorXd inverse_dynamics(const ArmModel &arm, const std::vector<double> 
   // as if the base were accelerating upward against gravity - equivalent
   // (same principle as "everything in a sealed, accelerating elevator
   // feels gravity") to every link feeling its own weight, with no
-  // separate gravity term needed anywhere else.
+  // separate gravity term needed anywhere else. A moving base starts the
+  // recursion from its own motion instead of from rest.
   std::vector<Eigen::Vector3d> omega(n + 1), omega_dot(n + 1), accel(n + 1);
-  omega[0] = Eigen::Vector3d::Zero();
-  omega_dot[0] = Eigen::Vector3d::Zero();
-  accel[0] = -gravity;
+  omega[0] = base.angular_velocity;
+  omega_dot[0] = base.angular_acceleration;
+  accel[0] = base.linear_acceleration - gravity;
 
   for (size_t i = 1; i <= n; i++) {
     const Eigen::Vector3d z = rotation[i - 1].col(2); // frame_{i-1}'s z-axis = joint i's own axis
@@ -127,18 +128,23 @@ TorqueBreakdown decompose_torque(const ArmModel &arm, const std::vector<double> 
                                   const std::vector<double> &joint_velocities,
                                   const std::vector<double> &joint_accelerations,
                                   const std::vector<LinkInertial> &links, double payload_mass,
-                                  const Eigen::Vector3d &gravity) {
+                                  const Eigen::Vector3d &gravity, const BaseMotion &base) {
   const size_t n = arm.num_joints();
   const std::vector<double> zero(n, 0.0);
   const Eigen::Vector3d no_gravity = Eigen::Vector3d::Zero();
+  BaseMotion base_accelerating = base;
+  base_accelerating.angular_velocity.setZero();
+  BaseMotion base_turning;
+  base_turning.angular_velocity = base.angular_velocity;
 
   TorqueBreakdown breakdown;
   breakdown.gravity = inverse_dynamics(arm, joint_values, zero, zero, links, payload_mass, gravity);
-  breakdown.inertia = inverse_dynamics(arm, joint_values, zero, joint_accelerations, links, payload_mass, no_gravity);
+  breakdown.inertia = inverse_dynamics(arm, joint_values, zero, joint_accelerations, links, payload_mass, no_gravity,
+                                       base_accelerating);
   breakdown.coriolis =
-      inverse_dynamics(arm, joint_values, joint_velocities, zero, links, payload_mass, no_gravity);
-  breakdown.total =
-      inverse_dynamics(arm, joint_values, joint_velocities, joint_accelerations, links, payload_mass, gravity);
+      inverse_dynamics(arm, joint_values, joint_velocities, zero, links, payload_mass, no_gravity, base_turning);
+  breakdown.total = inverse_dynamics(arm, joint_values, joint_velocities, joint_accelerations, links, payload_mass,
+                                     gravity, base);
   return breakdown;
 }
 
